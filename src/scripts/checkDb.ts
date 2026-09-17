@@ -1,32 +1,33 @@
-require('ts-node/register/transpile-only');
-const { connectDB } = require('../utils/db');
-const mongoose = require('mongoose');
+import mongoose from 'mongoose';
+import { connectDB } from '../utils/db';
 
-
-async function main() {
+async function main(): Promise<void> {
   await connectDB();
-  console.log("Connected DB");
+  console.log('Connected DB');
   const db = mongoose.connection.db;
+  if (!db) {
+    throw new Error('Database connection failed: db is undefined');
+  }
 
   const usersColl = db.collection('users');
   const count = await usersColl.countDocuments({});
   const activeCount = await usersColl.countDocuments({ isDeleted: { $ne: true } });
-  console.log("TOTAL USERS IN DB:", count);
-  console.log("ACTIVE USERS (isDeleted != true):", activeCount);
+  console.log('TOTAL USERS IN DB:', count);
+  console.log('ACTIVE USERS (isDeleted != true):', activeCount);
 
   const roles = await usersColl.aggregate([
-    { $group: { _id: "$role", count: { $sum: 1 }, active: { $sum: { $cond: [{ $eq: ["$isDeleted", true] }, 0, 1] } } } }
+    { $group: { _id: '$role', count: { $sum: 1 }, active: { $sum: { $cond: [{ $eq: ['$isDeleted', true] }, 0, 1] } } } }
   ]).toArray();
-  console.log("ROLES BREAKDOWN:", JSON.stringify(roles, null, 2));
+  console.log('ROLES BREAKDOWN:', JSON.stringify(roles, null, 2));
 
   // Simulate search queries
-  const searchQueries = ["1000000014", "1000000", "+919876", "Priya", "Om", "Meethi"];
-  
+  const searchQueries = ['1000000014', '1000000', '+919876', 'Priya', 'Om', 'Meethi'];
+
   for (const q of searchQueries) {
     const searchStr = q.trim();
     const escapedSearch = searchStr.replace(/[-[\]{}()*+?.,\\^$|#\s]/g, '\\$&');
     const searchRegex = new RegExp(escapedSearch, 'i');
-    const orConditions = [
+    const orConditions: any[] = [
       { name: searchRegex },
       { email: searchRegex },
       { userName: searchRegex },

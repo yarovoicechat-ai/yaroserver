@@ -1,6 +1,5 @@
-require('ts-node/register/transpile-only');
-const { connectDB } = require('./src/utils/db');
-const mongoose = require('mongoose');
+import mongoose from 'mongoose';
+import { connectDB } from './src/utils/db';
 
 connectDB()
   .then(async () => {

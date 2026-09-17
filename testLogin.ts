@@ -1,13 +1,11 @@
-require('ts-node/register/transpile-only');
-const { connectDB } = require('./src/utils/db');
-const mongoose = require('mongoose');
-const bcrypt = require('bcryptjs');
-
+import mongoose from 'mongoose';
+import bcrypt from 'bcryptjs';
+import { connectDB } from './src/utils/db';
 
 connectDB()
   .then(async () => {
     console.log('Connected to MongoDB');
-    
+
     const UserSchema = new mongoose.Schema({
       userId: { type: Number },
       name: { type: String },
@@ -22,7 +20,7 @@ connectDB()
     const email = 'deepak@operator.com';
     const plainPassword = 'deepak123';
 
-    const user = await User.findOne({ email });
+    const user = await User.findOne({ email }) as any;
     if (!user) {
       console.log('❌ User not found in database!');
       await mongoose.disconnect();
@@ -37,6 +35,6 @@ connectDB()
 
     await mongoose.disconnect();
   })
-  .catch(err => {
+  .catch((err: any) => {
     console.error('Error:', err);
   });

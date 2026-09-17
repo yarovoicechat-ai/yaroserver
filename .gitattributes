@@ -1,0 +1,2 @@
+# Ignore PM2 config from GitHub language statistics
+ecosystem.config.js linguist-vendored

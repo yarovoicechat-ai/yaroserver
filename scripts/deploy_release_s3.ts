@@ -1,21 +1,23 @@
-const fs = require('fs');
-const path = require('path');
-const axios = require('axios');
-const { S3Client, PutObjectCommand } = require('@aws-sdk/client-s3');
-require('dotenv').config({ path: path.resolve(__dirname, '../.env') });
+import fs from 'fs';
+import path from 'path';
+import axios from 'axios';
+import { S3Client, PutObjectCommand } from '@aws-sdk/client-s3';
+import dotenv from 'dotenv';
+
+dotenv.config({ path: path.resolve(__dirname, '../.env') });
 
 const s3Client = new S3Client({
   region: process.env.AWS_REGION || 'ap-south-1',
   credentials: {
-    accessKeyId: process.env.AWS_ACCESS_KEY_ID,
-    secretAccessKey: process.env.AWS_SECRET_ACCESS_KEY
+    accessKeyId: process.env.AWS_ACCESS_KEY_ID || '',
+    secretAccessKey: process.env.AWS_SECRET_ACCESS_KEY || ''
   }
 });
 
 const API_BASE = 'https://api.voicecallclub.com/api';
 const BUCKET = (process.env.AWS_S3_BUCKET_NAME || 'talklivedata').trim();
 
-async function main() {
+async function main(): Promise<void> {
   try {
     console.log('1. Logging in as Admin...');
     const loginRes = await axios.post(`${API_BASE}/admin/login`, {
@@ -76,7 +78,7 @@ async function main() {
 
     console.log('Release Registration Result:', releaseRes.data);
     console.log('🚀 SUCCESS! Latest Build v1.8.3 is NOW LIVE on Website & API!');
-  } catch (err) {
+  } catch (err: any) {
     console.error('❌ Error during S3 release deployment:', err.response?.data || err.message || err);
   }
 }

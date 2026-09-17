@@ -1,11 +1,11 @@
-const http = require('http');
+import http from 'http';
 
 const data = JSON.stringify({
   email: 'deepak@operator.com',
   password: 'deepak123'
 });
 
-const options = {
+const options: http.RequestOptions = {
   hostname: '127.0.0.1',
   port: 3001,
   path: '/api/admin/login',
@@ -18,7 +18,9 @@ const options = {
 
 const req = http.request(options, (res) => {
   let body = '';
-  res.on('data', (chunk) => body += chunk);
+  res.on('data', (chunk) => {
+    body += chunk;
+  });
   res.on('end', () => {
     console.log('STATUS:', res.statusCode);
     console.log('BODY:', body);

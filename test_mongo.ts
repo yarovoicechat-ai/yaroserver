@@ -1,8 +1,8 @@
-const mongoose = require('mongoose');
+import mongoose from 'mongoose';
 
 const uri = 'mongodb+srv://yaro_live:vxh5KCR35qY7TXd4@cluster0.fkdii3e.mongodb.net/yaro_live?retryWrites=true&w=majority&appName=Cluster0';
 
-async function testConn() {
+async function testConn(): Promise<void> {
   console.log('Testing mongoose connection...');
   try {
     await mongoose.connect(uri, {

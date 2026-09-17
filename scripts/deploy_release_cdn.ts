@@ -1,6 +1,6 @@
-const fs = require('fs');
-const path = require('path');
-const axios = require('axios');
+import fs from 'fs';
+import path from 'path';
+import axios from 'axios';
 const cloudinary = require('cloudinary').v2;
 
 cloudinary.config({
@@ -12,7 +12,7 @@ cloudinary.config({
 
 const API_BASE = 'https://api.voicecallclub.com/api';
 
-async function main() {
+async function main(): Promise<void> {
   try {
     console.log('1. Logging in as Admin...');
     const loginRes = await axios.post(`${API_BASE}/admin/login`, {
@@ -66,7 +66,7 @@ async function main() {
 
     console.log('Release Registration Result:', releaseRes.data);
     console.log('🎉 SUCCESS! Latest Build v1.8.3 is NOW LIVE on Website & API!');
-  } catch (err) {
+  } catch (err: any) {
     console.error('❌ Error during automated release script:', err.response?.data || err.message || err);
   }
 }

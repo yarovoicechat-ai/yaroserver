@@ -1,8 +1,8 @@
-const axios = require('axios');
+import axios from 'axios';
 
 const API_BASE = 'https://api.voicecallclub.com/api';
 
-async function main() {
+async function main(): Promise<void> {
   try {
     console.log('1. Logging in as Admin to api.voicecallclub.com...');
     const loginRes = await axios.post(`${API_BASE}/admin/login`, {
@@ -39,7 +39,7 @@ async function main() {
 
     console.log('API Response:', releaseRes.data);
     console.log('🎉 SUCCESS! TODAY Latest Build v1.8.4 (69.77MB) is NOW ACTIVATED & LIVE on api.voicecallclub.com!');
-  } catch (err) {
+  } catch (err: any) {
     console.error('❌ Error registering release:', err.response?.data || err.message || err);
   }
 }

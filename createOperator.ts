@@ -1,14 +1,11 @@
-require('ts-node/register/transpile-only');
-const { connectDB } = require('./src/utils/db');
-const mongoose = require('mongoose');
-const bcrypt = require('bcryptjs');
-
+import mongoose from 'mongoose';
+import bcrypt from 'bcryptjs';
+import { connectDB } from './src/utils/db';
 
 connectDB()
   .then(async () => {
     console.log('Connected to MongoDB');
-    
-    // Define schema inline to avoid imports issues
+
     const UserSchema = new mongoose.Schema({
       userId: { type: Number, required: true, unique: true },
       name: { type: String },
@@ -22,19 +19,17 @@ connectDB()
 
     const User = mongoose.model('User', UserSchema);
 
-    // Find max userId
     const lastUser = await User.findOne().sort({ userId: -1 });
-    const nextUserId = lastUser ? lastUser.userId + 1 : 10001;
+    const nextUserId = lastUser ? (lastUser as any).userId + 1 : 10001;
 
     const email = 'deepak@operator.com';
     const passwordPlain = 'deepak123';
     const salt = await bcrypt.genSalt(10);
     const hashedPassword = await bcrypt.hash(passwordPlain, salt);
 
-    // Check if email already exists
     const existing = await User.findOne({ email });
     if (existing) {
-      console.log('User already exists! ID:', existing.userId);
+      console.log('User already exists! ID:', (existing as any).userId);
       await mongoose.disconnect();
       return;
     }
@@ -55,9 +50,9 @@ connectDB()
     console.log('MongoDB ID:', newUser._id.toString());
     console.log('Email:', email);
     console.log('Password:', passwordPlain);
-    
+
     await mongoose.disconnect();
   })
-  .catch(err => {
+  .catch((err: any) => {
     console.error('Error:', err);
   });
