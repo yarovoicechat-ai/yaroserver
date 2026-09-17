@@ -1,0 +1,42 @@
+import { body } from "express-validator";
+
+export const validationUpdateUserLimited = [
+  body("name")
+    .optional()
+    .isString()
+    .trim()
+    .isLength({ max: 20 })
+    .withMessage("Name cannot be longer than 20 characters"),
+
+  body("bio")
+    .optional()
+    .isString()
+    .trim()
+    .isLength({ max: 100 })
+    .withMessage("Bio cannot be longer than 100 characters"),
+
+  body("language")
+    .optional()
+    .isArray({ max: 2 })
+    .withMessage("You can select a maximum of 2 languages"),
+
+  body("language.*")
+    .optional()
+    .isString()
+    .withMessage("Each language must be a string"),
+
+  body("image")
+    .optional()
+    .isString()
+    .withMessage("Image must be a valid string"),
+
+  body("age")
+    .optional()
+    .isInt({ min: 1, max: 120 })
+    .withMessage("Age must be a valid integer between 1 and 120"),
+
+  body("country")
+    .optional()
+    .isObject()
+    .withMessage("Country must be a valid object"),
+];

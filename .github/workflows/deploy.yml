@@ -1,0 +1,45 @@
+name: 🚀 Deploy Backend
+
+on:
+  push:
+    branches:
+      - main
+
+jobs:
+  deploy:
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Deploy to Server
+        uses: appleboy/ssh-action@v1.2.0
+        with:
+          host: ${{ secrets.HOST }}
+          username: ${{ secrets.USERNAME }}
+          key: ${{ secrets.SSH_PRIVATE_KEY }}
+          port: ${{ secrets.PORT }}
+
+          script: |
+            set -e
+            cd ${{ secrets.PROJECT_PATH }}
+
+            if ! git diff --quiet || ! git diff --cached --quiet || [ -n "$(git ls-files --others --exclude-standard)" ]; then
+              BACKUP_TAG="pre-deploy-${{ github.sha }}-$(date +%Y%m%d%H%M%S)"
+              echo "Backing up server-local changes to Git stash: $BACKUP_TAG"
+              git status --short
+              git stash push --include-untracked -m "$BACKUP_TAG"
+            fi
+
+            echo "Pulling latest code..."
+            git pull --ff-only origin main
+            test "$(git rev-parse HEAD)" = "${{ github.sha }}"
+
+            echo "Installing dependencies..."
+            npm install
+
+            echo "🔨 Building..."
+            npm run build
+
+            echo "♻ Restarting PM2..."
+            pm2 reload ${{ secrets.PM2_APP_NAME }}
+
+            echo "✅ Deployment Finished"

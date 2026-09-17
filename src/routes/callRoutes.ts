@@ -1,0 +1,27 @@
+import { Router } from "express";
+import { verifyToken } from "../middlewares/authorize.middleware";
+import { acceptIncomingCall, endCall, getCallHistory, getHostLevels, getRanking, rejectIncomingCall, startCall, pulse, getCallStatus } from "../controllers/callController";
+
+const router = Router();
+
+// ✅ Start a call (generate Agora token + transaction)
+router.post("/start", verifyToken, startCall);
+
+// ✅ End a call (update transaction, deduct coins)
+router.post("/end", verifyToken, endCall);
+router.post("/accept", verifyToken, acceptIncomingCall);
+router.post("/reject", verifyToken, rejectIncomingCall);
+
+// ✅ Heartbeat Pulse
+router.post("/pulse", verifyToken, pulse);
+
+// ✅ Get Call Status Fallback
+router.get("/status/:transactionId", verifyToken, getCallStatus);
+
+// ✅ Get user call history
+router.get("/history", verifyToken, getCallHistory);
+
+router.get("/ranking", verifyToken, getRanking);
+
+router.get('/level', verifyToken, getHostLevels)
+export default router;
