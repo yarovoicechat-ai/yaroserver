@@ -1,25 +1,47 @@
 ﻿name: YaroServer Production Deploy
 
 on:
-  workflow_run:
-    workflows:
-      - YaroServer CI
-    types:
-      - completed
+  push:
     branches:
       - main
 
 concurrency:
-  group: yaroserver-production-deploy
+  group: yaroserver-production
   cancel-in-progress: false
 
 jobs:
   deploy:
-    name: Deploy YaroServer
-    if: ${{ github.event.workflow_run.conclusion == 'success' }}
+    name: Build, Test & Deploy YaroServer
     runs-on: ubuntu-latest
 
     steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: 24
+          cache: npm
+
+      - name: Install dependencies
+        run: npm ci
+
+      - name: Build
+        run: npm run build
+
+      - name: Verification tests
+        run: npm run test:verification
+
+      - name: Moderation tests
+        run: npm run test:moderation
+
+      - name: Risk tests
+        run: npm run test:risk
+
+      - name: Referral tests
+        run: npm run test:referral
+
       - name: Deploy to Contabo
         uses: appleboy/ssh-action@v1.2.0
         with:
@@ -27,14 +49,21 @@ jobs:
           username: ${{ secrets.SERVER_USER }}
           key: ${{ secrets.SERVER_SSH_KEY }}
           port: 22
+          script_stop: true
 
           script: |
             set -euo pipefail
 
-            echo "===== YARO SERVER DEPLOYMENT ====="
-            echo "CI Commit: ${{ github.event.workflow_run.head_sha }}"
-            echo "CI Branch: ${{ github.event.workflow_run.head_branch }}"
+            echo "========================================"
+            echo "       YARO SERVER PRODUCTION DEPLOY"
+            echo "========================================"
+            echo "GitHub Commit: ${{ github.sha }}"
+            echo "GitHub Branch: ${{ github.ref_name }}"
+            echo "Deployment started: $(date)"
 
             /root/deployments/yaro-server/deploy-yaro-server.sh
 
-            echo "===== DEPLOYMENT COMPLETE ====="
+            echo "========================================"
+            echo "       DEPLOYMENT COMPLETED"
+            echo "========================================"
+            echo "Deployment finished: $(date)"

@@ -1,11 +1,12 @@
 import assert from "node:assert";
-import { test, describe } from "node:test";
+import { test, describe, after } from "node:test";
 import {
   validateMessageContent,
   containsContactInformation,
   CLIENT_VIOLATION_MESSAGE,
 } from "../services/messageModerationService";
 import { detectChatViolation } from "../utils/chatModeration";
+import redis from "../configs/redisConfig";
 
 describe("Anti-Contact Sharing & Message Moderation System", () => {
   describe("Strict Digit Policy Tests", () => {
@@ -272,5 +273,11 @@ describe("Anti-Contact Sharing & Message Moderation System", () => {
       assert.strictEqual(MODERATION_ESCALATION.accountReview.violations, 8);
     });
   });
+});
+
+
+
+after(async () => {
+  redis.disconnect();
 });
 
