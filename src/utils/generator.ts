@@ -4,7 +4,7 @@ import { config } from "../configs/envConfig";
 export const generateToken = (userId: string | number, type: "access" | "refresh") => {
     const secret = type === "access" ? config.JWT_ACCESS_SECRET : config.JWT_REFRESH_SECRET;
     if (!secret) {
-        throw new Error(`Missing JWT secret for ${type} token`);
+        throw new Error(`Missing JWT_${type === "access" ? "ACCESS" : "REFRESH"}_SECRET configuration`);
     }
 
     const numericUserId = typeof userId === 'number' ? userId : (parseInt(String(userId), 10) || userId);
