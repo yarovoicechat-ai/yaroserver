@@ -1,5 +1,5 @@
 import express from 'express';
-import { verifyToken } from '../middlewares/authorize.middleware';
+import { verifyToken, requireRoles } from '../middlewares/authorize.middleware';
 import { HierarchyScopeService } from '../utils/hierarchyScope';
 import {
     adminLogin,
@@ -509,44 +509,44 @@ import {
 } from '../controllers/segmentController';
 
 // Finance Command
-router.get('/finance/overview', verifyToken, getFinanceOverview);
-router.get('/finance/reconciliation-status', verifyToken, getReconciliationStatus);
-router.post('/finance/run-reconciliation', verifyToken, runReconciliation);
-router.post('/wallet/adjust', verifyToken, adjustWalletBalance);
+router.get('/finance/overview', verifyToken, requireRoles('owner', 'superAdmin', 'admin'), getFinanceOverview);
+router.get('/finance/reconciliation-status', verifyToken, requireRoles('owner', 'superAdmin', 'admin'), getReconciliationStatus);
+router.post('/finance/run-reconciliation', verifyToken, requireRoles('owner', 'superAdmin'), runReconciliation);
+router.post('/wallet/adjust', verifyToken, requireRoles('owner', 'superAdmin', 'admin'), adjustWalletBalance);
 
 // Live Operations
-router.get('/calls/active', verifyToken, getActiveCallsWithTelemetry);
-router.post('/calls/:id/terminate', verifyToken, forceTerminateCall);
-router.get('/calls/:id/diagnostics', verifyToken, getCallDiagnostics);
+router.get('/calls/active', verifyToken, requireRoles('owner', 'superAdmin', 'admin', 'operator', 'customerSupport'), getActiveCallsWithTelemetry);
+router.post('/calls/:id/terminate', verifyToken, requireRoles('owner', 'superAdmin', 'admin', 'operator', 'customerSupport'), forceTerminateCall);
+router.get('/calls/:id/diagnostics', verifyToken, requireRoles('owner', 'superAdmin', 'admin', 'operator'), getCallDiagnostics);
 router.post('/calls/telemetry', recordCallTelemetry);
 
-router.get('/rooms/active', verifyToken, getActiveRoomsAdmin);
-router.post('/rooms/:id/close', verifyToken, emergencyCloseRoom);
+router.get('/rooms/active', verifyToken, requireRoles('owner', 'superAdmin', 'admin', 'operator', 'customerSupport'), getActiveRoomsAdmin);
+router.post('/rooms/:id/close', verifyToken, requireRoles('owner', 'superAdmin', 'admin', 'operator', 'customerSupport'), emergencyCloseRoom);
 
 // Feature Flags
-router.get('/feature-flags', verifyToken, getAllFeatureFlags);
-router.get('/feature-flags/:keyOrId', verifyToken, getFeatureFlagByKey);
-router.post('/feature-flags', verifyToken, createFeatureFlag);
-router.put('/feature-flags/:keyOrId', verifyToken, updateFeatureFlag);
-router.patch('/feature-flags/:keyOrId', verifyToken, updateFeatureFlag);
-router.delete('/feature-flags/:keyOrId', verifyToken, deleteFeatureFlag);
-router.post('/feature-flags/:keyOrId/kill-switch', verifyToken, triggerKillSwitch);
+router.get('/feature-flags', verifyToken, requireRoles('owner', 'superAdmin', 'admin', 'operator'), getAllFeatureFlags);
+router.get('/feature-flags/:keyOrId', verifyToken, requireRoles('owner', 'superAdmin', 'admin', 'operator'), getFeatureFlagByKey);
+router.post('/feature-flags', verifyToken, requireRoles('owner', 'superAdmin', 'admin'), createFeatureFlag);
+router.put('/feature-flags/:keyOrId', verifyToken, requireRoles('owner', 'superAdmin', 'admin'), updateFeatureFlag);
+router.patch('/feature-flags/:keyOrId', verifyToken, requireRoles('owner', 'superAdmin', 'admin'), updateFeatureFlag);
+router.delete('/feature-flags/:keyOrId', verifyToken, requireRoles('owner', 'superAdmin'), deleteFeatureFlag);
+router.post('/feature-flags/:keyOrId/kill-switch', verifyToken, requireRoles('owner', 'superAdmin', 'admin'), triggerKillSwitch);
 
 // Campaigns
-router.get('/campaigns', verifyToken, getCampaigns);
-router.get('/campaigns/:id', verifyToken, getCampaignById);
-router.post('/campaigns', verifyToken, createCampaign);
-router.post('/campaigns/dispatch', verifyToken, dispatchCampaign);
-router.patch('/campaigns/:id/cancel', verifyToken, cancelCampaign);
+router.get('/campaigns', verifyToken, requireRoles('owner', 'superAdmin', 'admin', 'operator'), getCampaigns);
+router.get('/campaigns/:id', verifyToken, requireRoles('owner', 'superAdmin', 'admin', 'operator'), getCampaignById);
+router.post('/campaigns', verifyToken, requireRoles('owner', 'superAdmin', 'admin'), createCampaign);
+router.post('/campaigns/dispatch', verifyToken, requireRoles('owner', 'superAdmin', 'admin'), dispatchCampaign);
+router.patch('/campaigns/:id/cancel', verifyToken, requireRoles('owner', 'superAdmin', 'admin'), cancelCampaign);
 
 // Segments
-router.get('/segments', verifyToken, getSegments);
-router.get('/segments/:id', verifyToken, getSegmentById);
-router.post('/segments', verifyToken, createSegment);
-router.patch('/segments/:id', verifyToken, updateSegment);
-router.delete('/segments/:id', verifyToken, deleteSegment);
-router.post('/segments/preview-count', verifyToken, previewSegmentCount);
-router.get('/segments/:id/users', verifyToken, getSegmentUsersList);
+router.get('/segments', verifyToken, requireRoles('owner', 'superAdmin', 'admin', 'operator'), getSegments);
+router.get('/segments/:id', verifyToken, requireRoles('owner', 'superAdmin', 'admin', 'operator'), getSegmentById);
+router.post('/segments', verifyToken, requireRoles('owner', 'superAdmin', 'admin'), createSegment);
+router.patch('/segments/:id', verifyToken, requireRoles('owner', 'superAdmin', 'admin'), updateSegment);
+router.delete('/segments/:id', verifyToken, requireRoles('owner', 'superAdmin'), deleteSegment);
+router.post('/segments/preview-count', verifyToken, requireRoles('owner', 'superAdmin', 'admin', 'operator'), previewSegmentCount);
+router.get('/segments/:id/users', verifyToken, requireRoles('owner', 'superAdmin', 'admin', 'operator'), getSegmentUsersList);
 
 export default router;
 

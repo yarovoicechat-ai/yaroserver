@@ -57,13 +57,22 @@ const allowedOrigins = [
   'https://management.yaroapp.in',
   'http://management.yaroapp.in',
 
-  'https://danilo-syngamic-unterrifically.ngrok-free.dev',
+  // Production Domains (meethi.live)
+  'https://meethi.live',
+  'https://www.meethi.live',
+  'https://admin.meethi.live',
+  'https://management.meethi.live',
+  'https://api.meethi.live',
+  'http://admin.meethi.live',
+  'http://management.meethi.live',
 ].filter(Boolean);
 
 const isLocalhostOrigin = (origin: string) => {
   try {
     const url = new URL(origin);
-    return ['localhost', '127.0.0.1'].includes(url.hostname) || url.hostname.endsWith('.yaroapp.in') || url.hostname === 'yaroapp.in';
+    return ['localhost', '127.0.0.1'].includes(url.hostname) 
+      || url.hostname.endsWith('.yaroapp.in') || url.hostname === 'yaroapp.in'
+      || url.hostname.endsWith('.meethi.live') || url.hostname === 'meethi.live';
   } catch {
     return false;
   }

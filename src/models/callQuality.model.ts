@@ -7,6 +7,9 @@ export interface ICallQuality extends Document {
     role: 'caller' | 'host';
     bitrate?: number;
     packetLossRate?: number;
+    jitter?: number;
+    rtt?: number;
+    qualityScore?: number;
     audioQuality?: 'EXCELLENT' | 'GOOD' | 'POOR' | 'CRITICAL';
     networkState?: 'ONLINE' | 'DEGRADED' | 'DISCONNECTED';
     disconnectReason?: string;
@@ -20,6 +23,9 @@ const CallQualitySchema = new Schema<ICallQuality>({
     role: { type: String, enum: ['caller', 'host'], required: true },
     bitrate: { type: Number },
     packetLossRate: { type: Number },
+    jitter: { type: Number },
+    rtt: { type: Number },
+    qualityScore: { type: Number },
     audioQuality: { 
         type: String, 
         enum: ['EXCELLENT', 'GOOD', 'POOR', 'CRITICAL'],

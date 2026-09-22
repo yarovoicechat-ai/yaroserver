@@ -10,7 +10,7 @@ import { AuthRequest } from '../middlewares/authorize.middleware';
 /**
  * Ingest client or webhook Agora RTC telemetry
  */
-export const recordCallTelemetry = async (req: Request, res: Response) => {
+export const recordCallTelemetry = async (req: AuthRequest, res: Response) => {
     try {
         const {
             callId,
@@ -19,6 +19,8 @@ export const recordCallTelemetry = async (req: Request, res: Response) => {
             role = 'caller',
             bitrate,
             packetLossRate,
+            jitter,
+            rtt,
             audioQuality = 'GOOD',
             networkState = 'ONLINE',
             disconnectReason
@@ -28,16 +30,52 @@ export const recordCallTelemetry = async (req: Request, res: Response) => {
             return sendResponse(res, 400, false, 'callId, channelName, and userId are required');
         }
 
+        if (!String(callId).match(/^[0-9a-fA-F]{24}$/)) {
+            return sendResponse(res, 400, false, 'Invalid callId format');
+        }
+
+        const call = await CoinsTransaction.findById(callId);
+        if (!call) {
+            return sendResponse(res, 404, false, 'Call transaction not found');
+        }
+
+        // Authorization Guard: Verify actor is a participant or privileged admin
+        if (req.user) {
+            const actorId = req.user.id.toString();
+            const callerId = call.userId?.toString();
+            const hostId = call.hostId?.toString();
+            const userRole = (req.user.role || '').toLowerCase();
+            const isPrivileged = ['owner', 'superadmin', 'admin'].includes(userRole);
+            if (!isPrivileged && actorId !== callerId && actorId !== hostId) {
+                return sendResponse(res, 403, false, 'Forbidden: You are not authorized to submit telemetry for this call.');
+            }
+        }
+
+        // Validate numeric telemetry bounds
+        const cleanBitrate = bitrate !== undefined ? Math.max(0, Math.min(20000, Number(bitrate) || 0)) : undefined;
+        const cleanLoss = packetLossRate !== undefined ? Math.max(0, Math.min(100, Number(packetLossRate) || 0)) : undefined;
+        const cleanJitter = jitter !== undefined ? Math.max(0, Math.min(5000, Number(jitter) || 0)) : undefined;
+        const cleanRtt = rtt !== undefined ? Math.max(0, Math.min(10000, Number(rtt) || 0)) : undefined;
+
+        // Compute QoS score (0 - 100)
+        let qualityScore = 100;
+        if (cleanLoss !== undefined) qualityScore -= (cleanLoss * 1.5);
+        if (cleanRtt !== undefined) qualityScore -= (cleanRtt / 20);
+        qualityScore = Math.max(0, Math.min(100, Math.round(qualityScore)));
+
         const entry = await CallQuality.create({
             callId,
-            channelName,
+            channelName: String(channelName).slice(0, 128),
             userId,
-            role,
-            bitrate: bitrate !== undefined ? Number(bitrate) : undefined,
-            packetLossRate: packetLossRate !== undefined ? Number(packetLossRate) : undefined,
-            audioQuality,
-            networkState,
-            disconnectReason,
+            role: role === 'host' ? 'host' : 'caller',
+            bitrate: cleanBitrate,
+            packetLossRate: cleanLoss,
+            jitter: cleanJitter,
+            rtt: cleanRtt,
+            qualityScore,
+            audioQuality: ['EXCELLENT', 'GOOD', 'POOR', 'CRITICAL'].includes(audioQuality) ? audioQuality : 'GOOD',
+            networkState: ['ONLINE', 'DEGRADED', 'DISCONNECTED'].includes(networkState) ? networkState : 'ONLINE',
+            disconnectReason: disconnectReason ? String(disconnectReason).slice(0, 256) : undefined,
             recordedAt: new Date()
         });
 
@@ -96,8 +134,11 @@ export const getActiveCallsWithTelemetry = async (req: AuthRequest, res: Respons
                 duration: liveDuration,
                 status: call.status,
                 telemetry: latestTelemetry ? {
-                    bitrate: latestTelemetry.bitrate || 64,
-                    packetLossRate: latestTelemetry.packetLossRate || 0,
+                    bitrate: latestTelemetry.bitrate,
+                    packetLossRate: latestTelemetry.packetLossRate,
+                    jitter: latestTelemetry.jitter,
+                    rtt: latestTelemetry.rtt,
+                    qualityScore: latestTelemetry.qualityScore ?? 100,
                     audioQuality: latestTelemetry.audioQuality || 'GOOD',
                     networkState: latestTelemetry.networkState || 'ONLINE'
                 } : null // Safety Rule: Do not fake telemetry when not reported

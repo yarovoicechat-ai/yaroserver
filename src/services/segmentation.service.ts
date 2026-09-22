@@ -8,12 +8,17 @@ export class SegmentationService {
     static buildFilter(rules: ISegmentRules): any {
         const filter: any = { isDeleted: false, isBlocked: false };
 
-        if (rules.country && rules.country.length > 0 && !rules.country.includes('ALL') && !rules.country.includes('*')) {
-            filter['country.code'] = { $in: rules.country };
+        if (rules.country && Array.isArray(rules.country) && rules.country.length > 0 && !rules.country.includes('ALL') && !rules.country.includes('*')) {
+            const cleanCodes = rules.country
+                .filter(c => typeof c === 'string' && c.length <= 5)
+                .map(c => c.toUpperCase().trim());
+            if (cleanCodes.length > 0) {
+                filter['country.code'] = { $in: cleanCodes };
+            }
         }
 
-        if (rules.gender && rules.gender !== 'ALL') {
-            filter.gender = rules.gender;
+        if (rules.gender && typeof rules.gender === 'string' && ['MALE', 'FEMALE', 'OTHER'].includes(rules.gender.toUpperCase())) {
+            filter.gender = rules.gender.toUpperCase();
         }
 
         if (rules.minLevel && rules.minLevel > 1) {

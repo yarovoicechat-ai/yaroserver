@@ -16,10 +16,12 @@ const errorHandler = (err: any, req: Request, res: Response, next: NextFunction)
     stack: err.stack,
   });
   
+  const isDev = process.env.NODE_ENV === 'development';
+
   res.status(statusCode).json({
     success: false,
-    message: message,
-    stack: err.stack,
+    message: statusCode === 500 && !isDev ? 'An unexpected internal error occurred' : message,
+    ...(isDev && { stack: err.stack }),
     error: err.name || 'Error'
   });
 };

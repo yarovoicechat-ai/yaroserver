@@ -161,3 +161,31 @@ export const checkPermission = (moduleName: string, actionName: string) => {
     next();
   };
 };
+
+/**
+ * Middleware: Check if authenticated user has one of the allowed roles
+ */
+export const requireRoles = (...allowedRoles: string[]) => {
+  return (req: AuthRequest, res: Response, next: NextFunction) => {
+    if (!req.user) {
+      return sendResponse(res, 401, false, "Unauthorized - User not authenticated");
+    }
+
+    const userRole = (req.user.role || '').toLowerCase();
+    if (userRole === 'owner') {
+      return next();
+    }
+
+    const normalizedAllowed = allowedRoles.map(r => r.toLowerCase());
+    if (normalizedAllowed.includes(userRole)) {
+      return next();
+    }
+
+    return sendResponse(
+      res,
+      403,
+      false,
+      `403 Forbidden - Role '${req.user.role}' is not authorized to access this resource`
+    );
+  };
+};

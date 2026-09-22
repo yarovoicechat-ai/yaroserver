@@ -131,26 +131,67 @@ export const runReconciliation = async (req: AuthRequest, res: Response) => {
 };
 
 /**
- * Audited balance adjustment endpoint
+ * Audited balance adjustment endpoint with strict RBAC and atomic concurrency protection
  * POST /api/admin/wallet/adjust
  */
 export const adjustWalletBalance = async (req: AuthRequest, res: Response) => {
     try {
-        const { userId, currency = 'coins', amount, type = 'CREDIT', reason } = req.body;
+        // 1. Strict RBAC Enforcement
+        const allowedRoles = ['owner', 'superadmin', 'admin'];
+        const userRole = (req.user?.role || '').toLowerCase();
+        if (!allowedRoles.includes(userRole)) {
+            return sendResponse(res, 403, false, `Access Denied: Role '${req.user?.role}' is not authorized to execute financial wallet adjustments.`);
+        }
+
+        const { userId, reason, referenceId, reference } = req.body;
 
         if (!userId) {
             return sendResponse(res, 400, false, 'Target userId is required');
         }
 
-        const delta = Math.abs(Number(amount));
-        if (isNaN(delta) || delta <= 0) {
-            return sendResponse(res, 400, false, 'Amount must be a positive number');
+        if (!reason || String(reason).trim().length < 5) {
+            return sendResponse(res, 400, false, 'A descriptive reason (minimum 5 characters) is mandatory for financial adjustments');
         }
 
-        if (!reason || reason.trim().length < 5) {
-            return sendResponse(res, 400, false, 'A descriptive reason (min 5 chars) is mandatory for financial adjustments');
+        // 2. Parse Delta Supporting Both Unified and Legacy Schemas
+        let coinChange = 0;
+        let diamondChange = 0;
+
+        if (req.body.coinDelta !== undefined || req.body.diamondDelta !== undefined) {
+            coinChange = Number(req.body.coinDelta) || 0;
+            diamondChange = Number(req.body.diamondDelta) || 0;
+        } else if (req.body.amount !== undefined) {
+            const val = Math.abs(Number(req.body.amount));
+            if (isNaN(val) || val <= 0) {
+                return sendResponse(res, 400, false, 'Amount must be a positive number');
+            }
+            const isCredit = String(req.body.type || 'CREDIT').toUpperCase() === 'CREDIT';
+            const delta = isCredit ? val : -val;
+            const cur = String(req.body.currency || 'coins').toLowerCase();
+            if (cur === 'diamonds') {
+                diamondChange = delta;
+            } else {
+                coinChange = delta;
+            }
         }
 
+        if (coinChange === 0 && diamondChange === 0) {
+            return sendResponse(res, 400, false, 'Adjustment amount must be non-zero');
+        }
+
+        // 3. Idempotency / Duplicate Request Protection
+        const refId = referenceId || reference || `ADJ-${Date.now()}`;
+        if (referenceId || reference) {
+            const existingAudit = await AuditLog.findOne({
+                action: 'WALLET_ADJUSTMENT',
+                details: { $regex: String(referenceId || reference) }
+            });
+            if (existingAudit) {
+                return sendResponse(res, 409, false, `Duplicate transaction reference '${refId}' has already been processed.`);
+            }
+        }
+
+        // 4. Locate Target User
         const user = await User.findOne({
             $or: [
                 ...(Number.isInteger(Number(userId)) ? [{ userId: Number(userId) }] : []),
@@ -159,61 +200,74 @@ export const adjustWalletBalance = async (req: AuthRequest, res: Response) => {
         });
 
         if (!user) {
-            return sendResponse(res, 404, false, 'User account not found');
+            return sendResponse(res, 404, false, 'Target user account not found');
         }
 
-        const currencyKey = currency.toLowerCase() === 'diamonds' ? 'diamonds' : 'coins';
-        const beforeValue = user[currencyKey] || 0;
+        const beforeCoins = user.coins || 0;
+        const beforeDiamonds = user.diamonds || 0;
 
-        let afterValue = beforeValue;
-        if (type.toUpperCase() === 'CREDIT') {
-            afterValue = beforeValue + delta;
-        } else if (type.toUpperCase() === 'DEBIT') {
-            if (beforeValue < delta) {
-                return sendResponse(res, 400, false, `Insufficient balance to debit. Current ${currencyKey}: ${beforeValue}`);
-            }
-            afterValue = beforeValue - delta;
-        } else {
-            return sendResponse(res, 400, false, "Adjustment type must be either 'CREDIT' or 'DEBIT'");
+        // 5. Construct Atomic Mutation Query with Negative Balance Safeguard
+        const updateQuery: any = { _id: user._id };
+        const updateOps: any = { $inc: {} };
+
+        if (coinChange < 0) {
+            updateQuery.coins = { $gte: Math.abs(coinChange) };
+        }
+        if (coinChange !== 0) {
+            updateOps.$inc.coins = coinChange;
         }
 
-        user[currencyKey] = afterValue;
-        await user.save();
+        if (diamondChange < 0) {
+            updateQuery.diamonds = { $gte: Math.abs(diamondChange) };
+        }
+        if (diamondChange !== 0) {
+            updateOps.$inc.diamonds = diamondChange;
+        }
 
-        // Ledger track in RechargeHistory
+        // Atomic Execution: Never lost updates, never negative balance under concurrency
+        const updatedUser = await User.findOneAndUpdate(updateQuery, updateOps, { new: true });
+        if (!updatedUser) {
+            return sendResponse(res, 400, false, `Insufficient balance for debit. Current balance: ${beforeCoins} coins, ${beforeDiamonds} diamonds. Transaction rejected to prevent negative float.`);
+        }
+
+        // 6. Record Ledger Entry
         await RechargeHistory.create({
-            userId: user.userId,
+            userId: updatedUser.userId,
             type: RechargeType.OFFLINE,
-            coins: currencyKey === 'coins' ? (type.toUpperCase() === 'CREDIT' ? delta : -delta) : 0,
-            diamonds: currencyKey === 'diamonds' ? (type.toUpperCase() === 'CREDIT' ? delta : -delta) : 0,
+            coins: coinChange,
+            diamonds: diamondChange,
             amount: 0,
             date: new Date(),
             sellerId: req.user?.userId || 0,
             status: 'COMPLETED'
         });
 
-        // Mandatory Immutable Audit Log
+        // 7. Mandatory Immutable Audit Log
         let auditLogDoc;
         if (req.user?.id) {
             auditLogDoc = await AuditLog.create({
                 adminId: req.user.id,
                 action: 'WALLET_ADJUSTMENT',
-                target: `User #${user.userId}`,
-                details: `${type.toUpperCase()} ${delta} ${currencyKey} to user ${user.name} (#${user.userId}). Before: ${beforeValue}, After: ${afterValue}`,
+                target: `User #${updatedUser.userId}`,
+                details: `[${refId}] Adjusted wallet for ${updatedUser.name || 'User'} (#${updatedUser.userId}): Coins ${beforeCoins} -> ${updatedUser.coins} (${coinChange >= 0 ? '+' : ''}${coinChange}), Diamonds ${beforeDiamonds} -> ${updatedUser.diamonds} (${diamondChange >= 0 ? '+' : ''}${diamondChange}). Reason: ${String(reason).trim()}`,
                 ipAddress: req.ip || '127.0.0.1',
                 userAgent: req.headers['user-agent'],
-                oldValue: { [currencyKey]: beforeValue },
-                newValue: { [currencyKey]: afterValue },
-                reason: reason.trim()
+                oldValue: { coins: beforeCoins, diamonds: beforeDiamonds },
+                newValue: { coins: updatedUser.coins, diamonds: updatedUser.diamonds },
+                reason: String(reason).trim()
             });
         }
 
-        return sendResponse(res, 200, true, `Successfully adjusted ${currencyKey} balance`, {
-            userId: user.userId,
-            currency: currencyKey,
-            beforeBalance: beforeValue,
-            newBalance: afterValue,
-            auditId: auditLogDoc?._id
+        return sendResponse(res, 200, true, 'Wallet balance adjusted successfully', {
+            userId: updatedUser.userId,
+            coins: updatedUser.coins,
+            diamonds: updatedUser.diamonds,
+            beforeCoins,
+            beforeDiamonds,
+            coinDelta: coinChange,
+            diamondDelta: diamondChange,
+            auditId: auditLogDoc?._id,
+            referenceId: refId
         });
     } catch (err: any) {
         return sendResponse(res, 500, false, err.message);

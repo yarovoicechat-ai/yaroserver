@@ -29,7 +29,9 @@ const AuditLogSchema = new Schema<IAuditLog>({
     reason: { type: String }
 }, { timestamps: { createdAt: true, updatedAt: false } });
 
-AuditLogSchema.index({ adminId: 1 });
+AuditLogSchema.index({ adminId: 1, createdAt: -1 });
+AuditLogSchema.index({ action: 1, createdAt: -1 });
+AuditLogSchema.index({ target: 1, createdAt: -1 });
 AuditLogSchema.index({ createdAt: -1 });
 
 export const AuditLog = mongoose.model<IAuditLog>('AuditLog', AuditLogSchema);

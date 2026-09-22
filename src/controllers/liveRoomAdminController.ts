@@ -51,7 +51,11 @@ export const getActiveRoomsAdmin = async (req: AuthRequest, res: Response) => {
 export const emergencyCloseRoom = async (req: AuthRequest, res: Response) => {
     try {
         const { id } = req.params;
-        const { reason = 'Voice room closed by Administrator' } = req.body;
+        const { reason } = req.body;
+
+        if (!reason || String(reason).trim().length < 5) {
+            return sendResponse(res, 400, false, 'A descriptive reason (minimum 5 characters) is mandatory for emergency room closure');
+        }
 
         const room = await Room.findById(id);
         if (!room) {
@@ -62,15 +66,17 @@ export const emergencyCloseRoom = async (req: AuthRequest, res: Response) => {
         room.isActive = false;
         await room.save();
 
-        // Broadcast room closure via Socket.io
+        // Broadcast room closure via Socket.io to both channel and roomId rooms
         try {
             const io = getIO();
             if (io) {
-                io.to(room.channelName).emit('room_force_closed', {
+                const payload = {
                     roomId: String(room._id),
                     channelName: room.channelName,
-                    reason
-                });
+                    reason: String(reason).trim()
+                };
+                io.to(room.channelName).emit('room_force_closed', payload);
+                io.to(`room_${room._id}`).emit('room_force_closed', payload);
             }
         } catch (socketErr) {
             console.warn('Socket broadcast error on room closure:', socketErr);
