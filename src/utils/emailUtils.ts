@@ -10,11 +10,11 @@ export const sendEmail = async (email: string, subject: string, message: string)
   const generatedTime = new Date().toISOString().replace("T", " ").split(".")[0];
 
   const mailOptions = {
-    from: `"Talk Live" <${config.EMAIL_USER}>`,
+    from: `"Yaro" <${config.EMAIL_USER}>`,
     to: email,
     subject,
     html: `
-        <p>Dear Voice Call Club  user,</p>
+        <p>Dear Yaro user,</p>
         <p>${message}</p>
         <p>(Generated at ${generatedTime})</p>
         <hr>
@@ -38,15 +38,15 @@ export const sendCustomEmail = async (
   data?: any
 ) => {
   const subjects: Record<string, string> = {
-    otp: `${data?.otp} is OTP for Voice Call Club Email verification`,
-    forgotPassword: `${data?.otp} is OTP for Voice Call Club account forgot password`,
+    otp: `${data?.otp} is OTP for Yaro Email verification`,
+    forgotPassword: `${data?.otp} is OTP for Yaro account forgot password`,
     hostApproved: `Your Host Application for ${data?.hostName} is Approved`,
     hostRejected: `Your Host Application for ${data?.hostName} is Rejected`,
   };
 
   const messages: Record<string, string> = {
-    otp: `Your Voice Call Club Account One Time PIN is: <strong>${data?.otp}</strong>, and is valid for <strong>10 minutes</strong>.`,
-    forgotPassword: `Your Voice Call Club Account change password One Time PIN is: <strong>${data?.otp}</strong>, and is valid for <strong>10 minutes</strong>.`,
+    otp: `Your Yaro Account One Time PIN is: <strong>${data?.otp}</strong>, and is valid for <strong>10 minutes</strong>.`,
+    forgotPassword: `Your Yaro Account change password One Time PIN is: <strong>${data?.otp}</strong>, and is valid for <strong>10 minutes</strong>.`,
     hostApproved: `Congratulations! Your host application has been approved. 
         <br><br> Please complete your registration using this link: <a href="${data?.formUrl}">${data?.formUrl}</a> (valid for 7 days).`,
     hostRejected: `We regret to inform you that your host application has been rejected. If you have any concerns, please contact support.`,
@@ -58,8 +58,8 @@ export const sendCustomEmail = async (
 
 // Function to send OTP for email verification
 export const sendOtpForEmailVerification = async (email: string, otp: string) => {
-  const subject = `${otp} is your OTP for Voice Call Club Email Verification`;
-  const message = `Your Voice Call Club Account One Time PIN (OTP) is: <strong>${otp}</strong>. It is valid for <strong>10 minutes</strong>. Please do not share it with anyone.`;
+  const subject = `${otp} is your OTP for Yaro Email Verification`;
+  const message = `Your Yaro Account One Time PIN (OTP) is: <strong>${otp}</strong>. It is valid for <strong>10 minutes</strong>. Please do not share it with anyone.`;
 
   return await sendEmail(email, subject, message);
 };

@@ -15,6 +15,9 @@ async function run() {
       {
         image: {
           $in: [
+            'https://api.yaroapp.in/uploads/avatars/male_default.webp',
+            'https://api.yaroapp.in/uploads/avatars/female_default.webp',
+            'https://api.yaroapp.in/uploads/avatars/neutral_default.webp',
             'https://api.voicecallclub.com/uploads/avatars/male_default.webp',
             'https://api.voicecallclub.com/uploads/avatars/female_default.webp',
             'https://api.voicecallclub.com/uploads/avatars/neutral_default.webp',

@@ -5,8 +5,8 @@ export const getVoiceClubConfig = async (req: Request, res: Response) => {
     return res.status(200).json({
       success: true,
       data: {
-        appName: 'Voice Call Club',
-        package: 'com.voicecallclub.app',
+        appName: 'Yaro',
+        package: 'yaro.vc.app',
         deepLinkScheme: 'voiceclub://',
         version: '2.0.0',
         features: {
@@ -16,7 +16,7 @@ export const getVoiceClubConfig = async (req: Request, res: Response) => {
           vipLoungesEnabled: true,
           instantMatchingEnabled: true,
         },
-        bannerNotice: 'Welcome to Voice Call Club! Connect with vibrant hosts instantly.',
+        bannerNotice: 'Welcome to Yaro! Connect with vibrant hosts instantly.',
       },
     });
   } catch (error: any) {
@@ -35,7 +35,7 @@ export const joinVoiceQueue = async (req: Request, res: Response) => {
 
     return res.status(200).json({
       success: true,
-      message: 'Successfully queued for Voice Call Club audio lounge match',
+      message: 'Successfully queued for Yaro audio lounge match',
       data: {
         queueTicketId: `VCQ-${Date.now()}-${userId.toString().slice(-4)}`,
         status: 'WAITING',

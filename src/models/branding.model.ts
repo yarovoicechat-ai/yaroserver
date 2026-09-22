@@ -15,12 +15,12 @@ export interface IBranding extends Document {
 
 const BrandingSchema = new Schema<IBranding>({
     orgId: { type: Schema.Types.ObjectId, ref: 'Organization', index: true },
-    companyName: { type: String, required: true, default: 'VoiceCallClub' },
+    companyName: { type: String, required: true, default: 'Yaro' },
     logoUrl: { type: String, default: '' },
     faviconUrl: { type: String, default: '' },
     primaryColor: { type: String, default: '#4f46e5' },
     accentColor: { type: String, default: '#8b5cf6' },
-    customDomain: { type: String, default: 'voicecallclub.com' },
+    customDomain: { type: String, default: 'yaroapp.in' },
     emailHeaderLogoUrl: { type: String, default: '' }
 }, { timestamps: true });
 

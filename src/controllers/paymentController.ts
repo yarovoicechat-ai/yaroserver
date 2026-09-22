@@ -13,7 +13,7 @@ import mongoose, { ClientSession } from "mongoose";
 import { getProductConfig, GOOGLE_PLAY_PRODUCTS } from "../constants/googlePlayProducts";
 
 // Package Name Configuration & RTDN Security Secret
-const GOOGLE_PLAY_PACKAGE_NAME = process.env.GOOGLE_PLAY_PACKAGE_NAME || "com.voicecallclub.app";
+const GOOGLE_PLAY_PACKAGE_NAME = process.env.GOOGLE_PLAY_PACKAGE_NAME || "yaro.vc.app";
 const GOOGLE_PLAY_RTDN_SECRET = process.env.GOOGLE_PLAY_RTDN_SECRET || "";
 
 /**
@@ -30,6 +30,14 @@ const getGoogleAuth = () => {
     } catch (err) {
       console.error("[GooglePlay] Error parsing GOOGLE_PLAY_SERVICE_ACCOUNT_JSON:", err);
     }
+  }
+
+  if (process.env.GOOGLE_APPLICATION_CREDENTIALS && fs.existsSync(process.env.GOOGLE_APPLICATION_CREDENTIALS)) {
+    console.log(`[GooglePlay] Using credentials from GOOGLE_APPLICATION_CREDENTIALS: ${process.env.GOOGLE_APPLICATION_CREDENTIALS}`);
+    return new google.auth.GoogleAuth({
+      keyFile: process.env.GOOGLE_APPLICATION_CREDENTIALS,
+      scopes: ["https://www.googleapis.com/auth/androidpublisher"],
+    });
   }
 
   const candidateKeyPaths = [
@@ -224,7 +232,10 @@ export const verifyGooglePurchase = async (req: AuthRequest, res: Response) => {
   try {
     const { userId } = req.user || {};
     const { purchaseToken, productId, packageName } = req.body;
-    const effectivePackageName = packageName || GOOGLE_PLAY_PACKAGE_NAME;
+    if (packageName && packageName !== GOOGLE_PLAY_PACKAGE_NAME) {
+      console.warn(`[GOOGLE-VERIFY] Warning: client sent package name '${packageName}', enforcing configured '${GOOGLE_PLAY_PACKAGE_NAME}'`);
+    }
+    const effectivePackageName = GOOGLE_PLAY_PACKAGE_NAME;
     const maskedToken = purchaseToken ? purchaseToken.substring(0, 8) + "..." + purchaseToken.slice(-6) : "N/A";
 
     console.log(`[GOOGLE-VERIFY] REQUEST RECEIVED`);

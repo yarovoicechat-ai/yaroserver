@@ -1503,16 +1503,16 @@ export const finalizeUserApproval = async (
 
   // Role-specific login URL auto assignment
   const loginUrlMap: Record<string, string> = {
-    owner: 'owner.meethichat.live',
-    superAdmin: 'superadmin.meethichat.live',
-    admin: 'admin.meethichat.live',
-    agency: 'agency.meethichat.live',
-    operator: 'operator.meethichat.live',
-    coinSeller: 'seller.meethichat.live',
-    customerSupport: 'support.meethichat.live',
+    owner: 'owner.yaroapp.in',
+    superAdmin: 'superadmin.yaroapp.in',
+    admin: 'admin.yaroapp.in',
+    agency: 'agency.yaroapp.in',
+    operator: 'operator.yaroapp.in',
+    coinSeller: 'seller.yaroapp.in',
+    customerSupport: 'support.yaroapp.in',
     host: 'No Web Login (Mobile App Only)',
   };
-  const loginUrl = loginUrlMap[targetRole] || 'admin.meethichat.live';
+  const loginUrl = loginUrlMap[targetRole] || 'admin.yaroapp.in';
 
   // Automatically construct parenting tree
   let parentId: any = undefined;
@@ -1576,7 +1576,7 @@ export const finalizeUserApproval = async (
       const existing = await User.findOne({ referralCode });
       if (!existing) isUnique = true;
     }
-    referralLink = `https://apply.voicecallclub.com${roleConfig.path}?ref=${referralCode}`;
+    referralLink = `https://apply.yaroapp.in${roleConfig.path}?ref=${referralCode}`;
   }
 
   const audioRecordingUrl = data.audio || data.voiceAudioUrl || data.audioUrl || data.voiceUrl || data.voice || data.introAudio || '';

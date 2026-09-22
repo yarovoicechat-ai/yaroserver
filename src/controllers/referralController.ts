@@ -265,7 +265,7 @@ export const completeProfile = async (req: AuthRequest, res: Response) => {
           io.to(getUserRoom(String(referrerUser._id))).emit("referralReward:step1", {
             coinsEarned: 25,
             refereeUserId: currentUser.userId,
-            message: "🎉 Referral Reward Earned! Your friend successfully joined Voice Call Club. You received 25 Coins!",
+            message: "🎉 Referral Reward Earned! Your friend successfully joined Yaro. You received 25 Coins!",
           });
         }
 
@@ -273,7 +273,7 @@ export const completeProfile = async (req: AuthRequest, res: Response) => {
           await sendCallNotification(
             referrerUser.fcmToken,
             "🎉 Referral Reward Earned!",
-            "Your friend successfully joined Voice Call Club. You received 25 Coins!",
+            "Your friend successfully joined Yaro. You received 25 Coins!",
             "",
             false
           ).catch(() => {});
@@ -359,7 +359,7 @@ export const getReferralDetails = async (req: AuthRequest, res: Response) => {
       };
     });
 
-    const referralLink = `https://voicecallclub.com/refer/${user.referralCode}`;
+    const referralLink = `https://yaroapp.in/refer/${user.referralCode}`;
 
     return sendResponse(res, 200, true, "Referral details fetched successfully", {
       referralCode: user.referralCode,
@@ -521,7 +521,7 @@ export const claimReferralCode = async (req: AuthRequest, res: Response) => {
         io.to(getUserRoom(String(referrerUser._id))).emit("referralReward:step1", {
           coinsEarned: 25,
           refereeUserId: currentUser.userId,
-          message: "🎉 Referral Reward Earned! Your friend successfully joined Voice Call Club. You received 25 Coins!",
+          message: "🎉 Referral Reward Earned! Your friend successfully joined Yaro. You received 25 Coins!",
         });
       }
 
@@ -529,7 +529,7 @@ export const claimReferralCode = async (req: AuthRequest, res: Response) => {
         await sendCallNotification(
           referrerUser.fcmToken,
           "🎉 Referral Reward Earned!",
-          "Your friend successfully joined Voice Call Club. You received 25 Coins!",
+          "Your friend successfully joined Yaro. You received 25 Coins!",
           "",
           false
         ).catch(() => {});

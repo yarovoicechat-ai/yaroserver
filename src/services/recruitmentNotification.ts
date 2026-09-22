@@ -14,17 +14,17 @@ export async function sendRecruitmentWorkflowNotification(payload: NotificationP
         console.log(`[Notification Service] Dispatching ${payload.status.toUpperCase()} notification to ${payload.applicantEmail} for ${payload.applicationId}`);
 
         // Notification templates per status trigger
-        let subject = `[Voice Call Club EMS] Application Update: ${payload.applicationId}`;
+        let subject = `[Yaro EMS] Application Update: ${payload.applicationId}`;
         let body = `Hello ${payload.applicantName},\n\nYour application (${payload.applicationId}) status has been updated to: ${payload.status.toUpperCase()}.\n`;
 
         if (payload.status === 'interview_scheduled') {
-            subject = `[Voice Call Club EMS] Interview Scheduled - ${payload.applicationId}`;
+            subject = `[Yaro EMS] Interview Scheduled - ${payload.applicationId}`;
             body += `\nOur HR board has scheduled an interview for your ${payload.role.toUpperCase()} application. Details will be sent shortly.`;
         } else if (payload.status === 'approved') {
             subject = `🎉 Congratulations! Your ${payload.role.toUpperCase()} Application is Approved!`;
-            body += `\nWelcome to Voice Call Club! Your partner onboarding is approved. Check your portal for credentials.`;
+            body += `\nWelcome to Yaro! Your partner onboarding is approved. Check your portal for credentials.`;
         } else if (payload.status === 'rejected') {
-            subject = `[Voice Call Club EMS] Application Status Update - ${payload.applicationId}`;
+            subject = `[Yaro EMS] Application Status Update - ${payload.applicationId}`;
             body += `\nThank you for applying. At this time, we are unable to move forward with your application.`;
         }
 

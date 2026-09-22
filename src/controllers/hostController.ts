@@ -25,6 +25,11 @@ export const applyHost = async (req: AuthRequest, res: Response, next: NextFunct
             return sendResponse(res, 400, false, "A valid voice recording audio URL is required.");
         }
 
+        const applicantAge = req.body.age !== undefined ? Number(req.body.age) : undefined;
+        if (applicantAge !== undefined && (!applicantAge || isNaN(applicantAge) || applicantAge < 18 || applicantAge > 120)) {
+            return sendResponse(res, 400, false, "You must be at least 18 years old to apply as a host.");
+        }
+
         const isNum = rawUserId !== undefined && rawUserId !== null && !isNaN(Number(rawUserId));
         const findConditions: any[] = [];
         if (isNum) findConditions.push({ userId: Number(rawUserId) });
@@ -210,7 +215,8 @@ export const sendFormForHost = async (req: AuthRequest, res: Response) => {
                 expiresIn: "7d",
             });
 
-            formURL = `http://localhost:3000/api/form/host-form?token=${token}`;
+            const baseOrigin = config.ORIGIN1 || config.ORIGIN || 'https://admin.yaroapp.in';
+            formURL = `${baseOrigin}/api/form/host-form?token=${token}`;
             emailType = "hostApproved";
         } else {
             user.audio = undefined;
@@ -575,10 +581,10 @@ const resolveAgencyDetails = async (user: any) => {
         }).lean();
     }
 
-    const agencyName = agencyModel?.name || agencyUser?.agencyName || agencyUser?.name || "Voice Call Club Official Agency";
+    const agencyName = agencyModel?.name || agencyUser?.agencyName || agencyUser?.name || "Yaro Official Agency";
     const agencyNumber = agencyUser?.phoneNumber || agencyUser?.email || "Support Available";
     const agencyLogo = agencyModel?.logo || agencyUser?.agencyLogo || agencyUser?.image || "";
-    const agencyCode = agencyModel?.code || agencyUser?.referralCode || agencyUser?.specialCode || "VCC-OFFICIAL";
+    const agencyCode = agencyModel?.code || agencyUser?.referralCode || agencyUser?.specialCode || "YARO-OFFICIAL";
 
     return { agencyName, agencyNumber, agencyLogo, agencyCode };
 };

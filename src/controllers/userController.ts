@@ -411,6 +411,21 @@ export const updateUser = async (req: AuthRequest, res: Response) => {
       }
     }
 
+    if (age !== undefined) {
+      const numAge = Number(age);
+      if (isNaN(numAge) || numAge < 18 || numAge > 120) {
+        return sendResponse(
+          res,
+          400,
+          false,
+          "You must be at least 18 years old to use Yaro.",
+          undefined,
+          undefined,
+          "AGE_RESTRICTED"
+        );
+      }
+    }
+
     // 🛡️ Role-based permissions for what fields can be updated
     switch (requesterRole) {
       case "owner":
@@ -432,7 +447,7 @@ export const updateUser = async (req: AuthRequest, res: Response) => {
         if (language && Array.isArray(language)) updatedFields.language = language;
         if (phoneVerified !== undefined) updatedFields.phoneVerified = phoneVerified;
         if (country !== undefined) updatedFields.country = country;
-        if (age !== undefined) updatedFields.age = age;
+        if (age !== undefined) updatedFields.age = Number(age);
         if (level !== undefined) updatedFields.level = level;
         if (image !== undefined) updatedFields.image = image;
         if (req.body.faceVerificationStatus !== undefined) updatedFields.faceVerificationStatus = req.body.faceVerificationStatus;
@@ -450,12 +465,9 @@ export const updateUser = async (req: AuthRequest, res: Response) => {
         if (gender !== undefined) updatedFields.gender = gender;
         if (language && Array.isArray(language)) updatedFields.language = language;
         if (phoneVerified !== undefined) updatedFields.phoneVerified = phoneVerified;
-        if (image !== undefined) updatedFields.image = image
-        // IMPORTANT: If a host should NOT be able to update another host's or superAdmin's data,
-        // you would add a check here, e.g.:
-        // if (userToUpdate.role === "superAdmin" || userToUpdate.role === "host") {
-        //     return sendResponse(res, 403, false, "Access Denied: Host cannot update superAdmin or other host profiles");
-        // }
+        if (country !== undefined) updatedFields.country = country;
+        if (age !== undefined) updatedFields.age = Number(age);
+        if (image !== undefined) updatedFields.image = image;
         break;
 
       case "user":
@@ -465,10 +477,9 @@ export const updateUser = async (req: AuthRequest, res: Response) => {
         if (bio !== undefined) updatedFields.bio = bio;
         if (gender !== undefined) updatedFields.gender = gender;
         if (language && Array.isArray(language)) updatedFields.language = language;
-        if (image !== undefined) updatedFields.image = image
-        // A regular user should usually not be able to change isPhoneVerified themselves,
-        // this is typically handled by an OTP process. Remove or manage carefully.
-        // if (isPhoneVerified !== undefined) updatedFields.isPhoneVerified = isPhoneVerified;
+        if (country !== undefined) updatedFields.country = country;
+        if (age !== undefined) updatedFields.age = Number(age);
+        if (image !== undefined) updatedFields.image = image;
         break;
 
       default:
@@ -1169,7 +1180,7 @@ export const toggleActiveStatus = async (req: AuthRequest, res: Response) => {
 
 
 
-// ðŸ›‘ Add user to personal blocklist
+// 🛑 Add user to personal blocklist
 export const blockContact = async (req: AuthRequest, res: Response) => {
   try {
     const { userId } = req.user || {};
@@ -1178,10 +1189,20 @@ export const blockContact = async (req: AuthRequest, res: Response) => {
     if (!userId) return sendResponse(res, 401, false, "Unauthorized");
 
     const user = await User.findOne({ userId, isDeleted: false });
-    const targetUser = await User.findOne({ userId: Number(targetUserId), isDeleted: false });
+    let targetUser = null;
+    if (!isNaN(Number(targetUserId))) {
+      targetUser = await User.findOne({ userId: Number(targetUserId), isDeleted: false });
+    }
+    if (!targetUser && mongoose.Types.ObjectId.isValid(targetUserId)) {
+      targetUser = await User.findOne({ _id: targetUserId, isDeleted: false });
+    }
 
     if (!user || !targetUser) {
       return sendResponse(res, 404, false, "User not found");
+    }
+
+    if ((user as any)._id.toString() === (targetUser as any)._id.toString()) {
+      return sendResponse(res, 400, false, "You cannot block yourself");
     }
 
     if (user.blockedUsers && user.blockedUsers.some(id => id.toString() === (targetUser as any)._id.toString())) {
@@ -1198,7 +1219,7 @@ export const blockContact = async (req: AuthRequest, res: Response) => {
   }
 };
 
-// ðŸŸ¢ Remove user from personal blocklist
+// 🟢 Remove user from personal blocklist
 export const unblockContact = async (req: AuthRequest, res: Response) => {
   try {
     const { userId } = req.user || {};
@@ -1207,7 +1228,13 @@ export const unblockContact = async (req: AuthRequest, res: Response) => {
     if (!userId) return sendResponse(res, 401, false, "Unauthorized");
 
     const user = await User.findOne({ userId, isDeleted: false });
-    const targetUser = await User.findOne({ userId: Number(targetUserId), isDeleted: false });
+    let targetUser = null;
+    if (!isNaN(Number(targetUserId))) {
+      targetUser = await User.findOne({ userId: Number(targetUserId), isDeleted: false });
+    }
+    if (!targetUser && mongoose.Types.ObjectId.isValid(targetUserId)) {
+      targetUser = await User.findOne({ _id: targetUserId, isDeleted: false });
+    }
 
     if (!user || !targetUser) {
       return sendResponse(res, 404, false, "User not found");
@@ -1371,29 +1398,60 @@ export const requestDeletion = async (req: AuthRequest, res: Response) => {
       return sendResponse(res, 401, false, "Unauthorized");
     }
 
-    if (!reason || !reason.trim()) {
-      return sendResponse(res, 400, false, "Reason for deletion is required");
-    }
-
     const userDoc = await User.findById(requesterObjectId);
     if (!userDoc) {
       return sendResponse(res, 404, false, "User not found");
     }
 
+    if (userDoc.isDeleted) {
+      return sendResponse(res, 400, false, "Account is already deleted");
+    }
+
+    const deletionTimestamp = Date.now();
+    const anonymizedPhone = userDoc.phoneNumber ? `deleted_${userDoc._id}_${deletionTimestamp}` : "";
+    const anonymizedEmail = userDoc.email ? `deleted_${userDoc._id}_${deletionTimestamp}@deleted.yaroapp.in` : "";
+
+    // 1. Immediately soft-delete and anonymize personal information
+    userDoc.isDeleted = true;
+    userDoc.name = "Deleted User";
+    userDoc.bio = "";
+    userDoc.image = "";
+    userDoc.audio = "";
+    userDoc.phoneNumber = anonymizedPhone;
+    userDoc.email = anonymizedEmail;
+    userDoc.googleId = "";
+    userDoc.refreshToken = "";
+    userDoc.activeToken = "";
+    userDoc.fcmToken = "";
+    userDoc.lastOnline = new Date();
+    await userDoc.save();
+
+    try {
+      const { invalidateHostCache } = await import('../services/user.service');
+      invalidateHostCache();
+    } catch (cacheErr: any) {
+      console.warn('Failed to invalidate host cache on account deletion:', cacheErr?.message);
+    }
+
+    // 2. Record deletion request as completed/approved
     const request = await DeletionRequest.create({
       userId: requesterObjectId,
+      yaroId: String(userDoc.userId),
       meethiId: String(userDoc.userId),
-      name: userDoc.name || "User",
+      name: "Deleted User",
       role: userDoc.role || "user",
-      phoneNumber: userDoc.phoneNumber || "",
-      reason,
-      status: "pending"
+      phoneNumber: anonymizedPhone,
+      reason: reason ? reason.trim() : "User requested account deletion from settings",
+      status: "approved"
     });
 
-    return sendResponse(res, 201, true, "Deletion request submitted successfully", request);
+    return sendResponse(res, 200, true, "Your account has been deleted successfully and personal data anonymized.", {
+      deletionId: request._id,
+      status: "deleted"
+    });
   } catch (error: any) {
     await Logger("requestDeletion", error);
-    return sendResponse(res, 500, false, error.message || "Failed to request deletion");
+    return sendResponse(res, 500, false, error.message || "Failed to process account deletion");
   }
 };
 

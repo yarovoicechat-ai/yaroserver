@@ -29,5 +29,6 @@ logs/
 .DS_Store
 Thumbs.db
 
-
 src/configs/serviceAccountKey.json
+*serviceAccount*.json
+credentials*.json

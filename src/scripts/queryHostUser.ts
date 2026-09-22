@@ -8,12 +8,12 @@ async function run() {
     await connectDB();
     console.log("Connected to DB successfully!");
 
-    // Search by name "Voice Call Club" or by role "host"
-    const hostUser = await User.findOne({ name: /Voice Call Club/i }).lean();
+    // Search by name "Yaro" or by role "host"
+    const hostUser = await User.findOne({ name: /Yaro/i }).lean();
     if (hostUser) {
       console.log("Host User found by name:", JSON.stringify(hostUser, null, 2));
     } else {
-      console.log("No user found by name 'Voice Call Club'");
+      console.log("No user found by name 'Yaro'");
       // Let's find any host
       const anyHost = await User.findOne({ role: 'host' }).lean();
       if (anyHost) {

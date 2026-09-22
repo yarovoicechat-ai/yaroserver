@@ -32,8 +32,8 @@ export const validationUpdateUserLimited = [
 
   body("age")
     .optional()
-    .isInt({ min: 1, max: 120 })
-    .withMessage("Age must be a valid integer between 1 and 120"),
+    .isInt({ min: 18, max: 120 })
+    .withMessage("Age must be a valid integer between 18 and 120"),
 
   body("country")
     .optional()

@@ -2,7 +2,8 @@ import mongoose, { Schema, Document } from "mongoose";
 
 export interface IDeletionRequest extends Document {
   userId: mongoose.Types.ObjectId;
-  meethiId: string;
+  yaroId?: string;
+  meethiId?: string;
   name: string;
   role: string;
   phoneNumber?: string;
@@ -15,7 +16,8 @@ export interface IDeletionRequest extends Document {
 const deletionRequestSchema = new Schema<IDeletionRequest>(
   {
     userId: { type: Schema.Types.ObjectId, ref: "User", required: true },
-    meethiId: { type: String, required: true },
+    yaroId: { type: String, required: false },
+    meethiId: { type: String, required: false },
     name: { type: String, required: true },
     role: { type: String, required: true },
     phoneNumber: { type: String },

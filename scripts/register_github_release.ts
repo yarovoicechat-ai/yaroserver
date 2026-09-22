@@ -1,12 +1,12 @@
 import axios from 'axios';
 
-const API_BASE = 'https://api.voicecallclub.com/api';
+const API_BASE = 'https://api.yaroapp.in/api';
 
 async function main(): Promise<void> {
   try {
-    console.log('1. Logging in as Admin to api.voicecallclub.com...');
+    console.log('1. Logging in as Admin to api.yaroapp.in...');
     const loginRes = await axios.post(`${API_BASE}/admin/login`, {
-      email: 'admin@voicecallclub.local',
+      email: 'admin@yaroapp.in',
       password: 'admin@Owner'
     });
 
@@ -38,7 +38,7 @@ async function main(): Promise<void> {
     );
 
     console.log('API Response:', releaseRes.data);
-    console.log('🎉 SUCCESS! TODAY Latest Build v1.8.4 (69.77MB) is NOW ACTIVATED & LIVE on api.voicecallclub.com!');
+    console.log('🎉 SUCCESS! TODAY Latest Build v1.8.4 (69.77MB) is NOW ACTIVATED & LIVE on api.yaroapp.in!');
   } catch (err: any) {
     console.error('❌ Error registering release:', err.response?.data || err.message || err);
   }

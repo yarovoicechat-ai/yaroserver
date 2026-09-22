@@ -27,21 +27,21 @@ export const renderReferralLandingPage = async (req: Request, res: Response) => 
       }
     }
 
-    const playStoreUrl = "https://play.google.com/store/apps/details?id=com.voicecallclub.app";
+    const playStoreUrl = "https://play.google.com/store/apps/details?id=yaro.vc.app&referrer=utm_source%3Dyaroapp%26utm_medium%3Dreferral%26utm_campaign%3Drefer_and_earn";
 
     const html = `<!DOCTYPE html>
 <html lang="en">
 <head>
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
-  <title>Join Meethi Chat — Claim Your 100 Free Welcome Coins!</title>
-  <meta name="description" content="${inviterName} has invited you to join Meethi Chat! Download the app from Google Play and enter code ${inviterCode} to get 100 Free Coins.">
+  <title>Join Yaro — Claim Your 100 Free Welcome Coins!</title>
+  <meta name="description" content="${inviterName} has invited you to join Yaro! Download the app from Google Play and enter code ${inviterCode} to get 100 Free Coins.">
   
   <!-- OpenGraph / Social Meta Tags -->
-  <meta property="og:title" content="Meethi Chat Special Invitation from ${inviterName}">
+  <meta property="og:title" content="Yaro Special Invitation from ${inviterName}">
   <meta property="og:description" content="Use code ${inviterCode} to claim 100 Free Welcome Coins on India's #1 Live Video & Voice Social App.">
-  <meta property="og:image" content="${inviterAvatar || 'https://voicecallclub.com/logo.png'}">
-  <meta property="og:url" content="https://voicecallclub.com/invite?ref=${inviterCode}">
+  <meta property="og:image" content="${inviterAvatar || 'https://yaroapp.in/logo.png'}">
+  <meta property="og:url" content="https://yaroapp.in/invite?ref=${inviterCode}">
   
   <link rel="preconnect" href="https://fonts.googleapis.com">
   <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
@@ -351,10 +351,10 @@ export const renderReferralLandingPage = async (req: Request, res: Response) => 
     <div class="badge">✨ Special Invite</div>
 
     <div class="inviter-card">
-      <img src="${inviterAvatar || 'https://voicecallclub.com/logo.png'}" alt="Inviter" class="inviter-avatar" onerror="this.src='https://voicecallclub.com/logo.png'">
+      <img src="${inviterAvatar || 'https://yaroapp.in/logo.png'}" alt="Inviter" class="inviter-avatar" onerror="this.src='https://yaroapp.in/logo.png'">
       <div class="inviter-info">
         <h4>${inviterName}</h4>
-        <p>invited you to join Meethi Chat!</p>
+        <p>invited you to join Yaro!</p>
       </div>
     </div>
 
@@ -390,7 +390,7 @@ export const renderReferralLandingPage = async (req: Request, res: Response) => 
         <div class="step-num">1</div>
         <div class="step-text">
           <h5>Download & Setup Profile</h5>
-          <p>Install Meethi Chat & enter code <strong>${inviterCode}</strong> to get 100 Free Welcome Coins. Inviter gets 25 Coins!</p>
+          <p>Install Yaro & enter code <strong>${inviterCode}</strong> to get 100 Free Welcome Coins. Inviter gets 25 Coins!</p>
         </div>
       </div>
       <div class="step-item">
@@ -403,7 +403,7 @@ export const renderReferralLandingPage = async (req: Request, res: Response) => 
     </div>
 
     <div class="footer">
-      © 2026 Meethi Chat. All rights reserved.
+      © 2026 Yaro. All rights reserved.
     </div>
   </div>
 

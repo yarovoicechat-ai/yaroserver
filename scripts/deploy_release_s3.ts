@@ -14,14 +14,14 @@ const s3Client = new S3Client({
   }
 });
 
-const API_BASE = 'https://api.voicecallclub.com/api';
+const API_BASE = 'https://api.yaroapp.in/api';
 const BUCKET = (process.env.AWS_S3_BUCKET_NAME || 'talklivedata').trim();
 
 async function main(): Promise<void> {
   try {
     console.log('1. Logging in as Admin...');
     const loginRes = await axios.post(`${API_BASE}/admin/login`, {
-      email: 'admin@voicecallclub.local',
+      email: 'admin@yaroapp.in',
       password: 'admin@Owner'
     });
 
@@ -58,7 +58,7 @@ async function main(): Promise<void> {
     console.log('🎉 AWS S3 Upload Completed Successfully!');
     console.log('Direct AWS S3 URL:', s3Url);
 
-    console.log('4. Registering Release on Live API (api.voicecallclub.com)...');
+    console.log('4. Registering Release on Live API (api.yaroapp.in)...');
     const releaseRes = await axios.post(
       `${API_BASE}/v1/app-releases/upload`,
       {

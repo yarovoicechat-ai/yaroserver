@@ -490,6 +490,19 @@ export const startCall = async (req: AuthRequest, res: Response) => {
       return sendResponse(res, 404, false, "Host user not found");
     }
 
+    // Enforce UGC user block settings bidirectionally
+    const callerIdStr = liveCaller._id.toString();
+    const hostIdStr = host._id.toString();
+    const isCallerBlocked = (host.blockedUsers || []).some((id: any) => id.toString() === callerIdStr);
+    const isHostBlocked = (liveCaller.blockedUsers || []).some((id: any) => id.toString() === hostIdStr);
+    if (isCallerBlocked || isHostBlocked) {
+      console.log('[CALL] USER BLOCK RESTRICTION | Caller or Host blocked');
+      return sendResponse(res, 403, false, "Cannot place call due to user privacy and block settings.", {
+        code: 'USER_BLOCKED',
+        errorCode: 'USER_BLOCKED'
+      });
+    }
+
     // Clear an orphaned busy flag only when no active transaction exists.
     if (host.isBusy) {
       const activeCall = await CoinsTransaction.findOne({

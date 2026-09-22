@@ -1,4 +1,5 @@
 import { Request, Response, NextFunction } from 'express';
+import mongoose from 'mongoose';
 import { Report } from '../models/report.model';
 import { User } from '../models/user.model';
 import sendResponse from '../utils/reponse';
@@ -172,11 +173,29 @@ export const createReport = async (
     next: NextFunction
 ): Promise<void> => {
     try {
-        const { reportedUserId, reason, description, severity } = req.body;
+        const { reportedUserId, reason, description, severity, reportedType } = req.body;
         const reporterId = (req as any).user?.id || (req as any).user?._id;
 
         if (!reporterId || !reportedUserId || !reason) {
             res.status(400).json({ success: false, message: 'Reported user and reason are required' });
+            return;
+        }
+
+        // Resolve reportedUserId if numeric or ObjectId string
+        let targetUser = null;
+        if (!isNaN(Number(reportedUserId))) {
+            targetUser = await User.findOne({ userId: Number(reportedUserId), isDeleted: false });
+        }
+        if (!targetUser && mongoose.Types.ObjectId.isValid(reportedUserId)) {
+            targetUser = await User.findOne({ _id: reportedUserId, isDeleted: false });
+        }
+        if (!targetUser) {
+            res.status(404).json({ success: false, message: 'Reported user not found' });
+            return;
+        }
+
+        if ((targetUser as any)._id.toString() === reporterId.toString()) {
+            res.status(400).json({ success: false, message: 'You cannot report your own account' });
             return;
         }
 
@@ -187,9 +206,10 @@ export const createReport = async (
         const report = await Report.create({
             reportId,
             reporterId,
-            reportedUserId,
+            reportedUserId: targetUser._id,
+            reportedType: reportedType || (targetUser.role === 'host' ? 'host' : 'user'),
             reason,
-            description,
+            description: description || reason,
             severity: severity || 'medium',
             status: 'pending',
         });

@@ -6,10 +6,10 @@ import { AuthRequest } from "../middlewares/authorize.middleware";
 import { User } from "../models/user.model";
 import { config } from "../configs/envConfig";
 import { generateRandomName, generateToken, generateUniqueId } from "../utils/generator";
-import { OAuth2Client } from 'google-auth-library';
 import { Logger } from "../utils/logger";
 import { generateSecureHash, verifySecureHash } from "../utils/passwordHelper";
 import { verifyFirebasePhoneToken } from "../utils/firebasePhoneVerification";
+import { GoogleIdTokenVerificationError, verifyGoogleIdToken } from "../utils/googleIdToken";
 import { APP_ACCOUNT_ROLES } from "../utils/accountScope";
 import { DeviceLimit } from "../models/deviceLimit.model";
 import { getCachedSettings } from "./settingsController";
@@ -148,6 +148,19 @@ export const userRegister = async (req: AuthRequest, res: Response) => {
       return sendResponse(res, 400, false, "Phone number, password, gender and Firebase verification are required");
     }
 
+    const userAge = Number(age);
+    if (!userAge || isNaN(userAge) || userAge < 18 || userAge > 120) {
+      return sendResponse(
+        res,
+        400,
+        false,
+        "You must be at least 18 years old to register on Yaro.",
+        undefined,
+        undefined,
+        "AGE_RESTRICTED"
+      );
+    }
+
     const firebaseVerification = await verifyFirebasePhoneToken(firebaseIdToken, phoneNumber);
     if (!firebaseVerification.success) {
       return sendResponse(res, 401, false, firebaseVerification.message);
@@ -186,11 +199,11 @@ export const userRegister = async (req: AuthRequest, res: Response) => {
     let image = "";
     switch (gender) {
       case "male": {
-        image = "https://api.voicecallclub.com/uploads/avatars/male_default.webp";
+        image = "https://api.yaroapp.in/uploads/avatars/male_default.webp";
         break;
       }
       case "female": {
-        image = "https://api.voicecallclub.com/uploads/avatars/female_default.webp";
+        image = "https://api.yaroapp.in/uploads/avatars/female_default.webp";
         break;
       }
       default: {
@@ -214,7 +227,7 @@ export const userRegister = async (req: AuthRequest, res: Response) => {
       language,
       country: countryObj,
       authType: "phone",
-      age: Number(age) || 18,
+      age: userAge,
       device: {
         createdDeviceId: deviceId || "",
         currentDeviceId: deviceId || "",
@@ -389,17 +402,12 @@ export const userLogout = async (req: AuthRequest, res: Response, next: NextFunc
 
 // ==================== GOOGLE AUTH ====================
 export const userGoogleAuth = async (req: Request, res: Response) => {
-  const client = new OAuth2Client(config.GOOGLE_CLIENT_ID);
-
   try {
     const { googleIdToken, deviceId, userFrom, gender, language, country, age } = req.body;
 
     if (!googleIdToken) return sendResponse(res, 400, false, "Google token required");
 
-    const ticket = await client.verifyIdToken({
-      idToken: googleIdToken,
-      audience: config.GOOGLE_CLIENT_ID,
-    });
+    const ticket = await verifyGoogleIdToken(googleIdToken);
 
     const payload = ticket.getPayload();
     if (!payload) return sendResponse(res, 400, false, "Invalid credentials");
@@ -439,6 +447,19 @@ export const userGoogleAuth = async (req: Request, res: Response) => {
     const userCountry = (typeof country === 'string' ? { name: country } : country) || { name: 'India', code: '+91', flag: '🇮🇳' };
     if (!gender || !Array.isArray(language) || language.length < 2 || !userCountry?.name) {
       return sendResponse(res, 428, false, "Complete gender, country and 2 languages to create your account");
+    }
+
+    const userAge = Number(age);
+    if (!userAge || isNaN(userAge) || userAge < 18 || userAge > 120) {
+      return sendResponse(
+        res,
+        400,
+        false,
+        "You must be at least 18 years old to register on Yaro.",
+        undefined,
+        undefined,
+        "AGE_RESTRICTED"
+      );
     }
 
     const existingEmailUser = await User.findOne({ email: googleUserInfo.email, role: { $in: APP_ACCOUNT_ROLES }, isDeleted: false });
@@ -484,11 +505,11 @@ export const userGoogleAuth = async (req: Request, res: Response) => {
     let image;
     switch (gender) {
       case "male": {
-        image = "https://api.voicecallclub.com/uploads/avatars/male_default.webp";
+        image = "https://api.yaroapp.in/uploads/avatars/male_default.webp";
         break;
       }
       case "female": {
-        image = "https://api.voicecallclub.com/uploads/avatars/female_default.webp";
+        image = "https://api.yaroapp.in/uploads/avatars/female_default.webp";
         break;
       }
       default: {
@@ -508,7 +529,7 @@ export const userGoogleAuth = async (req: Request, res: Response) => {
       emailVerified: payload.email_verified || false,
       language,
       country: userCountry,
-      age: Number(age) || 18,
+      age: userAge,
       device: userFrom === "app" ? { createdDeviceId: deviceId || "", currentDeviceId: deviceId || "", loggedInDeviceIds: deviceId ? [deviceId] : [] } : {},
     });
 
@@ -521,8 +542,18 @@ export const userGoogleAuth = async (req: Request, res: Response) => {
     return sendResponse(res, 201, true, "Google signup successful", { accessToken, refreshToken, role: userCreated.role, gender: userCreated.gender });
 
   } catch (error: any) {
-    if (error.message && error.message.includes("Wrong recipient")) {
-      console.error(`[GOOGLE AUTH DEBUG] Audience mismatch. Backend expected: ${config.GOOGLE_CLIENT_ID}`);
+    if (error instanceof GoogleIdTokenVerificationError) {
+      console.warn("[GOOGLE AUTH] Token rejected: " + error.reason + "; allowed audience count=" + config.GOOGLE_CLIENT_IDS.length);
+      await Logger("googleAuth", error.originalError);
+      return sendResponse(
+        res,
+        401,
+        false,
+        "Google sign-in could not be verified. Please try again.",
+        undefined,
+        undefined,
+        "INVALID_GOOGLE_TOKEN"
+      );
     }
     await Logger("googleAuth", error);
     return sendResponse(res, 500, false, error.message || "Internal Server Error");
@@ -542,9 +573,9 @@ export const userRefreshToken = async (req: Request, res: Response, next: NextFu
         return sendResponse(res as any, 401, false, "Invalid refresh token");
       }
 
-      const user = await User.findOne({ userId: decoded.userId });
+      const user = await User.findOne({ userId: decoded.userId, isDeleted: false });
       if (!user) {
-        return sendResponse(res as any, 404, false, "User not found");
+        return sendResponse(res as any, 404, false, "Account deleted or not found");
       }
 
       const accessToken = generateToken(decoded.userId, "access");
@@ -569,11 +600,7 @@ export const linkAccount = async (req: AuthRequest, res: Response) => {
     if (!user) return sendResponse(res, 404, false, "User not found");
 
     if (googleIdToken) {
-      const client = new OAuth2Client(config.GOOGLE_CLIENT_ID);
-      const ticket = await client.verifyIdToken({
-        idToken: googleIdToken,
-        audience: config.GOOGLE_CLIENT_ID,
-      });
+      const ticket = await verifyGoogleIdToken(googleIdToken);
       const payload = ticket.getPayload();
 
       if (!payload) return sendResponse(res, 400, false, "Invalid Google credentials");
@@ -611,6 +638,19 @@ export const linkAccount = async (req: AuthRequest, res: Response) => {
 
     return sendResponse(res, 400, false, "Provide either googleIdToken or phoneToken with phoneNumber");
   } catch (error: any) {
+    if (error instanceof GoogleIdTokenVerificationError) {
+      console.warn("[GOOGLE LINK] Token rejected: " + error.reason + "; allowed audience count=" + config.GOOGLE_CLIENT_IDS.length);
+      await Logger("linkAccount", error.originalError);
+      return sendResponse(
+        res,
+        401,
+        false,
+        "Google account could not be verified. Please try again.",
+        undefined,
+        undefined,
+        "INVALID_GOOGLE_TOKEN"
+      );
+    }
     await Logger("linkAccount", error);
     return sendResponse(res, 500, false, error.message);
   }

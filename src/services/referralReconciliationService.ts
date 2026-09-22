@@ -111,7 +111,7 @@ export const reconcileIncompleteStep1Rewards = async (metrics: ReconciliationMet
           await Referral.create({
             referrer: referrerUser._id,
             referee: refereeUser._id,
-            referralCode: `MC${refereeUser.userId}`,
+            referralCode: `YR${refereeUser.userId}`,
             referrerReward: 25,
             refereeReward: 100,
             step1Claimed: true,

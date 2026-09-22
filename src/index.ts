@@ -29,29 +29,33 @@ app.disable("x-powered-by");
 
 // 4. CORS Configuration - Restrict origins
 const allowedOrigins = [
-  process.env.CORS_ORIGIN || 'http://localhost:3000',
+  process.env.CORS_ORIGIN || 'https://yaroapp.in',
+  'http://localhost:3100',
+  'http://localhost:3101',
+  'http://localhost:3102',
+  'http://localhost:3105',
   'http://localhost:3000',
   'http://localhost:3001',
   'http://localhost:5173',
   'http://localhost:5174',
   'http://localhost:5050',
 
-  'https://voicecallclub.com',
-  'https://www.voicecallclub.com',
-  'https://api.voicecallclub.com',
+  'https://yaroapp.in',
+  'https://www.yaroapp.in',
+  'https://api.yaroapp.in',
 
-  'https://admin.voicecallclub.com',
-  'http://admin.voicecallclub.com',
+  'https://admin.yaroapp.in',
+  'http://admin.yaroapp.in',
 
-  'https://agency.voicecallclub.com',
-  'https://operator.voicecallclub.com',
-  'https://host.voicecallclub.com',
-  'https://adminjoin.voicecallclub.com',
-  'https://support.voicecallclub.com',
-  'https://superadmin.voicecallclub.com',
+  'https://agency.yaroapp.in',
+  'https://operator.yaroapp.in',
+  'https://host.yaroapp.in',
+  'https://adminjoin.yaroapp.in',
+  'https://support.yaroapp.in',
+  'https://superadmin.yaroapp.in',
 
-  'https://management.voicecallclub.com',
-  'http://management.voicecallclub.com',
+  'https://management.yaroapp.in',
+  'http://management.yaroapp.in',
 
   'https://danilo-syngamic-unterrifically.ngrok-free.dev',
 ].filter(Boolean);
@@ -59,7 +63,7 @@ const allowedOrigins = [
 const isLocalhostOrigin = (origin: string) => {
   try {
     const url = new URL(origin);
-    return ['localhost', '127.0.0.1'].includes(url.hostname) || url.hostname.endsWith('.voicecallclub.com');
+    return ['localhost', '127.0.0.1'].includes(url.hostname) || url.hostname.endsWith('.yaroapp.in') || url.hostname === 'yaroapp.in';
   } catch {
     return false;
   }
@@ -104,16 +108,6 @@ app.use("/policies", express.static(path.join(__dirname, "../policies")));
 app.use(express.json({ limit: '50mb' })); // Increased for document base64 payloads
 app.use(express.urlencoded({ extended: true, limit: '50mb' }));
 
-// 2. NoSQL Injection Prevention (must be after body parsers for Express v5)
-// Only sanitize body and params, not query (Express v5 compatibility)
-// app.use(
-//   mongoSanitize({
-//     replaceWith: "_",
-//     onSanitize: ({ key }: { key: string }) => {
-//       console.warn(`Sanitized input: ${key}`);
-//     },
-//   } as any)
-// );
 // Routes
 app.use("/api/user", UserRoutes);
 app.use("/api/v1/user", UserRoutes);
@@ -213,13 +207,11 @@ app.get("/api/v1/analytics/ai-insights", async (_req, res) => {
 });
 app.get("/api/system-messages", verifyToken, getSystemMessages);
 
-
-
 // Root Route
 app.get("/", (req, res) => {
   res.status(200).json({
     success: true,
-    service: "VoiceCallClub API",
+    service: "Yaro API",
     message: "API is running successfully",
     version: "1.0.0",
     timestamp: new Date().toISOString()
@@ -240,11 +232,10 @@ app.get("/health", (req, res) => {
 app.get("/api", (req, res) => {
   res.status(200).json({
     success: true,
-    service: "VoiceCallClub API",
+    service: "Yaro API",
     version: "1.0.0"
   });
 });
-
 
 // Error handler
 app.use(errorHandler);
@@ -267,7 +258,7 @@ const io = new Server(httpServer, {
 chatSocket(io);
 
 const startServer = async (): Promise<void> => {
-  const port = Number(config.PORT || 3001);
+  const port = Number(config.PORT || 3101);
   const isAvailable = await checkPortAvailable(port);
   if (!isAvailable) {
     throw new Error(`Port ${port} is already in use`);

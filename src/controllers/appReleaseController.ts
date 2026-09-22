@@ -102,8 +102,7 @@ export const getLatestRelease = async (_req: Request, res: Response) => {
     }
 
     if (!activeRelease) {
-      // Fallback for default APK if no DB record exists yet
-      const defaultApkPath = path.resolve(process.cwd(), "../VoiceCallClub-release.apk");
+      const defaultApkPath = path.resolve(process.cwd(), "../Yaro-release.apk");
       const exists = fs.existsSync(defaultApkPath);
       return res.status(200).json({
         success: true,
@@ -113,14 +112,14 @@ export const getLatestRelease = async (_req: Request, res: Response) => {
           downloadUrl: "/api/v1/app-releases/download",
           fileType: "apk",
           fileSizeFormatted: "64.3 MB",
-          releaseNotes: "Latest production build for Voice Call Club.",
+          releaseNotes: "Latest production build for Yaro.",
           isActive: true,
           hasBuild: exists,
         },
       });
     }
 
-    const host = process.env.BASE_URL || "https://api.voicecallclub.com/api";
+    const host = process.env.BASE_URL || "https://api.yaroapp.in/api";
     const fullDownloadUrl = `${host.replace(/\/api$/, "")}/api/v1/app-releases/download`;
 
     return res.status(200).json({
@@ -169,7 +168,7 @@ export const downloadLatestRelease = async (_req: Request, res: Response) => {
 
       if (release.filePath && fs.existsSync(release.filePath)) {
         await AppRelease.updateOne({ _id: release._id }, { $inc: { downloadCount: 1 } });
-        const downloadFileName = `VoiceCallClub-v${release.versionName}.${release.fileType}`;
+        const downloadFileName = `Yaro-v${release.versionName}.${release.fileType}`;
         res.setHeader("Content-Disposition", `attachment; filename="${downloadFileName}"`);
         res.setHeader("Content-Type", release.fileType === "apk" ? "application/vnd.android.package-archive" : "application/octet-stream");
         return res.sendFile(path.resolve(release.filePath));
@@ -179,7 +178,7 @@ export const downloadLatestRelease = async (_req: Request, res: Response) => {
         const localRelPath = path.resolve(process.cwd(), `.${release.fileUrl}`);
         if (fs.existsSync(localRelPath)) {
           await AppRelease.updateOne({ _id: release._id }, { $inc: { downloadCount: 1 } });
-          const downloadFileName = `VoiceCallClub-v${release.versionName}.${release.fileType}`;
+          const downloadFileName = `Yaro-v${release.versionName}.${release.fileType}`;
           res.setHeader("Content-Disposition", `attachment; filename="${downloadFileName}"`);
           res.setHeader("Content-Type", release.fileType === "apk" ? "application/vnd.android.package-archive" : "application/octet-stream");
           return res.sendFile(localRelPath);
@@ -190,6 +189,8 @@ export const downloadLatestRelease = async (_req: Request, res: Response) => {
     // Fallback: Check root and uploads directory for fallback APK
     const candidatePaths = [
       path.resolve(process.cwd(), "uploads/releases/app-release.apk"),
+      path.resolve(process.cwd(), "../Yaro-release.apk"),
+      path.resolve(process.cwd(), "./Yaro-release.apk"),
       path.resolve(process.cwd(), "../VoiceCallClub-release.apk"),
       path.resolve(process.cwd(), "./VoiceCallClub-release.apk"),
     ];
@@ -206,14 +207,14 @@ export const downloadLatestRelease = async (_req: Request, res: Response) => {
 
     for (const fallbackPath of candidatePaths) {
       if (fs.existsSync(fallbackPath)) {
-        res.setHeader("Content-Disposition", 'attachment; filename="VoiceCallClub-v1.9.2.apk"');
+        res.setHeader("Content-Disposition", 'attachment; filename="Yaro-v1.9.2.apk"');
         res.setHeader("Content-Type", "application/vnd.android.package-archive");
         return res.sendFile(fallbackPath);
       }
     }
 
     // Final fallback: redirect to website static release build
-    return res.redirect("https://voicecallclub.com/app-release.apk");
+    return res.redirect("https://yaroapp.in/app-release.apk");
   } catch (error: any) {
     console.error("[AppRelease] downloadLatestRelease error:", error);
     return sendResponse(res, 500, false, "Download failed due to server error.");

@@ -10,13 +10,13 @@ cloudinary.config({
   secure: true
 });
 
-const API_BASE = 'https://api.voicecallclub.com/api';
+const API_BASE = 'https://api.yaroapp.in/api';
 
 async function main(): Promise<void> {
   try {
     console.log('1. Logging in as Admin...');
     const loginRes = await axios.post(`${API_BASE}/admin/login`, {
-      email: 'admin@voicecallclub.local',
+      email: 'admin@yaroapp.in',
       password: 'admin@Owner'
     });
 
@@ -46,7 +46,7 @@ async function main(): Promise<void> {
     console.log('Cloudinary Upload Success!');
     console.log('Secure URL:', uploadRes.secure_url);
 
-    console.log('4. Registering Release on Production API (api.voicecallclub.com)...');
+    console.log('4. Registering Release on Production API (api.yaroapp.in)...');
     const releaseRes = await axios.post(
       `${API_BASE}/v1/app-releases/upload`,
       {

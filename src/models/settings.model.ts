@@ -48,9 +48,9 @@ const SettingsSchema = new Schema<ISettings>({
     agoraCertificateEncrypted: { type: String, default: '', select: false },
     privacyPolicy: {
         type: String,
-        default: "<h1>Privacy Policy</h1><br><p>This policy outlines how the Voice Call Club app collects, uses, and protects your information, including Camera, Microphone, and Photo Library data.</p>"
+        default: "<h1>Privacy Policy</h1><br><p>This policy outlines how the Yaro app collects, uses, and protects your information, including Camera, Microphone, and Photo Library data.</p>"
     },
-    termsAndConditions: { type: String, default: "<h1>Terms & Conditions</h1><p>Welcome to Voice Call Club app...</p>" },
+    termsAndConditions: { type: String, default: "<h1>Terms & Conditions</h1><p>Welcome to Yaro app...</p>" },
 }, { timestamps: true });
 
 export const Settings = mongoose.model<ISettings>('Settings', SettingsSchema);

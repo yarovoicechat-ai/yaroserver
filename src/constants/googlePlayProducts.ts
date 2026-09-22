@@ -1,5 +1,5 @@
 /**
- * Centralized Google Play Product Catalog for Meethi Chat (Server-side)
+ * Centralized Google Play Product Catalog for Yaro (Server-side)
  *
  * Immutable mapping of product ID to diamond entitlement and official INR price.
  * Server must ALWAYS derive diamond quantity from this catalog and never trust

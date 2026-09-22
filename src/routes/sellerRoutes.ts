@@ -1,5 +1,6 @@
-import { Router } from 'express';
-import { verifyToken } from '../middlewares/authorize.middleware';
+import { Router, Response, NextFunction } from 'express';
+import { verifyToken, AuthRequest } from '../middlewares/authorize.middleware';
+import sendResponse from '../utils/reponse';
 import {
     verifyUserForSeller,
     rechargeUserBySeller,
@@ -13,12 +14,20 @@ import {
 
 const router = Router();
 
-// Public / Authenticated Config
-router.get('/config', getSellerConfig);
+// Middleware: Strictly require coinSeller or Admin role to prevent ordinary user bypass
+const requireSellerRole = (req: AuthRequest, res: Response, next: NextFunction) => {
+    const allowedRoles = ['coinSeller', 'admin', 'superAdmin', 'owner'];
+    if (!req.user || !allowedRoles.includes(req.user.role)) {
+        return sendResponse(res, 403, false, "Access denied: Seller authorization required.");
+    }
+    next();
+};
 
-// Protected Seller Portal Endpoints
+// Protected Seller Portal Endpoints - enforce both JWT verification and Seller/Admin role
 router.use(verifyToken);
+router.use(requireSellerRole);
 
+router.get('/config', getSellerConfig);
 router.get('/users/:userId', verifyUserForSeller);
 router.post('/recharge', rechargeUserBySeller);
 router.get('/dashboard', getSellerDashboard);

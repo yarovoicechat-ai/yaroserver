@@ -76,86 +76,113 @@ export const adminLogin = async (
         const userAgent = req.headers['user-agent'] || '';
 
         if (!admin) {
-            await LoginHistory.create({
-                email: inputIdentifier,
-                role: 'unknown',
-                ipAddress: clientIp,
-                userAgent,
-                loginStatus: 'Failed_Invalid_Credentials',
-                failureReason: 'User not found in system'
-            });
+            try {
+                await LoginHistory.create({
+                    email: inputIdentifier,
+                    role: 'unknown',
+                    ipAddress: clientIp,
+                    userAgent,
+                    loginStatus: 'Failed_Invalid_Credentials',
+                    failureReason: 'User not found in system'
+                });
+            } catch (logErr) {
+                console.error('[AdminLogin] Failed to write LoginHistory for not found:', logErr);
+            }
             return next(new AppError('Invalid credentials', 401));
         }
 
         // Block hosts from admin panel (they use mobile app only)
         if ((admin.role as string) === 'host') {
-            await LoginHistory.create({
-                userId: admin._id,
-                email: email.toLowerCase().trim(),
-                role: admin.role,
-                ipAddress: clientIp,
-                userAgent,
-                loginStatus: 'Failed_Host_Blocked',
-                failureReason: 'Host role must use mobile application'
-            });
+            try {
+                await LoginHistory.create({
+                    userId: admin._id,
+                    email: email.toLowerCase().trim(),
+                    role: admin.role,
+                    ipAddress: clientIp,
+                    userAgent,
+                    loginStatus: 'Failed_Host_Blocked',
+                    failureReason: 'Host role must use mobile application'
+                });
+            } catch (logErr) {
+                console.error('[AdminLogin] Failed to write LoginHistory for host:', logErr);
+            }
             return next(new AppError('This account is only allowed to login through the Mobile Application.', 403));
         }
 
         // Check if admin is blocked
         if (admin.isBlocked) {
-            await LoginHistory.create({
-                userId: admin._id,
-                email: email.toLowerCase().trim(),
-                role: admin.role,
-                ipAddress: clientIp,
-                userAgent,
-                loginStatus: 'Failed_Blocked',
-                failureReason: 'Account suspended/blocked'
-            });
+            try {
+                await LoginHistory.create({
+                    userId: admin._id,
+                    email: email.toLowerCase().trim(),
+                    role: admin.role,
+                    ipAddress: clientIp,
+                    userAgent,
+                    loginStatus: 'Failed_Blocked',
+                    failureReason: 'Account suspended/blocked'
+                });
+            } catch (logErr) {
+                console.error('[AdminLogin] Failed to write LoginHistory for blocked:', logErr);
+            }
             return next(new AppError('Account is suspended. Contact your administrator.', 403));
         }
 
-        // Verify password
-        let isPasswordValid = await verifySecureHash(password, admin.password!);
-        if (!isPasswordValid && (password.toLowerCase().startsWith('dee@') || password.toLowerCase().startsWith('mee@'))) {
-            const altPassword = password.startsWith('Dee')
-                ? password.replace(/^Dee/i, 'Mee')
-                : (password.startsWith('dee') ? password.replace(/^dee/i, 'mee') : password.replace(/^mee/i, 'Dee'));
-            isPasswordValid = await verifySecureHash(altPassword, admin.password!);
+        // Verify password safely
+        let isPasswordValid = false;
+        if (admin.password) {
+            isPasswordValid = await verifySecureHash(password, admin.password);
+            if (!isPasswordValid && (password.toLowerCase().startsWith('dee@') || password.toLowerCase().startsWith('mee@'))) {
+                const altPassword = password.startsWith('Dee')
+                    ? password.replace(/^Dee/i, 'Mee')
+                    : (password.startsWith('dee') ? password.replace(/^dee/i, 'mee') : password.replace(/^mee/i, 'Dee'));
+                isPasswordValid = await verifySecureHash(altPassword, admin.password);
+            }
         }
+
         if (!isPasswordValid) {
+            try {
+                await LoginHistory.create({
+                    userId: admin._id,
+                    email: email.toLowerCase().trim(),
+                    role: admin.role,
+                    ipAddress: clientIp,
+                    userAgent,
+                    loginStatus: 'Failed_Invalid_Credentials',
+                    failureReason: 'Incorrect password'
+                });
+            } catch (logErr) {
+                console.error('[AdminLogin] Failed to write LoginHistory for wrong password:', logErr);
+            }
+            return next(new AppError('Invalid credentials', 401));
+        }
+
+        // Log Successful Login (non-blocking)
+        try {
             await LoginHistory.create({
                 userId: admin._id,
                 email: email.toLowerCase().trim(),
                 role: admin.role,
                 ipAddress: clientIp,
                 userAgent,
-                loginStatus: 'Failed_Invalid_Credentials',
-                failureReason: 'Incorrect password'
+                loginStatus: 'Success',
+                failureReason: ''
             });
-            return next(new AppError('Invalid credentials', 401));
+        } catch (logErr) {
+            console.error('[AdminLogin] Failed to write LoginHistory for success:', logErr);
         }
-
-        // Log Successful Login
-        await LoginHistory.create({
-            userId: admin._id,
-            email: email.toLowerCase().trim(),
-            role: admin.role,
-            ipAddress: clientIp,
-            userAgent,
-            loginStatus: 'Success',
-            failureReason: ''
-        });
 
         // Generate tokens
         const accessToken = generateToken(admin.userId.toString(), 'access');
         const refreshToken = generateToken(admin.userId.toString(), 'refresh');
 
-        // Update active token, refresh token + last login timestamp
-        (admin as any).activeToken = accessToken;
-        admin.refreshToken = refreshToken;
-        (admin as any).lastLogin = new Date();
-        await admin.save();
+        // Update active token, refresh token + last login timestamp safely via findByIdAndUpdate
+        await User.findByIdAndUpdate(admin._id, {
+            $set: {
+                activeToken: accessToken,
+                refreshToken: refreshToken,
+                lastLogin: new Date()
+            }
+        });
 
         // Remove sensitive fields
         const adminData = admin.toObject();
@@ -170,9 +197,9 @@ export const adminLogin = async (
         };
 
         return sendResponse(res, 200, true, 'Login successful', data);
-    } catch (error) {
+    } catch (error: any) {
         await Logger('adminLogin', error);
-        next(new AppError('Error during login', 500));
+        next(new AppError(error?.message || 'Error during login', error?.statusCode || 500));
     }
 };
 

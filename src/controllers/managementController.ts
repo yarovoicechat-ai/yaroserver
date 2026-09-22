@@ -906,7 +906,7 @@ export const getSystemLogs = async (req: Request, res: Response, next: NextFunct
     try {
         // Mock server console/error logs aggregation for management panel
         const mockLogs = [
-            { timestamp: new Date(), level: 'INFO', message: 'MithiChat Server initialized on Port 3001' },
+            { timestamp: new Date(), level: 'INFO', message: 'Yaro Server initialized on Port 3101' },
             { timestamp: new Date(Date.now() - 60000), level: 'INFO', message: 'MongoDB connection established successfully' },
             { timestamp: new Date(Date.now() - 120000), level: 'INFO', message: 'Redis adapter listening on port 6379' },
             { timestamp: new Date(Date.now() - 300000), level: 'WARN', message: 'Firebase service account path config not set, running in offline mode' },
@@ -1007,6 +1007,10 @@ export const processDeletionRequest = async (req: Request, res: Response, next: 
         const delReq = await DeletionRequest.findById(id);
         if (!delReq) {
             return sendResponse(res, 404, false, 'Deletion request not found');
+        }
+
+        if (delReq.status === 'approved' && action === 'reject') {
+            return sendResponse(res, 400, false, 'Cannot reject an account deletion that has already been executed and completed.');
         }
 
         if (action === 'approve') {

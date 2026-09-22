@@ -44,9 +44,10 @@ export const validationUserCreate = [
       .withMessage("Firebase phone verification is required"),
 
   body("age")
-    .optional()
-    .isInt({ min: 1, max: 120 })
-    .withMessage("Age must be a valid integer between 1 and 120"),
+    .notEmpty()
+    .withMessage("Age is required to register")
+    .isInt({ min: 18, max: 120 })
+    .withMessage("You must be at least 18 years old to register on Yaro"),
 ];
 
 export const validationUserLogin = [
@@ -80,4 +81,9 @@ export const validationGoogleAuth = [
     .optional()
     .isString()
     .withMessage("Device ID must be a string"),
+
+  body("age")
+    .optional()
+    .isInt({ min: 18, max: 120 })
+    .withMessage("You must be at least 18 years old to register on Yaro"),
 ];

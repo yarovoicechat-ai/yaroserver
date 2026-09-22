@@ -473,7 +473,7 @@ export default function AccountScreen() {
     screenName: "Manage User ID & Credentials",
     screenCategory: "User Profile",
     filePath: "src/screens/user/IdManage.js",
-    description: "Manage MeethiChat custom numeric ID and account security credentials.",
+    description: "Manage Yaro custom numeric ID and account security credentials.",
     allowScreenshot: false,
     allowScreenRecording: false,
     flagSecureEnabled: true,
@@ -1040,7 +1040,7 @@ export default function LanguageScreen() {
   },
   {
     screenCode: "AboutUs",
-    screenName: "About MeethiChat App",
+    screenName: "About Yaro App",
     screenCategory: "General",
     filePath: "src/screens/app/AboutUs.js",
     description: "App version details and company info.",

@@ -1,7 +1,7 @@
 module.exports = {
   apps: [
     {
-      name: 'voicecallclub-backend-cluster',
+      name: 'yaro-backend-cluster',
       script: './dist/index.js',
       instances: 'max',
       exec_mode: 'cluster',
@@ -9,7 +9,7 @@ module.exports = {
       max_memory_restart: '1G',
       env_production: {
         NODE_ENV: 'production',
-        PORT: 5000,
+        PORT: 3101,
       },
       kill_timeout: 5000,
       listen_timeout: 5000,
