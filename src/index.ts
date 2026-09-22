@@ -207,6 +207,13 @@ app.get("/api/v1/analytics/ai-insights", async (_req, res) => {
 });
 app.get("/api/system-messages", verifyToken, getSystemMessages);
 
+// Enterprise Feature Flag Client Evaluation & Telemetry Ingestion
+import { evaluateClientFlags } from "./controllers/featureFlagController";
+import { recordCallTelemetry } from "./controllers/callTelemetryController";
+app.post("/api/v1/config/flags/evaluate", evaluateClientFlags);
+app.get("/api/v1/config/flags", evaluateClientFlags);
+app.post("/api/call/telemetry", recordCallTelemetry);
+
 // Root Route
 app.get("/", (req, res) => {
   res.status(200).json({

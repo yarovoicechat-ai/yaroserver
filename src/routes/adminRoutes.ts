@@ -466,6 +466,88 @@ router.post('/help/resolve', verifyToken, replyHelpTicket);
 router.post('/help/:id/reply', verifyToken, replyHelpTicket);
 router.patch('/help/:id/reply', verifyToken, replyHelpTicket);
 
+// ============ Enterprise Platform Command Center Endpoints ============
+import {
+    getFinanceOverview,
+    getReconciliationStatus,
+    runReconciliation,
+    adjustWalletBalance
+} from '../controllers/financeCommandController';
+import {
+    getActiveCallsWithTelemetry,
+    forceTerminateCall,
+    getCallDiagnostics,
+    recordCallTelemetry
+} from '../controllers/callTelemetryController';
+import {
+    getActiveRoomsAdmin,
+    emergencyCloseRoom
+} from '../controllers/liveRoomAdminController';
+import {
+    getAllFeatureFlags,
+    getFeatureFlagByKey,
+    createFeatureFlag,
+    updateFeatureFlag,
+    deleteFeatureFlag,
+    triggerKillSwitch
+} from '../controllers/featureFlagController';
+import {
+    getCampaigns,
+    getCampaignById,
+    createCampaign,
+    dispatchCampaign,
+    cancelCampaign
+} from '../controllers/campaignController';
+import {
+    getSegments,
+    getSegmentById,
+    createSegment,
+    updateSegment,
+    deleteSegment,
+    previewSegmentCount,
+    getSegmentUsersList
+} from '../controllers/segmentController';
+
+// Finance Command
+router.get('/finance/overview', verifyToken, getFinanceOverview);
+router.get('/finance/reconciliation-status', verifyToken, getReconciliationStatus);
+router.post('/finance/run-reconciliation', verifyToken, runReconciliation);
+router.post('/wallet/adjust', verifyToken, adjustWalletBalance);
+
+// Live Operations
+router.get('/calls/active', verifyToken, getActiveCallsWithTelemetry);
+router.post('/calls/:id/terminate', verifyToken, forceTerminateCall);
+router.get('/calls/:id/diagnostics', verifyToken, getCallDiagnostics);
+router.post('/calls/telemetry', recordCallTelemetry);
+
+router.get('/rooms/active', verifyToken, getActiveRoomsAdmin);
+router.post('/rooms/:id/close', verifyToken, emergencyCloseRoom);
+
+// Feature Flags
+router.get('/feature-flags', verifyToken, getAllFeatureFlags);
+router.get('/feature-flags/:keyOrId', verifyToken, getFeatureFlagByKey);
+router.post('/feature-flags', verifyToken, createFeatureFlag);
+router.put('/feature-flags/:keyOrId', verifyToken, updateFeatureFlag);
+router.patch('/feature-flags/:keyOrId', verifyToken, updateFeatureFlag);
+router.delete('/feature-flags/:keyOrId', verifyToken, deleteFeatureFlag);
+router.post('/feature-flags/:keyOrId/kill-switch', verifyToken, triggerKillSwitch);
+
+// Campaigns
+router.get('/campaigns', verifyToken, getCampaigns);
+router.get('/campaigns/:id', verifyToken, getCampaignById);
+router.post('/campaigns', verifyToken, createCampaign);
+router.post('/campaigns/dispatch', verifyToken, dispatchCampaign);
+router.patch('/campaigns/:id/cancel', verifyToken, cancelCampaign);
+
+// Segments
+router.get('/segments', verifyToken, getSegments);
+router.get('/segments/:id', verifyToken, getSegmentById);
+router.post('/segments', verifyToken, createSegment);
+router.patch('/segments/:id', verifyToken, updateSegment);
+router.delete('/segments/:id', verifyToken, deleteSegment);
+router.post('/segments/preview-count', verifyToken, previewSegmentCount);
+router.get('/segments/:id/users', verifyToken, getSegmentUsersList);
+
 export default router;
 
 
