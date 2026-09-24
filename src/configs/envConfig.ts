@@ -10,8 +10,11 @@ dotenv.config({ path: path.resolve(process.cwd(), ".env") });
 // OAuth client IDs are public identifiers. Keep the Web client bundled with the
 // mobile app in the allowlist so a stale process-manager environment cannot make
 // a valid app token fail with "Wrong recipient" after a deployment.
-export const YARO_GOOGLE_WEB_CLIENT_ID =
-    "775252509237-aeqs5cd5viou7iv4r5chq8k15ccaq7ir.apps.googleusercontent.com";
+export const YARO_GOOGLE_WEB_CLIENT_IDS = [
+    "775252509237-1us46o9umvvio0ngmbd4n1vhml8bfgdr.apps.googleusercontent.com",
+    "775252509237-aeqs5cd5viou7iv4r5chq8k15ccaq7ir.apps.googleusercontent.com",
+];
+export const YARO_GOOGLE_WEB_CLIENT_ID = YARO_GOOGLE_WEB_CLIENT_IDS[0];
 
 export const buildGoogleClientIdAllowlist = (...values: Array<string | undefined>): string[] =>
     Array.from(new Set(
@@ -24,7 +27,7 @@ export const buildGoogleClientIdAllowlist = (...values: Array<string | undefined
 const googleClientIds = buildGoogleClientIdAllowlist(
     process.env.GOOGLE_CLIENT_ID,
     process.env.GOOGLE_CLIENT_IDS,
-    YARO_GOOGLE_WEB_CLIENT_ID
+    ...YARO_GOOGLE_WEB_CLIENT_IDS
 );
 
 export const config = {
