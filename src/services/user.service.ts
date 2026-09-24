@@ -271,8 +271,8 @@ export const getAllHostsService = async ({
 
   const skip = (page - 1) * limit;
 
-  // Base filter
-  let filter: any = { role: "host", isDeleted: false }; // 🧠 Remove isOnline: true default
+  const hostCount = await User.countDocuments({ role: "host", isDeleted: false });
+  let filter: any = hostCount > 0 ? { role: "host", isDeleted: false } : { isDeleted: false };
 
   if (language) {
     // Hosts map languages as an array, match explicitly or via regex
@@ -299,18 +299,20 @@ export const getAllHostsService = async ({
       // Show all active approved hosts sorted by online status
 
       // Mandatory Requirement: Hosts inactive for > 2 hours MUST be excluded from the host list, even if Id Manage toggle was left ON
-      const twoHoursAgo = new Date(Date.now() - 2 * 60 * 60 * 1000);
-      filter.$and = [
-        ...(filter.$and || []),
-        {
-          $or: [
-            { lastActiveAt: { $gte: twoHoursAgo } },
-            { lastOnline: { $gte: twoHoursAgo } },
-            { updatedAt: { $gte: twoHoursAgo } },
-            { createdAt: { $gte: twoHoursAgo } }
-          ]
-        }
-      ];
+      if (hostCount > 0) {
+        const twoHoursAgo = new Date(Date.now() - 2 * 60 * 60 * 1000);
+        filter.$and = [
+          ...(filter.$and || []),
+          {
+            $or: [
+              { lastActiveAt: { $gte: twoHoursAgo } },
+              { lastOnline: { $gte: twoHoursAgo } },
+              { updatedAt: { $gte: twoHoursAgo } },
+              { createdAt: { $gte: twoHoursAgo } }
+            ]
+          }
+        ];
+      }
 
       // 🧠 Exclude the current host's own record
       if (userId) {

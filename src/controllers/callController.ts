@@ -394,9 +394,10 @@ export const startCall = async (req: AuthRequest, res: Response) => {
   try {
     const { randomMatch = false } = req.body || {};
     let hostId = req.body?.hostId as string | undefined;
+    const isVideo = req.body?.isVideo === true || req.body?.callType === 'video';
     const { id: userId, name, image: callerImage } = req.user || {};
 
-    console.log('[CALL] START REQUEST:', { userId, hostId, randomMatch });
+    console.log('[CALL] START REQUEST:', { userId, hostId, randomMatch, isVideo });
 
     const [runtimeSettings, agoraCredentials] = await Promise.all([getCachedSettings(), getAgoraCredentials()]);
     const CALL_RATE_PER_MINUTE = Math.max(1, Number(runtimeSettings.callRatePerMinute || CALL_DIAMONDS_PER_MINUTE));
@@ -518,9 +519,9 @@ export const startCall = async (req: AuthRequest, res: Response) => {
       }
     }
 
-    // Auto-activate availability for approved hosts if disabled by default
-    if ((host.role === 'host' || (host as any).isHost) && host.isActive === false) {
-      console.log('⚡ Auto-activating host availability for call:', host._id);
+    // Auto-activate availability for host/user if disabled by default
+    if (host.isActive === false || host.isActive === undefined) {
+      console.log('⚡ Auto-activating user availability for call:', host._id);
       await User.findByIdAndUpdate(host._id, { $set: { isActive: true } });
       host.isActive = true;
     }
@@ -609,6 +610,8 @@ export const startCall = async (req: AuthRequest, res: Response) => {
         reservedDiamonds: maxMinutes * CALL_RATE_PER_MINUTE,
         callDiamondsPerMinute: CALL_RATE_PER_MINUTE,
         platformCommissionRate: Number(runtimeSettings.commissionRate || 0),
+        isVideo,
+        callType: isVideo ? 'video' : 'audio',
       },
     });
 
@@ -621,6 +624,8 @@ export const startCall = async (req: AuthRequest, res: Response) => {
       name,
       callerName: name,
       callerId: userId,
+      isVideo,
+      callType: isVideo ? 'video' : 'audio',
       agora: {
         appId: APP_ID,
         hostToken,
@@ -655,7 +660,7 @@ export const startCall = async (req: AuthRequest, res: Response) => {
         name || "Unknown User",
         callerImage || "",
         (transaction as any)._id.toString(),
-        false, // isVideo
+        isVideo, // isVideo
         {
           channelName,
           maxMinutes: String(maxMinutes),
@@ -684,6 +689,8 @@ export const startCall = async (req: AuthRequest, res: Response) => {
       callRatePerMinute: CALL_RATE_PER_MINUTE,
       createdAt: transaction.createdAt,
       ringExpiresAt: transaction.ringExpiresAt,
+      isVideo,
+      callType: isVideo ? 'video' : 'audio',
       agora: {
         appId: APP_ID,
         callerToken,
@@ -787,9 +794,12 @@ export const acceptIncomingCall = async (req: AuthRequest, res: Response) => {
 
     const buildCallData = (record: any) => {
       const meta = record?.meta as any;
+      const isVideo = meta?.isVideo === true || meta?.callType === 'video';
       return {
         transactionId,
         channelName: record?.channelName || meta?.channelName,
+        isVideo,
+        callType: isVideo ? 'video' : 'audio',
         agora: {
           callerToken: meta?.callerToken,
           callerAgoraUid: meta?.callerAgoraUid,
