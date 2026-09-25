@@ -8,6 +8,10 @@ export interface IRoom extends Document {
     category: string;
     tags: string[];
     members: mongoose.Types.ObjectId[];
+    coverImage?: string;
+    about?: string;
+    seatCount?: number;
+    mode?: string;
     isActive: boolean;
     createdAt: Date;
     updatedAt: Date;
@@ -21,6 +25,10 @@ const RoomSchema = new Schema<IRoom>({
     category: { type: String, default: 'General' },
     tags: [{ type: String }],
     members: [{ type: Schema.Types.ObjectId, ref: 'User' }],
+    coverImage: { type: String, default: '' },
+    about: { type: String, default: '' },
+    seatCount: { type: Number, default: 8 },
+    mode: { type: String, default: 'Public' },
     isActive: { type: Boolean, default: true },
 }, { timestamps: true });
 

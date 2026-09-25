@@ -11,7 +11,7 @@ import { disconnectDB, sanitizeMongoError } from "./utils/db";
 import { initializeDatabase } from "./utils/initializeDatabase";
 import { config } from "./configs/envConfig";
 import { checkPortAvailable } from "./utils/getAvailablePort";
-import { AuthRoutes, avatarRoute, callRoutes, chatRoutes, coinsPriceRoutes, frameRoute, hostRoutes, UserRoutes, adminRoutes, paymentRoutes, kycRoutes, withdrawalRoutes, giftRoutes, helpRoutes, UploadRoutes, notificationRoutes, upiRoutes, publicRoutes, emsRoutes, recruitmentRoutes, sellerRoutes, voiceClubRoutes } from "./routes";
+import { AuthRoutes, avatarRoute, callRoutes, chatRoutes, coinsPriceRoutes, frameRoute, hostRoutes, UserRoutes, adminRoutes, paymentRoutes, kycRoutes, withdrawalRoutes, giftRoutes, helpRoutes, UploadRoutes, notificationRoutes, upiRoutes, publicRoutes, emsRoutes, recruitmentRoutes, sellerRoutes, voiceClubRoutes, storeRoutes } from "./routes";
 import { approveStockRequest, rejectStockRequest, getAllStockRequestsAdmin, updateSellerPricingConfig, verifySellerForAdmin, adminCreditSellerDiamonds } from "./controllers/sellerAdminController";
 import chatSocket from "./sockets";
 import path from "path";
@@ -67,20 +67,37 @@ const allowedOrigins = [
   'http://management.meethi.live',
 ].filter(Boolean);
 
-const isLocalhostOrigin = (origin: string) => {
+const isOriginAllowed = (origin?: string): boolean => {
+  if (!origin) return true; // Mobile apps (React Native), curl, server-to-server requests without Origin header
+  if (allowedOrigins.includes(origin)) return true;
   try {
     const url = new URL(origin);
-    return ['localhost', '127.0.0.1'].includes(url.hostname) 
-      || url.hostname.endsWith('.yaroapp.in') || url.hostname === 'yaroapp.in'
-      || url.hostname.endsWith('.meethi.live') || url.hostname === 'meethi.live';
+    // Allow local development origins strictly in non-production
+    if (process.env.NODE_ENV !== 'production' && ['localhost', '127.0.0.1'].includes(url.hostname)) {
+      return true;
+    }
+    // Allow production domains and subdomains
+    if (
+      url.hostname === 'yaroapp.in' ||
+      url.hostname.endsWith('.yaroapp.in') ||
+      url.hostname === 'meethi.live' ||
+      url.hostname.endsWith('.meethi.live')
+    ) {
+      return true;
+    }
   } catch {
     return false;
   }
+  return false;
 };
 
 app.use(cors({
   origin: (origin, callback) => {
-    callback(null, true);
+    if (isOriginAllowed(origin)) {
+      callback(null, true);
+    } else {
+      callback(new Error(`Origin '${origin}' not allowed by CORS policy`));
+    }
   },
   credentials: true,
   methods: ['GET', 'POST', 'PUT', 'DELETE', 'PATCH'],
@@ -113,6 +130,24 @@ app.use(helmet({
 app.use("/uploads", express.static(path.join(__dirname, "../uploads")));
 app.use("/policies", express.static(path.join(__dirname, "../policies")));
 
+// Android App Links / Digital Asset Links
+app.get('/.well-known/assetlinks.json', (_req, res) => {
+  res.setHeader('Content-Type', 'application/json');
+  res.json([
+    {
+      relation: ["delegate_permission/common.handle_all_urls"],
+      target: {
+        namespace: "android_app",
+        package_name: "yaro.vc.app",
+        sha256_cert_fingerprints: [
+          "13:F2:6D:95:D3:11:B7:1C:2B:C3:0A:A6:B9:7B:0C:23:86:9B:48:B2:2B:F3:44:AB:2E:F9:04:BA:B5:D3:29:C4",
+          "AE:60:BA:0C:7C:19:F6:91:22:66:2C:26:EF:0D:FF:CF:5D:E6:B3:DD:71:72:04:AD:04:AD:87:9D:07:8A:A3:1E"
+        ]
+      }
+    }
+  ]);
+});
+
 // Body parsing with size limits
 app.use(express.json({ limit: '50mb' })); // Increased for document base64 payloads
 app.use(express.urlencoded({ extended: true, limit: '50mb' }));
@@ -141,10 +176,17 @@ app.use("/api/upload", UploadRoutes);
 app.use("/api/notifications", notificationRoutes);
 app.use("/api/voiceclub", voiceClubRoutes);
 app.use("/api/v1/voiceclub", voiceClubRoutes);
+app.use("/api/voice-room", voiceClubRoutes);
+app.use("/api/v1/voice-room", voiceClubRoutes);
+app.use("/api/rooms", voiceClubRoutes);
+app.use("/api/v1/rooms", voiceClubRoutes);
 app.use("/api/seller", sellerRoutes);
 app.use("/api/v1/seller", sellerRoutes);
 app.use("/api/verifications", verificationRoutes);
 app.use("/api/v1/verifications", verificationRoutes);
+app.use("/api/store", storeRoutes);
+app.use("/api/v1/store", storeRoutes);
+app.use("/api/user/buy-store-item", storeRoutes);
 app.use("/api/v1/admin/verifications", adminVerificationRoutes);
 app.get("/api/admin/sellers/stock-requests", verifyToken, getAllStockRequestsAdmin);
 app.post("/api/admin/sellers/stock-requests/:id/approve", verifyToken, approveStockRequest);
@@ -161,6 +203,7 @@ app.use("/api/v1/avatar-requests", avatarRequestRoutes);
 app.use("/api/default-bios", defaultBioRoutes);
 app.use("/api/v1/default-bios", defaultBioRoutes);
 app.use("/api/upi", upiRoutes);
+app.use("/public", publicRoutes);
 app.use("/api/public", publicRoutes);
 app.use("/api/teamleader", publicRoutes);
 import referralRoutes from "./routes/referral.routes";

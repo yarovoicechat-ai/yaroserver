@@ -10,6 +10,7 @@ import { getAllHostsService, invalidateHostCache } from "../services/user.servic
 import { BillingService } from '../services/billing.service';
 import { PermissionEngine } from "../utils/permissionEngine";
 import { notifyHostCallState } from "../services/callStateNotification.service";
+import { registerVoiceRoomHandlers } from "./voiceRoomSocket";
 
 // Redis Pub/Sub for Adapter
 const pubClient = redis;
@@ -48,6 +49,9 @@ const chatSocket = (io: Server) => {
             console.error('❌ Socket connected without user ID');
             return;
         }
+
+        // Register Voice Room Handlers SYNCHRONOUSLY before any async calls so no early client emits are lost
+        registerVoiceRoomHandlers(io, socket);
 
         const userIdStr = socket.user.id.toString();
         const userRoom = getUserRoom(userIdStr);

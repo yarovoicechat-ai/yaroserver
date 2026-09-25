@@ -7,7 +7,8 @@ export const verifyFirebasePhoneToken = async (
   idToken: string,
   expectedPhoneNumber: string
 ): Promise<{ success: boolean; message: string; uid?: string }> => {
-  if (process.env.NODE_ENV === 'test' || idToken?.startsWith('test_bypass_')) {
+  // Strictly prevent any auth bypass in production or non-test environments
+  if (process.env.NODE_ENV === 'test' && process.env.ALLOW_TEST_AUTH === 'true' && idToken?.startsWith('test_bypass_')) {
     return { success: true, message: 'Test bypass verified.', uid: 'test_uid' };
   }
 

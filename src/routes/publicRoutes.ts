@@ -124,6 +124,119 @@ router.post('/teamleader/apply', async (req: Request, res: Response) => {
     return submitApplication(req, res);
 });
 
+// ============ Unified Public Search Endpoint ============
+router.get('/search', async (req: Request, res: Response) => {
+    try {
+        const queryStr = String(req.query.q || req.query.search || '').trim();
+        const limitNum = Math.min(50, Math.max(1, parseInt(String(req.query.limit || 30), 10)));
+
+        if (!queryStr) {
+            return sendResponse(res, 200, true, 'Search query empty', {
+                users: [],
+                hosts: [],
+                rooms: [],
+            });
+        }
+
+        const escaped = queryStr.replace(/[-[\]{}()*+?.,\\^$|#\s]/g, '\\$&');
+        const regex = new RegExp(escaped, 'i');
+
+        const orConditions: any[] = [
+            { name: regex },
+            { userName: regex },
+            { meethiId: regex },
+            { phoneNumber: regex },
+            {
+                $expr: {
+                    $regexMatch: {
+                        input: { $toString: "$userId" },
+                        regex: escaped,
+                        options: "i",
+                    },
+                },
+            },
+        ];
+        if (!isNaN(Number(queryStr))) {
+            orConditions.push({ userId: Number(queryStr) });
+        }
+
+        const userFilter: any = {
+            isDeleted: false,
+            isBlocked: { $ne: true },
+            $or: orConditions,
+        };
+
+        const matchingUsers = await User.find(userFilter)
+            .select('userId meethiId name userName image avatar gender level isOnline role isVerified isActive bio languages audioPrice videoPrice')
+            .sort({ isOnline: -1, role: 1, createdAt: -1 })
+            .limit(limitNum)
+            .lean();
+
+        const usersList: any[] = [];
+        const hostsList: any[] = [];
+
+        matchingUsers.forEach((u: any) => {
+            const formatted = {
+                ...u,
+                isHost: u.role === 'host',
+            };
+            if (u.role === 'host') {
+                hostsList.push(formatted);
+            }
+            usersList.push(formatted);
+        });
+
+        // Search active voice rooms
+        const matchingOwnerIds = matchingUsers.map(u => u._id);
+        const roomFilter: any = {
+            isActive: { $ne: false },
+            $or: [
+                { title: regex },
+                { channelName: regex },
+                { category: regex },
+                { about: regex },
+                ...(matchingOwnerIds.length ? [{ ownerId: { $in: matchingOwnerIds } }] : []),
+            ],
+        };
+
+        const { Room } = await import('../models/room.model');
+        const rawRooms = await Room.find(roomFilter)
+            .populate('ownerId', 'userId name image avatar gender meethiId')
+            .sort({ updatedAt: -1 })
+            .limit(limitNum)
+            .lean();
+
+        const roomsList = rawRooms.map((r: any) => {
+            const owner = r.ownerId || {};
+            const hostId = String(owner.userId || owner.meethiId || owner._id || r.channelName);
+            return {
+                id: r.channelName,
+                roomId: r.channelName,
+                title: r.title,
+                about: r.about || '',
+                hostName: owner.name || 'Host',
+                hostId,
+                ownerId: owner._id,
+                coverImage: r.coverImage || owner.image || owner.avatar || '',
+                onlineCount: r.members?.length ? String(r.members.length) : '1',
+                category: r.category || 'Chat 💬',
+                mode: r.mode || 'Public',
+                seatCount: r.seatCount || 8,
+                isActive: r.isActive,
+            };
+        });
+
+        return sendResponse(res, 200, true, 'Search results fetched successfully', {
+            users: usersList,
+            hosts: hostsList,
+            rooms: roomsList,
+        });
+    } catch (error: any) {
+        await Logger('publicSearch', error);
+        return sendResponse(res, 500, false, error.message || 'Error executing search');
+    }
+});
+
 // ============ Verify Employee Referral Code ============
 router.get('/verify-code/:code', async (req: Request, res: Response) => {
     try {
@@ -141,6 +254,63 @@ router.get('/verify-code/:code', async (req: Request, res: Response) => {
     } catch (error) {
         await Logger('verifyReferralCode', error);
         return sendResponse(res, 500, false, 'Error verifying code');
+    }
+});
+
+// ============ Public Account Deletion Request (Google Play Compliance) ============
+router.post('/delete-account-request', async (req: Request, res: Response) => {
+    try {
+        const { identifier, idType, userRole, reason, detailedNotes } = req.body || {};
+        if (!identifier) {
+            return sendResponse(res, 400, false, 'Account identifier is required');
+        }
+
+        const cleanId = String(identifier).trim();
+        let query: any = {};
+
+        if (idType === 'phone' || cleanId.startsWith('+') || (/^\d{10,13}$/.test(cleanId) && cleanId.length >= 10)) {
+            const phoneDigits = cleanId.replace(/\D/g, '');
+            query = {
+                $or: [
+                    { phoneNumber: cleanId },
+                    { phoneNumber: { $regex: phoneDigits.slice(-10) } }
+                ]
+            };
+        } else {
+            query = {
+                $or: [
+                    { userId: cleanId },
+                    { meethiId: cleanId }
+                ]
+            };
+        }
+
+        const user = await User.findOne(query);
+        const DeletionRequest = (await import('../models/deletionRequest.model')).default;
+        const fullReason = [reason, detailedNotes].filter(Boolean).join(' - ');
+        const generatedTicket = `YARO-DEL-${new Date().getFullYear()}-${Math.floor(100000 + Math.random() * 900000)}`;
+
+        if (user) {
+            await DeletionRequest.create({
+                userId: user._id,
+                yaroId: String(user.userId || cleanId),
+                meethiId: String(user.meethiId || user.userId || cleanId),
+                name: user.name || 'Yaro User',
+                role: user.role || userRole || 'user',
+                phoneNumber: user.phoneNumber || cleanId,
+                reason: fullReason || 'Website self-service deletion request',
+                status: 'pending'
+            });
+        }
+
+        return sendResponse(res, 200, true, 'Account deletion request queued successfully', {
+            ticketId: generatedTicket,
+            timestamp: new Date().toISOString(),
+            accountFound: !!user
+        });
+    } catch (error: any) {
+        await Logger('publicDeleteAccountRequest', error);
+        return sendResponse(res, 500, false, error.message || 'Error processing deletion request');
     }
 });
 

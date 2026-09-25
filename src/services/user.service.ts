@@ -245,6 +245,7 @@ interface GetAllHostsOptions {
   limit: number;
   tab?: string;
   language?: string; // Explicit language filter
+  search?: string;
 }
 
 export const getAllHostsService = async ({
@@ -254,25 +255,53 @@ export const getAllHostsService = async ({
   userId, // <-- pass the logged-in user's ID here
   tab = 'All',
   language,
+  search,
 }: GetAllHostsOptions & { userId?: string }) => {
   // Create cache key based on parameters
-  const cacheKey = `hosts:${role}:${page}:${limit}:${userId || 'none'}:${tab}`;
+  const cacheKey = `hosts:${role}:${page}:${limit}:${userId || 'none'}:${tab}:${search || ''}`;
 
-  // Try to get from cache first (2 minute TTL for host list)
-  const cached = cacheService.get(cacheKey);
-  if (cached) {
-    return cached;
+  // Try to get from cache first (only when not searching)
+  if (!search) {
+    const cached = cacheService.get(cacheKey);
+    if (cached) {
+      return cached;
+    }
   }
 
   // Debug Logging
   if (userId) {
-    console.log(`🔍 getAllHostsService called for userId: ${userId} (Role: ${role}) - Excluding self`);
+    console.log(`🔍 getAllHostsService called for userId: ${userId} (Role: ${role}, Search: ${search || 'none'}) - Excluding self`);
   }
 
   const skip = (page - 1) * limit;
 
   const hostCount = await User.countDocuments({ role: "host", isDeleted: false });
   let filter: any = hostCount > 0 ? { role: "host", isDeleted: false } : { isDeleted: false };
+
+  if (search) {
+    const searchStr = String(search).trim();
+    const escapedSearch = searchStr.replace(/[-[\]{}()*+?.,\\^$|#\s]/g, '\\$&');
+    const searchRegex = new RegExp(escapedSearch, 'i');
+    const orConditions: any[] = [
+      { name: searchRegex },
+      { userName: searchRegex },
+      { meethiId: searchRegex },
+      { phoneNumber: searchRegex },
+      {
+        $expr: {
+          $regexMatch: {
+            input: { $toString: "$userId" },
+            regex: escapedSearch,
+            options: "i",
+          },
+        },
+      },
+    ];
+    if (!isNaN(Number(searchStr))) {
+      orConditions.push({ userId: Number(searchStr) });
+    }
+    filter.$or = orConditions;
+  }
 
   if (language) {
     // Hosts map languages as an array, match explicitly or via regex
@@ -298,32 +327,31 @@ export const getAllHostsService = async ({
       filter.isActive = { $ne: false };
       // Show all active approved hosts sorted by online status
 
-      // Mandatory Requirement: Hosts inactive for > 2 hours MUST be excluded from the host list, even if Id Manage toggle was left ON
-      if (hostCount > 0) {
-        const twoHoursAgo = new Date(Date.now() - 2 * 60 * 60 * 1000);
-        filter.$and = [
-          ...(filter.$and || []),
-          {
-            $or: [
-              { lastActiveAt: { $gte: twoHoursAgo } },
-              { lastOnline: { $gte: twoHoursAgo } },
-              { updatedAt: { $gte: twoHoursAgo } },
-              { createdAt: { $gte: twoHoursAgo } }
-            ]
-          }
-        ];
-      }
+      // Only apply 2-hour inactivity cutoff and self-exclusion for general host browsing, NOT explicit search
+      if (!search) {
+        if (hostCount > 0) {
+          const twoHoursAgo = new Date(Date.now() - 2 * 60 * 60 * 1000);
+          filter.$and = [
+            ...(filter.$and || []),
+            {
+              $or: [
+                { lastActiveAt: { $gte: twoHoursAgo } },
+                { lastOnline: { $gte: twoHoursAgo } },
+                { updatedAt: { $gte: twoHoursAgo } },
+                { createdAt: { $gte: twoHoursAgo } }
+              ]
+            }
+          ];
+        }
 
-      // 🧠 Exclude the current host's own record
-      if (userId) {
-        // Handle both ObjectId string and Numeric userId
-        const isObjectId = /^[0-9a-fA-F]{24}$/.test(userId);
-        if (isObjectId) {
-          filter._id = { $ne: userId };
-        } else {
-          // If it's not an ObjectId, assume it's the numeric userId
-          // (or handle both if uncertain)
-          filter.userId = { $ne: userId };
+        // Exclude self only during regular browsing
+        if (userId) {
+          const isObjectId = /^[0-9a-fA-F]{24}$/.test(userId);
+          if (isObjectId) {
+            filter._id = { $ne: userId };
+          } else {
+            filter.userId = { $ne: userId };
+          }
         }
       }
       break;

@@ -51,6 +51,14 @@ const getGoogleAuth = () => {
 
   for (const keyFilePath of candidateKeyPaths) {
     if (fs.existsSync(keyFilePath)) {
+      try {
+        const fileContent = fs.readFileSync(keyFilePath, 'utf8');
+        const parsed = JSON.parse(fileContent);
+        if (parsed.project_id && parsed.project_id === 'umangchatlive') {
+          console.warn('[GooglePlay] Skipping legacy service account key for umangchatlive');
+          continue;
+        }
+      } catch (e) {}
       console.log(`[GooglePlay] Found service account key at: ${keyFilePath}`);
       return new google.auth.GoogleAuth({
         keyFile: keyFilePath,

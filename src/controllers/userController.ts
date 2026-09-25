@@ -183,6 +183,54 @@ export const getUsers = async (req: AuthRequest, res: Response) => {
     const limitNumber = Math.max(1, parseInt(limit as string, 10) || 10);
     const skip = (pageNumber - 1) * limitNumber;
 
+    // Public / App user search support across all user roles
+    if (search) {
+      const searchStr = String(search).trim();
+      const escapedSearch = searchStr.replace(/[-[\]{}()*+?.,\\^$|#\s]/g, '\\$&');
+      const searchRegex = new RegExp(escapedSearch, 'i');
+      const orConditions: any[] = [
+        { name: searchRegex },
+        { userName: searchRegex },
+        { meethiId: searchRegex },
+        { phoneNumber: searchRegex },
+        {
+          $expr: {
+            $regexMatch: {
+              input: { $toString: "$userId" },
+              regex: escapedSearch,
+              options: "i",
+            },
+          },
+        },
+      ];
+      if (!isNaN(Number(searchStr))) {
+        orConditions.push({ userId: Number(searchStr) });
+      }
+      const searchFilter: any = {
+        isDeleted: false,
+        isBlocked: { $ne: true },
+        $or: orConditions,
+      };
+      const totalUsers = await User.countDocuments(searchFilter);
+      const users = await User.find(searchFilter)
+        .select("userId meethiId name userName image gender level isOnline role isVerified isActive bio languages")
+        .sort({ isOnline: -1, createdAt: -1 })
+        .skip(skip)
+        .limit(limitNumber)
+        .lean();
+
+      return sendResponse(res, 200, true, "Users fetched successfully", {
+        users,
+        usersData: {
+          users,
+          totalUsers,
+          currentPage: pageNumber,
+          totalPages: Math.ceil(totalUsers / limitNumber),
+          limit: limitNumber,
+        }
+      });
+    }
+
     switch (role) {
       case "owner":
       case "operator":
@@ -793,8 +841,11 @@ export const getAllHosts = async (req: AuthRequest, res: Response) => {
     const { role, userId } = req.user || {} as any;
     const page = parseInt((req.query.page as string) || "1", 10);
     const limit = parseInt((req.query.limit as string) || "10", 10);
+    const search = req.query.search as string | undefined;
+    const tab = (req.query.tab as string) || "All";
+    const language = req.query.language as string | undefined;
 
-    const hostsData = await getAllHostsService({ role, page, limit, userId });
+    const hostsData = await getAllHostsService({ role, page, limit, userId, search, tab, language });
 
     return sendResponse(res, 200, true, "Hosts fetched successfully", { hostsData });
   } catch (error: any) {

@@ -21,4 +21,6 @@ import recruitmentRoutes from "./recruitmentRoutes";
 import sellerRoutes from "./sellerRoutes";
 import voiceClubRoutes from "./voiceClubRoutes";
 
-export { AuthRoutes, UserRoutes, hostRoutes, coinsPriceRoutes, callRoutes, chatRoutes, avatarRoute, frameRoute, adminRoutes, paymentRoutes, kycRoutes, withdrawalRoutes, giftRoutes, helpRoutes, UploadRoutes, notificationRoutes, upiRoutes, publicRoutes, emsRoutes, recruitmentRoutes, sellerRoutes, voiceClubRoutes };
+import storeRoutes from "./storeRoutes";
+
+export { AuthRoutes, UserRoutes, hostRoutes, coinsPriceRoutes, callRoutes, chatRoutes, avatarRoute, frameRoute, adminRoutes, paymentRoutes, kycRoutes, withdrawalRoutes, giftRoutes, helpRoutes, UploadRoutes, notificationRoutes, upiRoutes, publicRoutes, emsRoutes, recruitmentRoutes, sellerRoutes, voiceClubRoutes, storeRoutes };

@@ -2,26 +2,72 @@ import admin from "firebase-admin";
 import path from "path";
 import fs from "fs";
 
+export const EXPECTED_FIREBASE_PROJECT_ID = 'yaro-voice-chat';
+
 // ✅ initialize once
 if (!admin.apps.length) {
   try {
-    const credentialCandidates = [
-      path.resolve(process.cwd(), "src/configs/serviceAccountKey.json"),
-      path.resolve(process.cwd(), "configs/serviceAccountKey.json"),
-      path.resolve(__dirname, "../configs/serviceAccountKey.json"),
-    ];
-    const credentialPath = credentialCandidates.find(candidate => fs.existsSync(candidate));
-    if (!credentialPath) throw new Error('Firebase service account file not found');
-    admin.initializeApp({
-      credential: admin.credential.cert(
-        // 🧠 Changed to serviceAccountKey.json (Server Key) instead of google-services.json (Android Key)
-        // Also fixed path: __dirname (utils) -> .. (src) -> configs -> serviceAccountKey.json
-        credentialPath
-      ),
-    });
-  } catch (error) {
-    console.warn("Firebase Init Error: Check configs/google-services.json or env vars.");
-    admin.initializeApp(); // Fallback to env vars
+    let serviceAccount = null;
+
+    if (process.env.FIREBASE_SERVICE_ACCOUNT) {
+      try {
+        const raw = process.env.FIREBASE_SERVICE_ACCOUNT.trim();
+        const jsonStr = raw.startsWith('{') ? raw : Buffer.from(raw, 'base64').toString('utf8');
+        serviceAccount = JSON.parse(jsonStr);
+      } catch (err: any) {
+        console.error('[Firebase] Failed to parse FIREBASE_SERVICE_ACCOUNT env var:', err?.message || err);
+      }
+    }
+
+    if (!serviceAccount) {
+      const candidatePaths = [
+        process.env.GOOGLE_APPLICATION_CREDENTIALS,
+        path.resolve(process.cwd(), 'src/configs/serviceAccountKey.json'),
+        path.resolve(process.cwd(), 'configs/serviceAccountKey.json'),
+        path.resolve(__dirname, '../configs/serviceAccountKey.json'),
+      ].filter((p): p is string => Boolean(p));
+
+      const foundPath = candidatePaths.find(p => fs.existsSync(p));
+      if (foundPath) {
+        try {
+          const fileText = fs.readFileSync(foundPath, 'utf8');
+          serviceAccount = JSON.parse(fileText);
+        } catch (err: any) {
+          console.warn('[Firebase] Failed to read service account key from file:', foundPath, err?.message || err);
+        }
+      }
+    }
+
+    if (serviceAccount) {
+      const detectedProjectId = serviceAccount.project_id;
+      if (detectedProjectId && detectedProjectId !== EXPECTED_FIREBASE_PROJECT_ID) {
+        console.error(
+          `❌ [Firebase] Project ID mismatch! Configured service account belongs to '${detectedProjectId}', ` +
+          `but production requires '${EXPECTED_FIREBASE_PROJECT_ID}'. Refusing legacy credentials.`
+        );
+        admin.initializeApp({
+          projectId: EXPECTED_FIREBASE_PROJECT_ID,
+        });
+      } else {
+        admin.initializeApp({
+          credential: admin.credential.cert(serviceAccount),
+          projectId: EXPECTED_FIREBASE_PROJECT_ID,
+        });
+        console.log(`✅ [Firebase] Admin SDK initialized successfully for project: ${EXPECTED_FIREBASE_PROJECT_ID}`);
+      }
+    } else {
+      console.warn(`[Firebase] No service account key found. Initializing with default project: ${EXPECTED_FIREBASE_PROJECT_ID}`);
+      admin.initializeApp({
+        projectId: EXPECTED_FIREBASE_PROJECT_ID,
+      });
+    }
+  } catch (error: any) {
+    console.warn('[Firebase] Initialization error:', error?.message || error);
+    if (!admin.apps.length) {
+      admin.initializeApp({
+        projectId: EXPECTED_FIREBASE_PROJECT_ID,
+      });
+    }
   }
 }
 
