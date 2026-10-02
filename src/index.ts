@@ -21,6 +21,11 @@ import { verifyToken } from "./middlewares/authorize.middleware";
 import { getSystemMessages } from "./controllers/notificationController";
 import verificationRoutes from "./routes/verificationRoutes";
 import adminVerificationRoutes from "./routes/adminVerificationRoutes";
+import { giftRouter, adminGiftRouter } from "./gift/gift.routes";
+import { entryEffectRouter } from "./routes/entryEffect.routes";
+import { vipRouter } from "./routes/vip.routes";
+import { GiftService } from "./gift/gift.service";
+import { VipService } from "./services/vip.service";
 
 const app: Application = express();
 
@@ -170,7 +175,10 @@ app.use("/api/ems", emsRoutes);
 app.use("/api/payment", paymentRoutes);
 app.use("/api/kyc", kycRoutes);
 app.use("/api/withdrawal", withdrawalRoutes);
-app.use("/api/gift", giftRoutes);
+app.use("/api/gifts", giftRouter);
+app.use("/api/entry-effects", entryEffectRouter);
+app.use("/api/gift", giftRouter);
+app.use("/api/admin/gifts", adminGiftRouter);
 app.use("/api/help", helpRoutes);
 app.use("/api/upload", UploadRoutes);
 app.use("/api/notifications", notificationRoutes);
@@ -187,6 +195,10 @@ app.use("/api/v1/verifications", verificationRoutes);
 app.use("/api/store", storeRoutes);
 app.use("/api/v1/store", storeRoutes);
 app.use("/api/user/buy-store-item", storeRoutes);
+app.use("/api/vip", vipRouter);
+app.use("/api/v1/vip", vipRouter);
+app.use("/api/svip", vipRouter);
+app.use("/api/v1/svip", vipRouter);
 app.use("/api/v1/admin/verifications", adminVerificationRoutes);
 app.get("/api/admin/sellers/stock-requests", verifyToken, getAllStockRequestsAdmin);
 app.post("/api/admin/sellers/stock-requests/:id/approve", verifyToken, approveStockRequest);
@@ -335,6 +347,8 @@ const startServer = async (): Promise<void> => {
 
   try {
     await initializeDatabase();
+    GiftService.seedInitialCatalog().catch((e: any) => console.warn('[Gift] Seed warning:', e?.message));
+    VipService.seedInitialCatalog().catch((e: any) => console.warn('[VIP] Seed warning:', e?.message));
     startCallCleanupJob();
     startChatWorker();
     startWeeklyHostLevelJob();

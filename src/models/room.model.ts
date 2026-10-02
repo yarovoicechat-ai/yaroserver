@@ -13,6 +13,9 @@ export interface IRoom extends Document {
     seatCount?: number;
     mode?: string;
     isActive: boolean;
+    isPinned?: boolean;
+    pinnedOrder?: number;
+    pinnedAt?: Date;
     createdAt: Date;
     updatedAt: Date;
 }
@@ -30,9 +33,13 @@ const RoomSchema = new Schema<IRoom>({
     seatCount: { type: Number, default: 8 },
     mode: { type: String, default: 'Public' },
     isActive: { type: Boolean, default: true },
+    isPinned: { type: Boolean, default: false },
+    pinnedOrder: { type: Number, default: 0 },
+    pinnedAt: { type: Date },
 }, { timestamps: true });
 
 RoomSchema.index({ ownerId: 1 });
 RoomSchema.index({ category: 1, isActive: 1 });
+RoomSchema.index({ isPinned: 1, pinnedOrder: 1 });
 
 export const Room = mongoose.model<IRoom>('Room', RoomSchema);

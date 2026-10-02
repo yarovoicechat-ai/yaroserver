@@ -1240,6 +1240,7 @@ export const getHostLevels = async (req: AuthRequest, res: Response) => {
         minCalls: lvl.minCalls,
         minMinutes: lvl.minMinutes,
         coinPerMinute: lvl.coinPerMinute,
+        rewards: Array.isArray((lvl as any).rewards) ? (lvl as any).rewards : [],
         // Extra display fields the app uses
         call: `${lvl.minCalls.toLocaleString()} Calls`,
         time: `${lvl.minMinutes.toLocaleString()} Min`,

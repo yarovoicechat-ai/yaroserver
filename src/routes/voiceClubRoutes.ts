@@ -7,6 +7,7 @@ import {
   getMyVoiceRoom,
   createOrUpdateMyVoiceRoom,
   closeVoiceRoom,
+  getVoiceRoomToken,
 } from '../controllers/voiceClubController';
 import { verifyToken } from '../middlewares/authorize.middleware';
 
@@ -21,5 +22,7 @@ router.get('/rooms', getAllActiveVoiceRooms);
 router.get('/my-room', verifyToken, getMyVoiceRoom);
 router.post('/my-room', verifyToken, createOrUpdateMyVoiceRoom);
 router.post('/rooms/:id/close', verifyToken, closeVoiceRoom);
+router.get('/rooms/:id/agora-token', getVoiceRoomToken);
+router.post('/rooms/:id/agora-token', getVoiceRoomToken);
 
 export default router;

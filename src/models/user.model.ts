@@ -13,6 +13,22 @@ const DeviceSchema = new Schema(
   { _id: false }
 );
 
+const StoreInventoryItemSchema = new Schema(
+  {
+    itemId: { type: Schema.Types.ObjectId, ref: 'StoreItem' },
+    name: { type: String, required: true },
+    category: { type: String, required: true },
+    durationDays: { type: Number },
+    purchasedAt: { type: Date, default: Date.now },
+    expiresAt: { type: Date },
+    imageUrl: { type: String, default: '' },
+    animationUrl: { type: String, default: '' },
+    source: { type: String, enum: ['store', 'level'], default: 'store' },
+    grantKey: { type: String, default: '' },
+  },
+  { _id: true }
+);
+
 const userSchema = new Schema<UserInterface>(
   {
     userId: { type: Number, required: true, unique: true },
@@ -52,6 +68,17 @@ const userSchema = new Schema<UserInterface>(
     },
     age: { type: Number, default: 18 },
     frameId: { type: String, default: "" },
+    equippedEntryEffect: { type: Schema.Types.ObjectId, ref: 'EntryEffect', default: null },
+    equippedEntryTag: { type: String, default: "" },
+    ownedEntryEffects: [{ type: Schema.Types.ObjectId, ref: 'EntryEffect' }],
+    equippedVipId: { type: String, default: null },
+    ownedVipIds: [{ type: String, default: [] }],
+    equippedSvipId: { type: String, default: null },
+    ownedSvipIds: [{ type: String, default: [] }],
+    equippedChatBubble: { type: String, default: null },
+    equippedMicWave: { type: String, default: null },
+    equippedRoomTheme: { type: String, default: null },
+    equippedEntryFrame: { type: String, default: null },
     blockedUsers: [{ type: Schema.Types.ObjectId, ref: "User" }],
     refreshToken: { type: String, select: false },
     activeToken: { type: String, default: "" },
@@ -146,6 +173,8 @@ const userSchema = new Schema<UserInterface>(
       index: true,
     },
     moderationLastViolationAt: { type: Date },
+    storeInventory: { type: [StoreInventoryItemSchema], default: [] },
+    levelRewardClaims: { type: [String], default: [], select: false },
     lastLoginIp: { type: String, default: "" },
     deviceId: { type: String, default: "" },
   },

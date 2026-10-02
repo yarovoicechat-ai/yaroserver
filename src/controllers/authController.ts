@@ -228,6 +228,7 @@ export const userRegister = async (req: AuthRequest, res: Response) => {
       country: countryObj,
       authType: "phone",
       age: userAge,
+      diamonds: (process.env.ENABLE_TEST_DIAMONDS === 'true' && process.env.NODE_ENV !== 'production') ? 1000000 : 0,
       device: {
         createdDeviceId: deviceId || "",
         currentDeviceId: deviceId || "",
@@ -530,6 +531,7 @@ export const userGoogleAuth = async (req: Request, res: Response) => {
       language,
       country: userCountry,
       age: userAge,
+      diamonds: (process.env.ENABLE_TEST_DIAMONDS === 'true' && process.env.NODE_ENV !== 'production') ? 1000000 : 0,
       device: userFrom === "app" ? { createdDeviceId: deviceId || "", currentDeviceId: deviceId || "", loggedInDeviceIds: deviceId ? [deviceId] : [] } : {},
     });
 

@@ -30,6 +30,11 @@ export const validationUpdateUserLimited = [
     .isString()
     .withMessage("Image must be a valid string"),
 
+  body("profilePic")
+    .optional()
+    .isString()
+    .withMessage("ProfilePic must be a valid string"),
+
   body("age")
     .optional()
     .isInt({ min: 18, max: 120 })

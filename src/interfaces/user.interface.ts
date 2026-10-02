@@ -39,6 +39,17 @@ export interface UserInterface extends Document {
   country?: { name?: string; code?: string; flag?: string };
   age?: number;
   frameId?: string;
+  equippedEntryEffect?: Types.ObjectId | null;
+  equippedEntryTag?: string;
+  ownedEntryEffects?: Types.ObjectId[];
+  equippedVipId?: string | null;
+  ownedVipIds?: string[];
+  equippedSvipId?: string | null;
+  ownedSvipIds?: string[];
+  equippedChatBubble?: string | null;
+  equippedMicWave?: string | null;
+  equippedRoomTheme?: string | null;
+  equippedEntryFrame?: string | null;
   refreshToken?: string;
   activeToken?: string;
   audio?: string;
@@ -128,4 +139,17 @@ export interface UserInterface extends Document {
   moderationLastViolationAt?: Date;
   lastLoginIp?: string;
   deviceId?: string;
+  storeInventory?: Array<{
+    itemId?: Types.ObjectId;
+    name: string;
+    category: string;
+    durationDays?: number;
+    purchasedAt: Date;
+    expiresAt?: Date;
+    imageUrl?: string;
+    animationUrl?: string;
+    source?: 'store' | 'level';
+    grantKey?: string;
+  }>;
+  levelRewardClaims?: string[];
 }

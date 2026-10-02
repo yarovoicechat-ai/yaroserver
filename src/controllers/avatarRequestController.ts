@@ -5,63 +5,99 @@ import Host from '../models/host.model';
 import Notification from '../models/notification.model';
 import sendResponse from '../utils/reponse';
 import { AuthRequest } from '../middlewares/authorize.middleware';
+import { validateAvatarSecurity } from '../utils/avatarSecurity';
 
-// 1. Submit Avatar Verification Request (Verified Host)
+// 1. Submit Avatar Update (Normal profile operation - No verification required)
 export const submitAvatarRequest = async (req: AuthRequest, res: Response) => {
   try {
-    const { requestedAvatar } = req.body;
     const authUserId = req.user?.userId;
+    const authId = req.user?.id;
 
-    if (!requestedAvatar) {
-      return sendResponse(res, 400, false, 'Requested avatar URL is required');
+    if (!authUserId && !authId) {
+      return sendResponse(res, 401, false, 'Authentication required to update avatar');
     }
 
-    const user = await User.findOne({ userId: authUserId, isDeleted: false });
+    let rawAvatar: string | undefined;
+
+    // Direct multipart file upload support
+    const uploadedFile = req.file || (req.files as any)?.file?.[0] || (req.files as any)?.avatar?.[0] || (req.files as any)?.image?.[0];
+    if (uploadedFile) {
+      const host = req.get('host') || 'api.yaroapp.in';
+      const protocol = req.protocol === 'https' || req.headers['x-forwarded-proto'] === 'https' ? 'https' : 'http';
+      rawAvatar = `${protocol}://${host}/uploads/avatars/${uploadedFile.filename}`;
+    } else {
+      const { requestedAvatar, avatar, profilePic, image } = req.body || {};
+      rawAvatar = requestedAvatar || avatar || profilePic || image;
+    }
+
+    if (!rawAvatar) {
+      return sendResponse(res, 400, false, 'Avatar image or file is required');
+    }
+
+    // Image security check: validate extension, MIME candidate, and prevent executables
+    const validation = validateAvatarSecurity(rawAvatar);
+    if (!validation.valid || !validation.cleanAvatar) {
+      return sendResponse(res, 400, false, validation.error || 'Invalid avatar image');
+    }
+
+    const cleanAvatar = validation.cleanAvatar;
+
+    // Find the user to update - strictly using authenticated user credentials
+    const userQuery: any = { isDeleted: false };
+    if (authUserId) {
+      userQuery.userId = authUserId;
+    } else {
+      userQuery._id = authId;
+    }
+
+    const user = await User.findOne(userQuery);
     if (!user) {
       return sendResponse(res, 404, false, 'User account not found');
     }
 
-    // Verify verification status (Face or KYC must be APPROVED)
-    const isVerified = user.faceVerificationStatus === 'APPROVED' || user.kycVerificationStatus === 'APPROVED';
-    if (!isVerified) {
-      return sendResponse(res, 403, false, 'Verification is required to submit avatar requests. Please complete Face or KYC verification first.');
-    }
+    // Directly update User avatar (normal profile operation, zero verification required)
+    user.image = cleanAvatar;
+    await user.save();
 
-    // Check existing pending request
-    const existingPending = await AvatarRequest.findOne({
-      hostId: user.userId,
-      status: AvatarRequestStatus.PENDING,
-    });
+    // If user is a host, update host record immediately as well
+    await Host.updateOne(
+      { hostId: user.userId },
+      { $set: { profilePhoto: cleanAvatar } }
+    ).catch(() => {});
 
-    if (existingPending) {
-      return sendResponse(res, 400, false, 'You already have a pending avatar verification request');
-    }
-
+    // Save approved audit record for admin history
     const newRequest = new AvatarRequest({
       hostId: user.userId,
       hostUserObjId: user._id,
-      currentAvatar: user.image || '',
-      requestedAvatar,
-      status: AvatarRequestStatus.PENDING,
+      currentAvatar: cleanAvatar,
+      requestedAvatar: cleanAvatar,
+      status: AvatarRequestStatus.APPROVED,
+      reviewedAt: new Date(),
     });
-
     await newRequest.save();
 
-    // Create Notification
-    await Notification.create({
-      userId: user._id,
-      title: 'Avatar Request Submitted',
-      message: 'Your avatar update request has been submitted and is under admin review.',
-      type: 'system',
+    return sendResponse(res, 200, true, 'Avatar updated successfully', {
+      avatarUrl: cleanAvatar,
+      profilePic: cleanAvatar,
+      image: cleanAvatar,
+      data: {
+        avatarUrl: cleanAvatar,
+        profilePic: cleanAvatar,
+        image: cleanAvatar,
+      },
+      user: {
+        userId: user.userId,
+        name: user.name,
+        image: user.image,
+        profilePic: user.image,
+      }
     });
-
-    return sendResponse(res, 201, true, 'Avatar verification request submitted successfully', newRequest);
   } catch (error: any) {
-    return sendResponse(res, 500, false, error?.message || 'Server error submitting avatar request');
+    return sendResponse(res, 500, false, error?.message || 'Server error updating avatar');
   }
 };
 
-// 2. Get Avatar Verification Requests (Admin Panel)
+// 2. Get Avatar Audit & Change Requests (Admin Panel)
 export const getAvatarRequests = async (req: Request, res: Response) => {
   try {
     const status = req.query.status as string;

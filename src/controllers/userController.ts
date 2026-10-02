@@ -27,6 +27,8 @@ import { deleteImageFromCloudinary } from "../utils/cloudinary";
 import { getAccessibleUserFilter } from "./formsController";
 import { generateSecureHash } from "../utils/passwordHelper";
 import { PANEL_ACCOUNT_ROLES } from "../utils/accountScope";
+import Host from "../models/host.model";
+import { validateAvatarSecurity } from "../utils/avatarSecurity";
 
 
 // set user name by authorized users
@@ -394,7 +396,7 @@ export const getUserById = async (req: AuthRequest, res: Response) => {
 // update user by userID with role based update 
 export const updateUser = async (req: AuthRequest, res: Response) => {
   try {
-    const { name, phoneNumber, bio, role, coins, diamonds, language, gender, phoneVerified, image, country, age, password, level } = req.body;
+    const { name, phoneNumber, bio, role, coins, diamonds, language, gender, phoneVerified, image, profilePic, country, age, password, level } = req.body;
     const { role: requesterRole, userId: requesterId } = req.user || {};
 
     let targetUserId: string;
@@ -417,7 +419,7 @@ export const updateUser = async (req: AuthRequest, res: Response) => {
       return sendResponse(res, 403, false, "Access Denied: Invalid requester role");
     }
 
-    // ðŸ” Find the user to update
+    // 🔍 Find the user to update
     const userToUpdate: UserInterface | null = await User.findOne({ userId: targetUserId, isDeleted: false });
     if (!userToUpdate) {
       return sendResponse(res, 404, false, "User not found");
@@ -474,6 +476,17 @@ export const updateUser = async (req: AuthRequest, res: Response) => {
       }
     }
 
+    // Image security check: support both image and profilePic fields safely
+    const rawImage = image !== undefined ? image : profilePic;
+    let cleanImage: string | undefined;
+    if (rawImage !== undefined) {
+      const validation = validateAvatarSecurity(rawImage);
+      if (!validation.valid || !validation.cleanAvatar) {
+        return sendResponse(res, 400, false, validation.error || "Invalid avatar image format");
+      }
+      cleanImage = validation.cleanAvatar;
+    }
+
     // 🛡️ Role-based permissions for what fields can be updated
     switch (requesterRole) {
       case "owner":
@@ -497,7 +510,7 @@ export const updateUser = async (req: AuthRequest, res: Response) => {
         if (country !== undefined) updatedFields.country = country;
         if (age !== undefined) updatedFields.age = Number(age);
         if (level !== undefined) updatedFields.level = level;
-        if (image !== undefined) updatedFields.image = image;
+        if (cleanImage !== undefined) updatedFields.image = cleanImage;
         if (req.body.faceVerificationStatus !== undefined) updatedFields.faceVerificationStatus = req.body.faceVerificationStatus;
         if (req.body.kycVerificationStatus !== undefined) updatedFields.kycVerificationStatus = req.body.kycVerificationStatus;
         if (password !== undefined && password.trim() !== "") {
@@ -507,7 +520,6 @@ export const updateUser = async (req: AuthRequest, res: Response) => {
 
       case "host":
         // Host can update specific fields for any user (including themselves if targetUserId is their own)
-        // Assuming hosts cannot change roles or coins directly for others
         if (name !== undefined) updatedFields.name = name;
         if (bio !== undefined) updatedFields.bio = bio;
         if (gender !== undefined) updatedFields.gender = gender;
@@ -515,31 +527,43 @@ export const updateUser = async (req: AuthRequest, res: Response) => {
         if (phoneVerified !== undefined) updatedFields.phoneVerified = phoneVerified;
         if (country !== undefined) updatedFields.country = country;
         if (age !== undefined) updatedFields.age = Number(age);
-        if (image !== undefined) updatedFields.image = image;
+        if (cleanImage !== undefined) updatedFields.image = cleanImage;
         break;
 
       case "user":
         // A regular user can only update their own specific fields
-        // We've already ensured targetUserId === requesterId above for "user" role.
         if (name !== undefined) updatedFields.name = name;
         if (bio !== undefined) updatedFields.bio = bio;
         if (gender !== undefined) updatedFields.gender = gender;
         if (language && Array.isArray(language)) updatedFields.language = language;
         if (country !== undefined) updatedFields.country = country;
         if (age !== undefined) updatedFields.age = Number(age);
-        if (image !== undefined) updatedFields.image = image;
+        if (cleanImage !== undefined) updatedFields.image = cleanImage;
         break;
 
       default:
-        // This case should ideally not be hit if authentication middleware handles roles correctly
         return sendResponse(res, 403, false, "Access Denied: Unknown role");
     }
 
-    // ðŸ’¾ Apply and save updates
+    // 💾 Apply and save updates
     if (Object.keys(updatedFields).length > 0) {
       Object.assign(userToUpdate, updatedFields);
       await userToUpdate.save();
-      return sendResponse(res, 200, true, "User updated successfully");
+
+      // If user is a host and avatar changed, update Host model too
+      if (cleanImage !== undefined && userToUpdate.role === 'host') {
+        await Host.updateOne(
+          { hostId: userToUpdate.userId },
+          { $set: { profilePhoto: cleanImage } }
+        ).catch(() => {});
+      }
+
+      return sendResponse(res, 200, true, "User updated successfully", {
+        user: userToUpdate,
+        image: userToUpdate.image,
+        profilePic: userToUpdate.image,
+        avatarUrl: userToUpdate.image,
+      });
     }
 
     return sendResponse(res, 400, false, "No valid fields to update");
@@ -1503,6 +1527,85 @@ export const requestDeletion = async (req: AuthRequest, res: Response) => {
   } catch (error: any) {
     await Logger("requestDeletion", error);
     return sendResponse(res, 500, false, error.message || "Failed to process account deletion");
+  }
+};
+
+export const getUserProfile = async (req: AuthRequest, res: Response) => {
+  try {
+    const requesterId = req.user?.id || (req.user as any)?.userId;
+    if (!requesterId) {
+      return sendResponse(res, 401, false, "Authentication required");
+    }
+
+    let user: any = null;
+    if (mongoose.Types.ObjectId.isValid(String(requesterId))) {
+      user = await User.findById(requesterId)
+        .populate('equippedEntryEffect')
+        .populate('ownedEntryEffects')
+        .lean();
+    }
+    if (!user) {
+      user = await User.findOne({ userId: Number(requesterId) })
+        .populate('equippedEntryEffect')
+        .populate('ownedEntryEffects')
+        .lean();
+    }
+
+    if (!user) {
+      return sendResponse(res, 404, false, "User not found");
+    }
+
+    // Default test diamonds if enabled and balance is low
+    if (
+      process.env.ENABLE_TEST_DIAMONDS === 'true' &&
+      process.env.NODE_ENV !== 'production'
+    ) {
+      if (user.userId === 1000000002 || user.name === 'Web Duniya') {
+        if (user.diamonds !== 100000000) {
+          await User.updateOne({ _id: user._id }, { $set: { diamonds: 100000000 } });
+          user.diamonds = 100000000;
+          console.log(`💎 [Test Seed] Set Web Duniya (1000000002) balance to 100,000,000 Diamonds.`);
+        }
+      } else if (user.diamonds === undefined || user.diamonds === null || user.diamonds < 1000000) {
+        await User.updateOne({ _id: user._id }, { $set: { diamonds: 1000000 } });
+        user.diamonds = 1000000;
+      }
+    }
+
+    return sendResponse(res, 200, true, "Profile fetched successfully", user);
+  } catch (error: any) {
+    return sendResponse(res, 500, false, error.message || "Failed to fetch profile");
+  }
+};
+
+export const getPublicUserProfile = async (req: AuthRequest, res: Response) => {
+  try {
+    const { id } = req.params;
+    if (!id) {
+      return sendResponse(res, 400, false, "Target user ID is required");
+    }
+
+    let user: any = null;
+    if (mongoose.Types.ObjectId.isValid(String(id))) {
+      user = await User.findById(id)
+        .select('-password -refreshToken -activeToken')
+        .populate('equippedEntryEffect')
+        .lean();
+    }
+    if (!user) {
+      user = await User.findOne({ userId: Number(id) })
+        .select('-password -refreshToken -activeToken')
+        .populate('equippedEntryEffect')
+        .lean();
+    }
+
+    if (!user) {
+      return sendResponse(res, 404, false, "User not found");
+    }
+
+    return sendResponse(res, 200, true, "Public user profile fetched successfully", user);
+  } catch (error: any) {
+    return sendResponse(res, 500, false, error.message || "Failed to fetch user profile");
   }
 };
 

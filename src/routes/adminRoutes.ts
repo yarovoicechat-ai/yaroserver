@@ -481,7 +481,9 @@ import {
 } from '../controllers/callTelemetryController';
 import {
     getActiveRoomsAdmin,
-    emergencyCloseRoom
+    emergencyCloseRoom,
+    togglePinRoomAdmin,
+    updatePinnedOrderAdmin
 } from '../controllers/liveRoomAdminController';
 import {
     getAllFeatureFlags,
@@ -521,6 +523,8 @@ router.get('/calls/:id/diagnostics', verifyToken, requireRoles('owner', 'superAd
 router.post('/calls/telemetry', recordCallTelemetry);
 
 router.get('/rooms/active', verifyToken, requireRoles('owner', 'superAdmin', 'admin', 'operator', 'customerSupport'), getActiveRoomsAdmin);
+router.post('/rooms/:id/pin', verifyToken, requireRoles('owner', 'superAdmin', 'admin', 'operator'), togglePinRoomAdmin);
+router.post('/rooms/pinned-order', verifyToken, requireRoles('owner', 'superAdmin', 'admin', 'operator'), updatePinnedOrderAdmin);
 router.post('/rooms/:id/close', verifyToken, requireRoles('owner', 'superAdmin', 'admin', 'operator', 'customerSupport'), emergencyCloseRoom);
 
 // Feature Flags

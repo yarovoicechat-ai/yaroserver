@@ -22,6 +22,8 @@ import {
   exchangeCoinsToDiamonds,
   requestDeletion,
   checkUsernameAvailability,
+  getUserProfile,
+  getPublicUserProfile,
 } from "../controllers/userController";
 
 import { verifyToken } from "../middlewares/authorize.middleware";
@@ -77,6 +79,10 @@ router.get("/blocked-contacts", verifyToken, getBlockedContacts);
 router.post("/block-contact/:id", verifyToken, blockContact);
 router.post("/unblock-contact/:id", verifyToken, unblockContact);
 router.post("/report", verifyToken, createReport);
+
+// user profile routes
+router.get("/profile", verifyToken, getUserProfile);
+router.get("/profile/:id", verifyToken, getPublicUserProfile);
 
 // get user by id
 router.get("/:userId", verifyToken, getUserById);

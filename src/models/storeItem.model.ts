@@ -8,12 +8,19 @@ export type StoreCategory =
   | 'Mic Wave'
   | 'Frames'
   | 'Entry'
-  | 'VIP';
+  | 'VIP'
+  | 'King of Kings';
+
+export interface IStorePriceOption {
+  days: 3 | 7 | 15 | 30;
+  diamonds: number;
+}
 
 export interface IStoreItem extends Document {
   name: string;
   category: StoreCategory;
   price: number; // In Diamonds
+  priceOptions: IStorePriceOption[];
   validity: string; // '7 Days' | '30 Days' | '90 Days' | 'Permanent'
   badgeText?: string; // 'HOT' | 'NEW' | 'LIMITED' | 'SALE' | 'VIP'
   previewColor?: string;
@@ -45,10 +52,16 @@ const StoreItemSchema = new Schema<IStoreItem>(
         'Frames',
         'Entry',
         'VIP',
+        'King of Kings',
       ],
       index: true,
     },
     price: { type: Number, required: true, default: 0, min: 0 },
+    priceOptions: [{
+      days: { type: Number, enum: [3, 7, 15, 30], required: true },
+      diamonds: { type: Number, min: 0, required: true },
+      _id: false,
+    }],
     validity: { type: String, required: true, default: '30 Days' },
     badgeText: { type: String, default: '' },
     previewColor: { type: String, default: '#8B5CF6' },

@@ -1,4 +1,5 @@
 import { Request, Response } from 'express';
+import mongoose from 'mongoose';
 import { Room } from '../models/room.model';
 import { AuditLog } from '../models/auditLog.model';
 import { getIO } from '../sockets';
@@ -10,15 +11,15 @@ import { AuthRequest } from '../middlewares/authorize.middleware';
  */
 export const getActiveRoomsAdmin = async (req: AuthRequest, res: Response) => {
     try {
-        const rooms = await Room.find({ isActive: true })
+        const rooms = await Room.find({ $or: [{ isActive: true }, { isPinned: true }] })
             .populate('ownerId', 'name userId image level country')
-            .sort({ createdAt: -1 })
+            .sort({ isPinned: -1, pinnedOrder: 1, createdAt: -1 })
             .lean();
 
         const normalized = rooms.map((room: any) => {
             const duration = Math.floor((Date.now() - new Date(room.createdAt).getTime()) / 1000);
             return {
-                id: room._id,
+                id: String(room._id),
                 channelName: room.channelName,
                 title: room.title,
                 category: room.category || 'General',
@@ -35,11 +36,92 @@ export const getActiveRoomsAdmin = async (req: AuthRequest, res: Response) => {
                 audienceCount: Array.isArray(room.members) ? room.members.length : 0,
                 duration,
                 status: room.isActive ? 'LIVE' : 'ENDED',
+                isPinned: Boolean(room.isPinned),
+                pinnedOrder: Number(room.pinnedOrder || 0),
+                pinnedAt: room.pinnedAt,
+                isActive: Boolean(room.isActive),
                 createdAt: room.createdAt
             };
         });
 
         return sendResponse(res, 200, true, 'Active rooms retrieved successfully', normalized);
+    } catch (err: any) {
+        return sendResponse(res, 500, false, err.message);
+    }
+};
+
+/**
+ * Pin / Unpin Voice Room from Admin Panel
+ * Rule: Room must be active to be pinned ("lekin room pin tabhi ho payega jab koe room active hoga")
+ */
+export const togglePinRoomAdmin = async (req: AuthRequest, res: Response) => {
+    try {
+        const { id } = req.params;
+        const { isPinned, pinnedOrder } = req.body;
+
+        const room = await Room.findOne({
+            $or: [
+                ...(mongoose.Types.ObjectId.isValid(id) ? [{ _id: id }] : []),
+                { channelName: id }
+            ]
+        });
+        if (!room) {
+            return sendResponse(res, 404, false, 'Room not found');
+        }
+
+        // Must be active to pin
+        if (isPinned && !room.isActive) {
+            return sendResponse(res, 400, false, 'Only active voice rooms can be pinned. Room must be live.');
+        }
+
+        room.isPinned = Boolean(isPinned);
+        if (pinnedOrder !== undefined) {
+            room.pinnedOrder = Number(pinnedOrder) || 1;
+        } else if (room.isPinned && !room.pinnedOrder) {
+            const countPinned = await Room.countDocuments({ isPinned: true });
+            room.pinnedOrder = countPinned + 1;
+        }
+
+        if (room.isPinned) {
+            room.pinnedAt = new Date();
+        }
+
+        await room.save();
+
+        if (req.user?.id) {
+            await AuditLog.create({
+                adminId: req.user.id,
+                action: room.isPinned ? 'PIN_ROOM' : 'UNPIN_ROOM',
+                target: String(room._id),
+                details: `${room.isPinned ? 'Pinned' : 'Unpinned'} room '${room.title}' (Priority: ${room.pinnedOrder})`,
+                ipAddress: req.ip || '127.0.0.1',
+            });
+        }
+
+        return sendResponse(res, 200, true, `Room '${room.title}' ${room.isPinned ? 'pinned' : 'unpinned'} successfully`, {
+            id: room._id,
+            isPinned: room.isPinned,
+            pinnedOrder: room.pinnedOrder,
+        });
+    } catch (err: any) {
+        return sendResponse(res, 500, false, err.message);
+    }
+};
+
+/**
+ * Bulk re-order pinned rooms
+ */
+export const updatePinnedOrderAdmin = async (req: AuthRequest, res: Response) => {
+    try {
+        const { rooms } = req.body; // array of { id, pinnedOrder }
+        if (Array.isArray(rooms)) {
+            for (const item of rooms) {
+                if (item.id && item.pinnedOrder !== undefined) {
+                    await Room.findByIdAndUpdate(item.id, { pinnedOrder: Number(item.pinnedOrder) });
+                }
+            }
+        }
+        return sendResponse(res, 200, true, 'Pinned rooms order updated successfully');
     } catch (err: any) {
         return sendResponse(res, 500, false, err.message);
     }
@@ -64,6 +146,7 @@ export const emergencyCloseRoom = async (req: AuthRequest, res: Response) => {
 
         const previousState = { isActive: room.isActive, channelName: room.channelName };
         room.isActive = false;
+        room.isPinned = false; // Unpin if terminated
         await room.save();
 
         // Broadcast room closure via Socket.io to both channel and roomId rooms

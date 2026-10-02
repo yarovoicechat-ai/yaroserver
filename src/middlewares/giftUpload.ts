@@ -22,11 +22,11 @@ const storage = multer.diskStorage({
 
 const fileFilter = (_req: any, file: Express.Multer.File, cb: multer.FileFilterCallback) => {
   const ext = path.extname(file.originalname).toLowerCase();
-  const allowed = [".png", ".jpg", ".jpeg", ".gif", ".webp", ".svg", ".svga"];
+  const allowed = [".png", ".jpg", ".jpeg", ".gif", ".webp", ".svg", ".svga", ".wav", ".wave", ".mp3", ".mp4"];
   if (allowed.includes(ext)) {
     cb(null, true);
   } else {
-    cb(new Error(`Invalid file type ${ext}. Allowed: png, jpg, jpeg, gif, webp, svg, svga`));
+    cb(new Error(`Invalid file type ${ext}. Allowed: png, jpg, jpeg, gif, webp, svg, svga, wav, wave, mp3, mp4`));
   }
 };
 

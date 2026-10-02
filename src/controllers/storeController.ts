@@ -2,6 +2,44 @@ import { Request, Response } from 'express';
 import { StoreItem, IStoreItem, StoreCategory } from '../models/storeItem.model';
 import { User } from '../models/user.model';
 import sendResponse from '../utils/reponse';
+import HostLevel from '../models/hostLevel.model';
+import { recalculateAndUpdateHostLevel } from '../services/user.service';
+
+const STORE_DURATIONS = [3, 7, 15, 30] as const;
+
+const buildDefaultPriceOptions = (price: number) => {
+  const base = Math.max(0, Number(price) || 0);
+  const ratios: Record<number, number> = { 3: 0.15, 7: 0.3, 15: 0.55, 30: 1 };
+  return STORE_DURATIONS.map((days) => ({
+    days,
+    diamonds: Math.max(0, Math.round(base * ratios[days])),
+  }));
+};
+
+const normalizePriceOptions = (value: any, fallbackPrice: number) => {
+  const supplied = Array.isArray(value) ? value : [];
+  const defaults = buildDefaultPriceOptions(fallbackPrice);
+  return STORE_DURATIONS.map((days) => {
+    const match = supplied.find((option: any) => Number(option?.days) === days);
+    const diamonds = match ? Number(match.diamonds) : defaults.find((option) => option.days === days)?.diamonds;
+    return { days, diamonds: Math.max(0, Number(diamonds) || 0) };
+  });
+};
+
+const serializeStoreItem = (item: any) => {
+  const plain = typeof item?.toObject === 'function' ? item.toObject() : item;
+  const metadata = plain?.metadata || {};
+  return {
+    ...plain,
+    id: String(plain?._id || plain?.id || ''),
+    priceOptions: normalizePriceOptions(plain?.priceOptions, plain?.price),
+    number: metadata.number,
+    digits: metadata.digits,
+    tag: metadata.tag || plain?.badgeText,
+    banner: metadata.banner,
+    benefits: Array.isArray(metadata.benefits) ? metadata.benefits : [],
+  };
+};
 
 // Initial default seed items matching Yaro mobile store catalog
 const DEFAULT_SEED_ITEMS: Partial<IStoreItem>[] = [
@@ -412,7 +450,13 @@ export const getStoreItems = async (req: Request, res: Response) => {
       ];
     }
 
-    const items = await StoreItem.find(filter).sort({ category: 1, sortOrder: 1, createdAt: -1 });
+    const items = await StoreItem.find(filter).sort({ category: 1, sortOrder: 1, createdAt: -1 }).lean();
+    const serializedItems = items.map(serializeStoreItem);
+    const catalog = serializedItems.reduce((grouped: Record<string, any[]>, item: any) => {
+      if (!grouped[item.category]) grouped[item.category] = [];
+      grouped[item.category].push(item);
+      return grouped;
+    }, {});
 
     // Category distribution counts for admin dashboard
     const categoryStats = await StoreItem.aggregate([
@@ -420,8 +464,9 @@ export const getStoreItems = async (req: Request, res: Response) => {
     ]);
 
     return sendResponse(res, 200, true, 'Store items retrieved successfully', {
-      items,
-      total: items.length,
+      items: serializedItems,
+      catalog,
+      total: serializedItems.length,
       categoryStats,
     });
   } catch (error: any) {
@@ -443,12 +488,44 @@ export const getStoreItemById = async (req: Request, res: Response) => {
   }
 };
 
+export const getStoreInventory = async (req: any, res: Response) => {
+  try {
+    const account = await User.findById(req.user?.id).select('role').lean();
+    if (!account) return sendResponse(res, 404, false, 'User not found');
+    if (account.role === 'host') {
+      await recalculateAndUpdateHostLevel(req.user.id);
+    }
+    const user = await User.findById(req.user?.id).select('storeInventory');
+    if (!user) return sendResponse(res, 404, false, 'User not found');
+    const now = Date.now();
+    const items = (user.storeInventory || [])
+      .filter((item) => !item.expiresAt || new Date(item.expiresAt).getTime() > now)
+      .sort((a, b) => new Date(b.purchasedAt).getTime() - new Date(a.purchasedAt).getTime());
+    return sendResponse(res, 200, true, 'Active items fetched', { items });
+  } catch (error: any) {
+    return sendResponse(res, 500, false, error.message || 'Failed to fetch inventory');
+  }
+};
+
+export const getStoreLevels = async (_req: Request, res: Response) => {
+  try {
+    const now = new Date();
+    const levels = await HostLevel.find({
+      $or: [{ expiresAt: { $exists: false } }, { expiresAt: null }, { expiresAt: { $gt: now } }],
+    }).select('level name coinPerMinute minCalls minMinutes rewards').sort({ level: 1 }).lean();
+    return sendResponse(res, 200, true, 'Levels fetched', { levels });
+  } catch (error: any) {
+    return sendResponse(res, 500, false, error.message || 'Failed to fetch levels');
+  }
+};
+
 export const createStoreItem = async (req: Request, res: Response) => {
   try {
     const {
       name,
       category,
       price,
+      priceOptions,
       validity,
       badgeText,
       previewColor,
@@ -466,10 +543,12 @@ export const createStoreItem = async (req: Request, res: Response) => {
       return sendResponse(res, 400, false, 'Name, category, and price are required');
     }
 
+    const normalizedPrices = normalizePriceOptions(priceOptions, Number(price) || 0);
     const newItem = await StoreItem.create({
       name,
       category,
-      price: Number(price) || 0,
+      price: normalizedPrices.find((option) => option.days === 30)?.diamonds || 0,
+      priceOptions: normalizedPrices,
       validity: validity || '30 Days',
       badgeText: badgeText || '',
       previewColor: previewColor || '#8B5CF6',
@@ -497,11 +576,16 @@ export const updateStoreItem = async (req: Request, res: Response) => {
     if (updateData.price !== undefined) {
       updateData.price = Number(updateData.price);
     }
+    if (updateData.priceOptions !== undefined || updateData.price !== undefined) {
+      updateData.priceOptions = normalizePriceOptions(updateData.priceOptions, updateData.price || 0);
+      const thirtyDayPrice = updateData.priceOptions.find((option: any) => option.days === 30)?.diamonds;
+      if (thirtyDayPrice !== undefined) updateData.price = thirtyDayPrice;
+    }
     if (updateData.sortOrder !== undefined) {
       updateData.sortOrder = Number(updateData.sortOrder);
     }
 
-    const updated = await StoreItem.findByIdAndUpdate(id, updateData, { new: true });
+    const updated = await StoreItem.findByIdAndUpdate(id, updateData, { new: true, runValidators: true });
     if (!updated) {
       return sendResponse(res, 404, false, 'Store item not found');
     }
@@ -555,49 +639,82 @@ export const resetStoreCatalog = async (req: Request, res: Response) => {
 // Purchase endpoint for mobile app users (/api/user/buy-store-item)
 export const buyStoreItem = async (req: any, res: Response) => {
   try {
-    const userId = req.user?._id || req.body.userId;
-    const { itemId, category, price } = req.body;
+    const userId = req.user?.id;
+    const { itemId } = req.body;
+    const durationDays = Number(req.body.durationDays || 30);
 
     if (!userId) {
       return sendResponse(res, 401, false, 'Unauthorized');
     }
 
-    const user = await User.findById(userId);
+    if (!itemId) {
+      return sendResponse(res, 400, false, 'Store item is required');
+    }
+
+    if (!STORE_DURATIONS.includes(durationDays as any)) {
+      return sendResponse(res, 400, false, 'Duration must be 3, 7, 15, or 30 days');
+    }
+
+    const user = await User.findById(userId).select('diamonds');
     if (!user) {
       return sendResponse(res, 404, false, 'User not found');
     }
 
-    let item: any = null;
-    if (itemId) {
-      item = await StoreItem.findById(itemId);
+    const item: any = await StoreItem.findOne({ _id: itemId, isActive: true });
+    if (!item) {
+      return sendResponse(res, 404, false, 'Store item is unavailable');
     }
 
-    const costInDiamonds = item ? item.price : Number(price) || 0;
+    const selectedOption = normalizePriceOptions(item.priceOptions, item.price)
+      .find((option) => option.days === durationDays);
+    const costInDiamonds = selectedOption?.diamonds ?? item.price;
     const userDiamonds = user.diamonds || 0;
 
     if (userDiamonds < costInDiamonds) {
       return sendResponse(res, 400, false, `Insufficient diamonds. Required: ${costInDiamonds}, Available: ${userDiamonds}`);
     }
 
-    // Deduct diamonds
-    user.diamonds = Math.max(0, userDiamonds - costInDiamonds);
+    const purchasedAt = new Date();
+    const expiresAt = new Date(purchasedAt.getTime() + durationDays * 24 * 60 * 60 * 1000);
+    const update: any = {
+      $inc: { diamonds: -costInDiamonds },
+      $push: {
+        storeInventory: {
+          itemId: item._id,
+          name: item.name,
+          category: item.category,
+          durationDays,
+          purchasedAt,
+          expiresAt,
+          imageUrl: item.imageUrl || '',
+          animationUrl: item.animationUrl || '',
+          source: 'store',
+        },
+      },
+    };
 
-    // If item was found, increment sales count
-    if (item) {
-      item.salesCount = (item.salesCount || 0) + 1;
-      await item.save();
+    if (item.category === 'Unique ID' && item.metadata?.number) {
+      update.$set = { specialCode: item.metadata.number };
     }
 
-    // If unique ID, update user meethiId or specialCode
-    if (item && item.category === 'Unique ID' && item.metadata?.number) {
-      user.specialCode = item.metadata.number;
+    const updatedUser = await User.findOneAndUpdate(
+      { _id: userId, diamonds: { $gte: costInDiamonds } },
+      update,
+      { new: true }
+    ).select('diamonds storeInventory');
+
+    if (!updatedUser) {
+      return sendResponse(res, 409, false, 'Wallet changed. Please refresh and try again.');
     }
 
-    await user.save();
+    item.salesCount = (item.salesCount || 0) + 1;
+    await item.save();
 
     return sendResponse(res, 200, true, 'Purchase successful 🎉', {
-      remainingDiamonds: user.diamonds,
-      item: item || { itemId, category, price: costInDiamonds },
+      remainingDiamonds: updatedUser.diamonds,
+      durationDays,
+      expiresAt,
+      item: serializeStoreItem(item),
     });
   } catch (error: any) {
     console.error('buyStoreItem error:', error);

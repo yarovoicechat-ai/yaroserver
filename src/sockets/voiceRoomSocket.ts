@@ -1,6 +1,8 @@
 import { Server } from "socket.io";
 import { AuthenticatedSocket } from "../middlewares/auth.socket";
 import redis from "../configs/redisConfig";
+import { GiftService } from "../gift/gift.service";
+import { EntryEffectService } from "../services/entryEffect.service";
 
 export interface VoiceRoomSeat {
   seatIndex: number;
@@ -112,34 +114,55 @@ export const registerVoiceRoomHandlers = (io: Server, socket: AuthenticatedSocke
       const rawRoomId = String(data?.roomId || "").trim();
       if (!rawRoomId) return;
       const roomId = normalizeRoomId(rawRoomId);
+      const authorizedHost = Boolean(data.isHost && user?.userId && normalizeRoomId(String(user.userId)) === roomId);
 
       const userData = {
-        userId: String(data?.user?.userId || data?.user?.id || user?.userId || user?.id || "guest"),
-        name: String(data?.user?.name || user?.name || "Guest"),
+        userId: String(user?.userId || data?.user?.userId || "guest"),
+        name: String(user?.name || data?.user?.name || "Guest"),
         avatar: String(data?.user?.avatar || data?.user?.image || "https://api.yaroapp.in/uploads/avatars/female_default.webp"),
         gender: data?.user?.gender || "male",
         level: data?.user?.level || 1,
       };
 
+      // 24-hour ban check
+      try {
+        const isBanned24h = await redis.get(`voice_room_ban24h:${roomId}:${userData.userId}`);
+        if (isBanned24h) {
+          socket.emit("voice_room:error", {
+            message: "Aap is room se 24 ghante ke liye banned hain. (You are banned from this room for 24 hours)",
+            code: "BANNED_24H"
+          });
+          socket.emit("voice_room:force_leave", {
+            reason: "Banned from room for 24 hours"
+          });
+          return;
+        }
+      } catch (banErr) {
+        console.warn("[VoiceRoom] Ban check error:", banErr);
+      }
+
       const socketRoomChannel = `voice_room_channel:${roomId}`;
       await socket.join(socketRoomChannel);
+      await socket.join(`room:${roomId}`);
       if (rawRoomId !== roomId) {
         await socket.join(`voice_room_channel:${rawRoomId}`);
+        await socket.join(`room:${rawRoomId}`);
       }
 
       (socket as any).voiceRoomId = roomId;
       (socket as any).voiceRawRoomId = rawRoomId;
       (socket as any).voiceUser = userData;
 
-      const state = await getVoiceRoomState(roomId, data.customSeats || 8, data.isHost ? userData : null);
+      const state = await getVoiceRoomState(roomId, data.customSeats || 8, authorizedHost ? userData : null);
 
       if (data.roomTitle) state.title = data.roomTitle;
-      if (data.isHost && (!state.seats[0].user || state.seats[0].user.userId === userData.userId)) {
+      if (authorizedHost) {
         state.seats[0].user = userData;
         state.hostUser = userData;
       }
 
       if (!state.onlineUsers) state.onlineUsers = {};
+      const wasOnline = Boolean(state.onlineUsers[userData.userId]);
       state.onlineUsers[userData.userId] = {
         ...userData,
         socketId: socket.id,
@@ -159,23 +182,24 @@ export const registerVoiceRoomHandlers = (io: Server, socket: AuthenticatedSocke
       });
 
       // Broadcast user join to all sockets in the channel
-      io.to(socketRoomChannel).emit("voice_room:user_joined", {
-        user: userData,
-        onlineCount: Object.keys(state.onlineUsers).length,
-      });
-      if (rawRoomId !== roomId) {
-        io.to(`voice_room_channel:${rawRoomId}`).emit("voice_room:user_joined", {
+      if (!wasOnline) {
+        io.to(socketRoomChannel).emit("voice_room:user_joined", {
           user: userData,
           onlineCount: Object.keys(state.onlineUsers).length,
+          announcementSent: true,
+        });
+        io.to(socketRoomChannel).emit("voice_room:chat_message", {
+          id: "sys-" + Date.now() + "-" + Math.random().toString(36).substr(2, 4),
+          type: "system",
+          text: `${userData.name} joined the party!`,
+          timestamp: Date.now(),
+        });
+
+        // Broadcast Entry Effect to the voice room
+        EntryEffectService.broadcastEntry(roomId, userData).catch((err: any) => {
+          console.warn("[VoiceRoom] Entry effect broadcast warning:", err?.message);
         });
       }
-
-      io.to(socketRoomChannel).emit("voice_room:chat_message", {
-        id: "sys-" + Date.now() + "-" + Math.random().toString(36).substr(2, 4),
-        type: "system",
-        text: `📢 ${userData.name} joined the party!`,
-        timestamp: Date.now(),
-      });
 
       console.log(`[VoiceRoom] User ${userData.name} (${userData.userId}) joined room ${roomId}`);
     } catch (err: any) {
@@ -193,8 +217,8 @@ export const registerVoiceRoomHandlers = (io: Server, socket: AuthenticatedSocke
       const roomId = normalizeRoomId(rawRoomId);
 
       const userData = {
-        userId: String(data?.user?.userId || data?.user?.id || user?.userId || user?.id || "guest"),
-        name: String(data?.user?.name || user?.name || "Guest"),
+        userId: String(user?.userId || "guest"),
+        name: String(user?.name || "Guest"),
         avatar: String(data?.user?.avatar || data?.user?.image || "https://api.yaroapp.in/uploads/avatars/female_default.webp"),
         gender: data?.user?.gender || "male",
         level: data?.user?.level || 1,
@@ -207,6 +231,10 @@ export const registerVoiceRoomHandlers = (io: Server, socket: AuthenticatedSocke
 
       if (seatIndex >= state.seats.length) {
         socket.emit("voice_room:error", { message: "Invalid seat number" });
+        return;
+      }
+      if (seatIndex === 0 && normalizeRoomId(String(user?.userId || '')) !== roomId) {
+        socket.emit("voice_room:error", { message: "Only the room host can use the host seat" });
         return;
       }
 
@@ -270,7 +298,7 @@ export const registerVoiceRoomHandlers = (io: Server, socket: AuthenticatedSocke
       if (!rawRoomId) return;
       const roomId = normalizeRoomId(rawRoomId);
 
-      const targetUserId = String(data?.user?.userId || data?.user?.id || user?.userId || user?.id || "");
+      const targetUserId = String(user?.userId || "");
       const socketRoomChannel = `voice_room_channel:${roomId}`;
       const state = await getVoiceRoomState(roomId);
 
@@ -279,8 +307,7 @@ export const registerVoiceRoomHandlers = (io: Server, socket: AuthenticatedSocke
 
       state.seats = state.seats.map((s) => {
         if (
-          (data.seatIndex !== undefined && s.seatIndex === Number(data.seatIndex)) ||
-          (targetUserId && s.user && String(s.user.userId) === String(targetUserId))
+          targetUserId && s.user && String(s.user.userId) === targetUserId
         ) {
           vacatedIndex = s.seatIndex;
           if (s.user?.name) userName = s.user.name;
@@ -404,29 +431,111 @@ export const registerVoiceRoomHandlers = (io: Server, socket: AuthenticatedSocke
     }
   });
 
-  // 7. Send Gift
+  // 7. Subscribe to Gifts in Voice Room
+  socket.on("voice_room:subscribe_gifts", async (data: { roomId: string }) => {
+    try {
+      const rawRoomId = String(data?.roomId || "").trim();
+      if (!rawRoomId) return;
+      const roomId = normalizeRoomId(rawRoomId);
+      await socket.join(`voice_room_channel:${roomId}`);
+      await socket.join(`room:${roomId}`);
+      if (rawRoomId !== roomId) {
+        await socket.join(`voice_room_channel:${rawRoomId}`);
+        await socket.join(`room:${rawRoomId}`);
+      }
+    } catch (_) {}
+  });
+
+  // 8. Send Gift (Real-Time Live Broadcast across devices)
   socket.on("voice_room:send_gift", async (data: { roomId: string; gift: any }) => {
     try {
       const rawRoomId = String(data?.roomId || (socket as any).voiceRawRoomId || (socket as any).voiceRoomId || "").trim();
       if (!rawRoomId || !data?.gift) return;
       const roomId = normalizeRoomId(rawRoomId);
 
-      const socketRoomChannel = `voice_room_channel:${roomId}`;
-      io.to(socketRoomChannel).emit("voice_room:gift_received", data.gift);
+      const giftObj = data.gift;
+      const channels = [
+        `voice_room_channel:${roomId}`,
+        `room:${roomId}`,
+      ];
+      if (rawRoomId !== roomId) {
+        channels.push(`voice_room_channel:${rawRoomId}`);
+        channels.push(`room:${rawRoomId}`);
+      }
 
-      const giftMsg = {
-        id: "gift-" + Date.now(),
-        type: "gift",
-        user: data.gift.senderName || user?.name || "Someone",
-        gift: data.gift.giftName || "Gift",
-        to: data.gift.receiverName || "Host",
+      const senderSummary = {
+        id: String(giftObj.senderId || user?.userId || user?.id || "guest"),
+        userId: giftObj.senderId || user?.userId || "guest",
+        name: giftObj.senderName || user?.name || "Someone",
+        avatar: giftObj.senderAvatar || (user as any)?.avatar || "https://api.yaroapp.in/uploads/avatars/female_default.webp",
+      };
+
+      const receiverSummary = {
+        id: String(giftObj.receiverId || giftObj.toId || "host"),
+        userId: giftObj.receiverId || giftObj.toId || "host",
+        name: giftObj.receiverName || "Host",
+        avatar: giftObj.receiverAvatar || "https://api.yaroapp.in/uploads/avatars/female_default.webp",
+      };
+
+      const giftSummary = {
+        id: String(giftObj.id || giftObj._id || "gift"),
+        name: giftObj.name || giftObj.giftName || "Gift",
+        icon: giftObj.icon || giftObj.giftEmoji || "🎁",
+        animationUrl: giftObj.animationUrl || "",
+        animationType: giftObj.animationType || "NORMAL",
+        price: Number(giftObj.price || giftObj.cost || 1),
+      };
+
+      const quantity = Number(giftObj.quantity || 1);
+      const comboCount = Number(giftObj.comboCount || 1);
+
+      const sharedTransactionId = `gift_${Date.now()}_${Math.random().toString(36).substr(2, 6)}`;
+
+      const animationPayload = {
+        animationId: sharedTransactionId,
+        transactionId: sharedTransactionId,
+        gift: giftSummary,
+        sender: senderSummary,
+        receivers: [receiverSummary],
+        receiver: receiverSummary,
+        quantity,
+        comboCount,
         timestamp: Date.now(),
       };
-      io.to(socketRoomChannel).emit("voice_room:chat_message", giftMsg);
-      if (rawRoomId !== roomId) {
-        io.to(`voice_room_channel:${rawRoomId}`).emit("voice_room:gift_received", data.gift);
-        io.to(`voice_room_channel:${rawRoomId}`).emit("voice_room:chat_message", giftMsg);
-      }
+
+      const giftReceivedPayload = {
+        transactionId: sharedTransactionId,
+        roomId,
+        sender: senderSummary,
+        receivers: [receiverSummary],
+        receiver: receiverSummary,
+        gift: giftSummary,
+        quantity,
+        comboCount,
+        timestamp: Date.now(),
+      };
+
+      const payloadWithGift = {
+        ...giftObj,
+        transactionId: sharedTransactionId,
+        senderId: senderSummary.userId,
+        sender: senderSummary,
+        receiver: receiverSummary,
+        gift: {
+          ...giftSummary,
+          senderName: senderSummary.name,
+          senderAvatar: senderSummary.avatar,
+          receiverName: receiverSummary.name,
+          giftName: giftSummary.name,
+          giftIcon: giftSummary.icon,
+        },
+      };
+
+      channels.forEach((channel) => {
+        io.to(channel).emit("gift:received", giftReceivedPayload);
+        io.to(channel).emit("gift:animation", animationPayload);
+        io.to(channel).emit("voice_room:gift_received", payloadWithGift);
+      });
     } catch (err: any) {
       console.error("[VoiceRoom] Gift error:", err);
     }
@@ -455,44 +564,97 @@ export const registerVoiceRoomHandlers = (io: Server, socket: AuthenticatedSocke
     }
   });
 
-  // 9. Leave Room
-  const handleUserLeave = async (isExplicitLeave: boolean = true) => {
-    const rawRoomId = (socket as any).voiceRawRoomId || (socket as any).voiceRoomId;
-    const userData = (socket as any).voiceUser;
-    if (!rawRoomId || !userData) return;
+  // 9. Leave Room (Clean seat release for Owner, Admin, or User)
+  const handleUserLeave = async (isExplicitLeave: boolean = true, incomingData?: { roomId?: string; user?: any }) => {
+    const rawRoomId = String(incomingData?.roomId || (socket as any).voiceRawRoomId || (socket as any).voiceRoomId || "").trim();
+    const leavingUser = incomingData?.user || (socket as any).voiceUser || user;
+    if (!rawRoomId) return;
     const roomId = normalizeRoomId(rawRoomId);
+
+    const targetUserId = String(leavingUser?.userId || leavingUser?._id || leavingUser?.id || (socket as any).voiceUser?.userId || user?.userId || "");
+    const targetName = String(leavingUser?.name || (socket as any).voiceUser?.name || user?.name || "User");
 
     try {
       const socketRoomChannel = `voice_room_channel:${roomId}`;
       socket.leave(socketRoomChannel);
+      socket.leave(`room:${roomId}`);
+      if (rawRoomId !== roomId) {
+        socket.leave(`voice_room_channel:${rawRoomId}`);
+        socket.leave(`room:${rawRoomId}`);
+      }
 
       delete (socket as any).voiceRoomId;
       delete (socket as any).voiceRawRoomId;
       delete (socket as any).voiceUser;
 
       const state = await getVoiceRoomState(roomId);
+
+      // Remove from online users
       if (state.onlineUsers) {
-        delete state.onlineUsers[userData.userId];
+        if (targetUserId && state.onlineUsers[targetUserId]) {
+          delete state.onlineUsers[targetUserId];
+        }
+        // Also cleanup by socket ID
+        Object.keys(state.onlineUsers).forEach((uid) => {
+          if (state.onlineUsers[uid]?.socketId === socket.id || (targetUserId && String(uid) === targetUserId)) {
+            delete state.onlineUsers[uid];
+          }
+        });
       }
 
-      let freedIndex = -1;
-      // Only clear seat if the user explicitly clicked "Leave Room"
-      if (isExplicitLeave) {
-        state.seats = state.seats.map((s) => {
-          if (s.seatIndex > 0 && s.user && String(s.user.userId) === String(userData.userId)) {
-            freedIndex = s.seatIndex;
-            return { ...s, user: null, isMuted: true };
-          }
-          return s;
-        });
+      const isMatchingSeatUser = (seatUser: any): boolean => {
+        if (!seatUser) return false;
+        if (targetUserId) {
+          if (seatUser.userId && String(seatUser.userId) === targetUserId) return true;
+          if (seatUser._id && String(seatUser._id) === targetUserId) return true;
+          if (seatUser.id && String(seatUser.id) === targetUserId) return true;
+          if (normalizeRoomId(String(seatUser.userId)) === normalizeRoomId(targetUserId)) return true;
+        }
+        if (targetName && targetName !== "User" && targetName !== "Guest") {
+          if (seatUser.name && String(seatUser.name).trim().toLowerCase() === targetName.trim().toLowerCase()) return true;
+        }
+        return false;
+      };
+
+      const isOwnerLeaving = Boolean(
+        (targetUserId && normalizeRoomId(targetUserId) === roomId) ||
+        (state.hostUser && isMatchingSeatUser(state.hostUser))
+      );
+
+      const vacatedIndices: number[] = [];
+      state.seats = state.seats.map((s) => {
+        if (isMatchingSeatUser(s.user) || (s.seatIndex === 0 && isOwnerLeaving)) {
+          vacatedIndices.push(s.seatIndex);
+          return { ...s, user: null, isMuted: true };
+        }
+        return s;
+      });
+
+      if (isOwnerLeaving) {
+        state.hostUser = null;
       }
 
       await saveVoiceRoomState(state);
 
+      // Broadcast vacated seats to everyone in the room
+      vacatedIndices.forEach((freedIdx) => {
+        const seatPayload = {
+          seatIndex: freedIdx,
+          user: null,
+          seats: state.seats,
+        };
+        io.to(socketRoomChannel).emit("voice_room:seat_updated", seatPayload);
+        if (rawRoomId !== roomId) {
+          io.to(`voice_room_channel:${rawRoomId}`).emit("voice_room:seat_updated", seatPayload);
+        }
+      });
+
       const userLeftPayload = {
-        user: userData,
+        user: { userId: targetUserId, name: targetName },
         onlineCount: Object.keys(state.onlineUsers || {}).length,
-        freedSeatIndex: freedIndex,
+        announcementSent: isExplicitLeave,
+        freedSeatIndex: vacatedIndices.length > 0 ? vacatedIndices[0] : -1,
+        freedSeatIndices: vacatedIndices,
         seats: state.seats,
       };
 
@@ -501,21 +663,172 @@ export const registerVoiceRoomHandlers = (io: Server, socket: AuthenticatedSocke
         io.to(`voice_room_channel:${rawRoomId}`).emit("voice_room:user_left", userLeftPayload);
       }
 
-      if (isExplicitLeave) {
+      if (isExplicitLeave && targetName) {
         io.to(socketRoomChannel).emit("voice_room:chat_message", {
           id: "sys-" + Date.now(),
           type: "system",
-          text: `👋 ${userData.name} left the room.`,
+          text: `👋 ${targetName} left the room.`,
           timestamp: Date.now(),
         });
       }
 
-      console.log(`[VoiceRoom] User ${userData.name} (${userData.userId}) left room ${roomId} (explicit: ${isExplicitLeave})`);
+      console.log(`[VoiceRoom] ${targetName} (${targetUserId}) left room ${roomId} - seats vacated: ${vacatedIndices.join(",")}`);
     } catch (err: any) {
       console.error("[VoiceRoom] Leave cleanup error:", err);
     }
   };
 
-  socket.on("voice_room:leave", () => handleUserLeave(true));
+  socket.on("voice_room:leave", (data?: any) => handleUserLeave(true, data));
   socket.on("disconnect", () => handleUserLeave(false));
+
+  // 9.1 Moderation: Remove User from Seat to Audience (User stays in room & can re-join later)
+  socket.on("voice_room:kick_from_seat", async (data: { roomId: string; targetUserId: string; targetName?: string }) => {
+    try {
+      const rawRoomId = String(data?.roomId || (socket as any).voiceRawRoomId || (socket as any).voiceRoomId || "").trim();
+      const targetUserId = String(data?.targetUserId || "").trim();
+      if (!rawRoomId || !targetUserId) return;
+      const roomId = normalizeRoomId(rawRoomId);
+
+      const state = await getVoiceRoomState(roomId);
+      let vacatedIdx = -1;
+      state.seats = state.seats.map((s) => {
+        if (s.user && (
+          String(s.user.userId) === targetUserId ||
+          String((s.user as any)._id) === targetUserId ||
+          String((s.user as any).id) === targetUserId
+        )) {
+          vacatedIdx = s.seatIndex;
+          return { ...s, user: null, isMuted: true };
+        }
+        return s;
+      });
+
+      if (vacatedIdx >= 0) {
+        await saveVoiceRoomState(state);
+        const socketRoomChannel = `voice_room_channel:${roomId}`;
+        const seatPayload = {
+          seatIndex: vacatedIdx,
+          user: null,
+          seats: state.seats,
+        };
+        io.to(socketRoomChannel).emit("voice_room:seat_updated", seatPayload);
+        if (rawRoomId !== roomId) {
+          io.to(`voice_room_channel:${rawRoomId}`).emit("voice_room:seat_updated", seatPayload);
+        }
+
+        io.to(socketRoomChannel).emit("voice_room:moved_to_audience", {
+          roomId,
+          targetUserId,
+          seatIndex: vacatedIdx,
+        });
+
+        io.to(socketRoomChannel).emit("voice_room:chat_message", {
+          id: "sys-" + Date.now(),
+          type: "system",
+          text: `💺 ${data?.targetName || "User"} was moved to audience by Host/Admin.`,
+          timestamp: Date.now(),
+        });
+      }
+    } catch (err: any) {
+      console.error("[VoiceRoom] Remove from seat error:", err);
+    }
+  });
+
+  // 9.2 Moderation: Kick User from Room with 24 Hours Ban
+  socket.on("voice_room:kick_user", async (data: { roomId: string; targetUserId: string; targetName?: string; ban24h?: boolean }) => {
+    try {
+      const rawRoomId = String(data?.roomId || (socket as any).voiceRawRoomId || (socket as any).voiceRoomId || "").trim();
+      const targetUserId = String(data?.targetUserId || "").trim();
+      if (!rawRoomId || !targetUserId) return;
+      const roomId = normalizeRoomId(rawRoomId);
+
+      // Save 24 Hours Ban in Redis (86400 seconds)
+      await redis.set(`voice_room_ban24h:${roomId}:${targetUserId}`, Date.now() + 24 * 3600 * 1000, "EX", 86400);
+
+      const state = await getVoiceRoomState(roomId);
+      let vacatedIdx = -1;
+      state.seats = state.seats.map((s) => {
+        if (s.user && (
+          String(s.user.userId) === targetUserId ||
+          String((s.user as any)._id) === targetUserId ||
+          String((s.user as any).id) === targetUserId
+        )) {
+          vacatedIdx = s.seatIndex;
+          return { ...s, user: null, isMuted: true };
+        }
+        return s;
+      });
+
+      if (state.onlineUsers && state.onlineUsers[targetUserId]) {
+        delete state.onlineUsers[targetUserId];
+      }
+
+      await saveVoiceRoomState(state);
+      const socketRoomChannel = `voice_room_channel:${roomId}`;
+
+      if (vacatedIdx >= 0) {
+        const seatPayload = {
+          seatIndex: vacatedIdx,
+          user: null,
+          seats: state.seats,
+        };
+        io.to(socketRoomChannel).emit("voice_room:seat_updated", seatPayload);
+        if (rawRoomId !== roomId) {
+          io.to(`voice_room_channel:${rawRoomId}`).emit("voice_room:seat_updated", seatPayload);
+        }
+      }
+
+      // Notify room and target user that they are kicked with 24h ban
+      io.to(socketRoomChannel).emit("voice_room:user_kicked", {
+        roomId,
+        targetUserId,
+        targetName: data?.targetName || "User",
+        ban24h: true,
+        onlineCount: Object.keys(state.onlineUsers || {}).length,
+        seats: state.seats,
+      });
+
+      io.to(socketRoomChannel).emit("voice_room:chat_message", {
+        id: "sys-" + Date.now(),
+        type: "system",
+        text: `🚫 ${data?.targetName || "User"} was kicked out of the room by Admin (24 Hours Ban).`,
+        timestamp: Date.now(),
+      });
+
+      console.log(`[VoiceRoom] User ${data?.targetName} (${targetUserId}) kicked from room ${roomId} with 24h ban`);
+    } catch (err: any) {
+      console.error("[VoiceRoom] Kick user 24h ban error:", err);
+    }
+  });
+
+  // 10. Real-time Gift Send Handler
+  socket.on("gift:send", async (data: any, callback?: (res: any) => void) => {
+    try {
+      const senderId = user?.id || (socket as any).userId;
+      if (!senderId) {
+        const errPayload = { requestId: data?.requestId, error: "Authentication required", code: "UNAUTHORIZED" };
+        socket.emit("gift:failed", errPayload);
+        if (typeof callback === "function") callback({ success: false, ...errPayload });
+        return;
+      }
+
+      const result = await GiftService.sendGift(String(senderId), {
+        ...data,
+        roomId: data?.roomId || (socket as any).voiceRoomId,
+      });
+
+      socket.emit("gift:sent", result);
+      if (typeof callback === "function") callback({ success: true, data: result });
+    } catch (err: any) {
+      const errPayload = {
+        requestId: data?.requestId,
+        error: err.message || "Failed to send gift",
+        code: err.code || "GIFT_SEND_FAILED",
+        availableDiamonds: err.availableDiamonds,
+        requiredDiamonds: err.requiredDiamonds,
+      };
+      socket.emit("gift:failed", errPayload);
+      if (typeof callback === "function") callback({ success: false, ...errPayload });
+    }
+  });
 };
