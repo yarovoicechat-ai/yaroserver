@@ -16,7 +16,9 @@ const giftCategorySchema = new Schema<IGiftCategory>(
   { timestamps: true }
 );
 
-export const GiftCategory = mongoose.model<IGiftCategory>('GiftCategory', giftCategorySchema);
+export const GiftCategory =
+  (mongoose.models.GiftCategory as mongoose.Model<IGiftCategory>) ||
+  mongoose.model<IGiftCategory>('GiftCategory', giftCategorySchema);
 
 // ========================
 // 2. Gift Schema
@@ -102,7 +104,9 @@ giftSchema.pre('validate', function (this: any, next: any) {
   next();
 });
 
-export const Gift = mongoose.model<IGift>('Gift', giftSchema);
+export const Gift =
+  (mongoose.models.Gift as mongoose.Model<IGift>) ||
+  mongoose.model<IGift>('Gift', giftSchema);
 
 // ========================
 // 3. Gift Transaction Schema (Idempotent & Atomic)
@@ -155,7 +159,6 @@ giftTransactionSchema.pre('validate', function (next) {
   next();
 });
 
-export const GiftTransaction = mongoose.model<IGiftTransaction>(
-  'GiftTransaction',
-  giftTransactionSchema
-);
+export const GiftTransaction =
+  (mongoose.models.GiftTransaction as mongoose.Model<IGiftTransaction>) ||
+  mongoose.model<IGiftTransaction>('GiftTransaction', giftTransactionSchema);

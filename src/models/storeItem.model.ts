@@ -84,4 +84,6 @@ const StoreItemSchema = new Schema<IStoreItem>(
 
 StoreItemSchema.index({ category: 1, isActive: 1, sortOrder: 1 });
 
-export const StoreItem = mongoose.model<IStoreItem>('StoreItem', StoreItemSchema);
+export const StoreItem =
+  (mongoose.models.StoreItem as mongoose.Model<IStoreItem>) ||
+  mongoose.model<IStoreItem>('StoreItem', StoreItemSchema);

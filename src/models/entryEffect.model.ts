@@ -62,4 +62,6 @@ const EntryEffectSchema = new Schema<IEntryEffect>(
   { timestamps: true }
 );
 
-export const EntryEffect = mongoose.model<IEntryEffect>('EntryEffect', EntryEffectSchema);
+export const EntryEffect =
+  (mongoose.models.EntryEffect as mongoose.Model<IEntryEffect>) ||
+  mongoose.model<IEntryEffect>('EntryEffect', EntryEffectSchema);
