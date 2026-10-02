@@ -67,10 +67,12 @@ jobs:
               /root/deployments/yaro-server/deploy-yaro-server.sh || true
             fi
 
-            # Ensure yaro-server process is restarted and running
-            pm2 restart yaro-server --update-env || pm2 reload yaro-server --force || pm2 restart all --force
+            # Ensure backend process is restarted and running
+            pm2 restart yaro-backend-cluster --update-env || pm2 restart yaro-server --update-env || pm2 start /root/apps/Yaro/YaroServer/ecosystem.config.js || pm2 reload all --force
             sleep 3
             pm2 status
+            curl -I http://127.0.0.1:3101/health || curl -I http://127.0.0.1:3101/ || true
+            systemctl reload nginx || service nginx reload || true
 
             echo "========================================"
             echo "       DEPLOYMENT COMPLETED"

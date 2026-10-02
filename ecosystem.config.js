@@ -12,7 +12,7 @@ module.exports = {
         PORT: 3101,
       },
       kill_timeout: 5000,
-      listen_timeout: 5000,
+      listen_timeout: 10000,
       graceful_shutdown: true,
       wait_ready: true,
     },

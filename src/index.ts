@@ -330,17 +330,19 @@ chatSocket(io);
 
 const startServer = async (): Promise<void> => {
   const port = Number(config.PORT || 3101);
-  const isAvailable = await checkPortAvailable(port);
-  if (!isAvailable) {
-    throw new Error(`Port ${port} is already in use`);
-  }
 
   await new Promise<void>((resolve, reject) => {
-    const onError = (error: Error) => reject(error);
+    const onError = (error: Error) => {
+      console.error(`[Server] Failed to bind to port ${port}:`, error);
+      reject(error);
+    };
     httpServer.once("error", onError);
     httpServer.listen(port, "0.0.0.0", () => {
       httpServer.off("error", onError);
       console.log(`Server running at http://localhost:${port}`);
+      if (typeof process.send === 'function') {
+        process.send('ready');
+      }
       resolve();
     });
   });
