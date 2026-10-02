@@ -50,7 +50,6 @@ jobs:
           key: ${{ secrets.SERVER_SSH_KEY }}
           port: 22
           script_stop: false
-
           script: |
             echo "========================================"
             echo "       YARO SERVER PRODUCTION DEPLOY"
@@ -87,8 +86,7 @@ jobs:
             done
 
             echo "=== Nginx Upstream Inspection for api.yaroapp.in ==="
-            NGINX_API_CONFIG=$(grep -rn "api.yaroapp.in" /etc/nginx/ -A 35 2>/dev/null || true)
-            echo "$NGINX_API_CONFIG"
+            grep -rn "api.yaroapp.in" /etc/nginx/ -A 30 2>/dev/null || true
 
             # 2. Locate backend directory
             echo "=== Locating Backend Directory ==="
@@ -122,6 +120,7 @@ jobs:
             fuser -k 3101/tcp 2>/dev/null || true
             pm2 delete yaro-backend-cluster 2>/dev/null || true
             pm2 delete yaro-backend 2>/dev/null || true
+            pm2 delete yaro-server 2>/dev/null || true
 
             if [ -n "$BACKEND_DIR" ] && [ -d "$BACKEND_DIR" ]; then
               cd "$BACKEND_DIR"
@@ -133,49 +132,19 @@ jobs:
 
             sleep 4
             echo "=== PM2 Status ==="
-            PM2_STATUS=$(pm2 list)
-            echo "$PM2_STATUS"
+            pm2 list
 
             echo "=== Local Port 3101 Test ==="
-            LOCAL_CURL=$(curl -sv http://127.0.0.1:3101/health 2>&1 || true)
-            echo "$LOCAL_CURL"
+            curl -sv http://127.0.0.1:3101/health || curl -sv http://127.0.0.1:3101/ || true
 
             echo "=== PM2 Logs ==="
-            PM2_LOGS=$(pm2 logs yaro-backend --lines 40 --nostream 2>&1 || true)
-            echo "$PM2_LOGS"
+            pm2 logs yaro-backend --lines 40 --nostream 2>&1 || true
 
             echo "=== Testing & Reloading Nginx ==="
             nginx -t && (systemctl reload nginx || service nginx reload || true)
 
             echo "=== Public API Health Test ==="
-            PUBLIC_CURL=$(curl -sv https://api.yaroapp.in/health 2>&1 || true)
-            echo "$PUBLIC_CURL"
-
-            # 4. Write live diagnostic report to public folder
-            for pubdir in /root/apps/app-management/public /root/apps/yaro-management/public /var/www/yaro-management/public; do
-              if [ -d "$pubdir" ]; then
-                cat << DIAG_EOF > "$pubdir/backend-status.txt"
-=== YARO SERVER DEPLOY DIAGNOSTIC REPORT ===
-Timestamp: $(date)
-Target Backend Dir: $BACKEND_DIR
-Local Port 3101 Curl:
-$LOCAL_CURL
-
-Public API Curl:
-$PUBLIC_CURL
-
-Nginx API Config:
-$NGINX_API_CONFIG
-
-PM2 Status:
-$PM2_STATUS
-
-PM2 Logs:
-$PM2_LOGS
-DIAG_EOF
-                echo "Wrote diagnostic report to $pubdir/backend-status.txt"
-              fi
-            done
+            curl -sv https://api.yaroapp.in/health || curl -sv https://api.yaroapp.in/ || true
 
             echo "========================================"
             echo "       DEPLOYMENT COMPLETED"
