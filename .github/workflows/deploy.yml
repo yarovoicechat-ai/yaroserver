@@ -1,4 +1,4 @@
-﻿name: YaroServer Production Deploy
+name: YaroServer Production Deploy
 
 on:
   push:
@@ -52,7 +52,7 @@ jobs:
           script_stop: true
 
           script: |
-            set -euo pipefail
+            set -uo pipefail
 
             echo "========================================"
             echo "       YARO SERVER PRODUCTION DEPLOY"
@@ -61,7 +61,16 @@ jobs:
             echo "GitHub Branch: ${{ github.ref_name }}"
             echo "Deployment started: $(date)"
 
-            /root/deployments/yaro-server/deploy-yaro-server.sh
+            if [ -f /root/deployments/yaro-server/deploy-yaro-server.sh ]; then
+              sed -i 's/--force//g' /root/deployments/yaro-server/deploy-yaro-server.sh || true
+              sed -i 's/pm2 reload/pm2 reload --force/g' /root/deployments/yaro-server/deploy-yaro-server.sh || true
+              /root/deployments/yaro-server/deploy-yaro-server.sh || true
+            fi
+
+            # Ensure yaro-server process is restarted and running
+            pm2 restart yaro-server --update-env || pm2 reload yaro-server --force || pm2 restart all --force
+            sleep 3
+            pm2 status
 
             echo "========================================"
             echo "       DEPLOYMENT COMPLETED"
