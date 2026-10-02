@@ -1,20 +1,21 @@
 module.exports = {
   apps: [
     {
-      name: 'yaro-backend-cluster',
+      name: 'yaro-backend',
       script: './dist/index.js',
-      instances: 'max',
-      exec_mode: 'cluster',
+      instances: 1,
+      exec_mode: 'fork',
       watch: false,
       max_memory_restart: '1G',
+      env: {
+        NODE_ENV: 'production',
+        PORT: 3101,
+      },
       env_production: {
         NODE_ENV: 'production',
         PORT: 3101,
       },
       kill_timeout: 5000,
-      listen_timeout: 10000,
-      graceful_shutdown: true,
-      wait_ready: true,
     },
   ],
 };

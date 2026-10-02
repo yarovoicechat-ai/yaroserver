@@ -9,7 +9,9 @@ export type StoreCategory =
   | 'Frames'
   | 'Entry'
   | 'VIP'
-  | 'King of Kings';
+  | 'King of Kings'
+  | 'Badge'
+  | 'Tag';
 
 export interface IStorePriceOption {
   days: 3 | 7 | 15 | 30;
@@ -53,6 +55,8 @@ const StoreItemSchema = new Schema<IStoreItem>(
         'Entry',
         'VIP',
         'King of Kings',
+        'Badge',
+        'Tag',
       ],
       index: true,
     },

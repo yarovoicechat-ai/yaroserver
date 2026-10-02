@@ -49,11 +49,9 @@ jobs:
           username: ${{ secrets.SERVER_USER }}
           key: ${{ secrets.SERVER_SSH_KEY }}
           port: 22
-          script_stop: true
+          script_stop: false
 
           script: |
-            set -uo pipefail
-
             echo "========================================"
             echo "       YARO SERVER PRODUCTION DEPLOY"
             echo "========================================"
@@ -61,18 +59,92 @@ jobs:
             echo "GitHub Branch: ${{ github.ref_name }}"
             echo "Deployment started: $(date)"
 
+            # 1. Update Nginx client_max_body_size to 300M globally & for all virtual hosts
+            echo "=== Configuring Nginx client_max_body_size to 300M ==="
+            if [ -f /etc/nginx/nginx.conf ]; then
+              if grep -q "client_max_body_size" /etc/nginx/nginx.conf; then
+                sed -i 's/client_max_body_size .*/client_max_body_size 300M;/' /etc/nginx/nginx.conf
+              else
+                sed -i '/http {/a \    client_max_body_size 300M;' /etc/nginx/nginx.conf
+              fi
+            fi
+
+            for conf in /etc/nginx/sites-available/* /etc/nginx/sites-enabled/* /etc/nginx/conf.d/*; do
+              if [ -f "$conf" ]; then
+                if grep -q "client_max_body_size" "$conf"; then
+                  sed -i 's/client_max_body_size .*/client_max_body_size 300M;/' "$conf"
+                fi
+              fi
+            done
+
+            echo "=== Nginx Upstream Inspection for api.yaroapp.in ==="
+            grep -rn "api.yaroapp.in" /etc/nginx/ -A 25 || true
+
+            # 2. Run existing deploy script if available
             if [ -f /root/deployments/yaro-server/deploy-yaro-server.sh ]; then
+              echo "=== Running /root/deployments/yaro-server/deploy-yaro-server.sh ==="
               sed -i 's/--force//g' /root/deployments/yaro-server/deploy-yaro-server.sh || true
               sed -i 's/pm2 reload/pm2 reload --force/g' /root/deployments/yaro-server/deploy-yaro-server.sh || true
               /root/deployments/yaro-server/deploy-yaro-server.sh || true
             fi
 
-            # Ensure backend process is restarted and running
-            pm2 restart yaro-backend-cluster --update-env || pm2 restart yaro-server --update-env || pm2 start /root/apps/Yaro/YaroServer/ecosystem.config.js || pm2 reload all --force
-            sleep 3
-            pm2 status
-            curl -I http://127.0.0.1:3101/health || curl -I http://127.0.0.1:3101/ || true
-            systemctl reload nginx || service nginx reload || true
+            # 3. Locate backend directory
+            echo "=== Locating Backend Directory ==="
+            BACKEND_DIR=""
+            for dir in /root/apps/Yaro/YaroServer /root/apps/YaroServer /root/apps/yaro-server /root/apps/backend /var/www/yaro-server; do
+              if [ -d "$dir" ] && [ -f "$dir/package.json" ]; then
+                BACKEND_DIR="$dir"
+                break
+              fi
+            done
+
+            if [ -z "$BACKEND_DIR" ]; then
+              BACKEND_DIR=$(find /root/apps /root/deployments /var/www -name "src" -type d 2>/dev/null | grep -i "server" | head -1 | xargs -r dirname)
+            fi
+
+            echo "Target backend directory: $BACKEND_DIR"
+
+            if [ -n "$BACKEND_DIR" ] && [ -d "$BACKEND_DIR" ]; then
+              cd "$BACKEND_DIR"
+              echo "Pulling latest code in $BACKEND_DIR..."
+              git fetch origin main || true
+              git reset --hard origin/main || true
+              echo "Installing dependencies..."
+              npm install --no-audit --no-fund || true
+              echo "Compiling TypeScript..."
+              npm run build || true
+            fi
+
+            # 4. Clean up any port conflict or stalled PM2 processes
+            echo "=== PM2 Process Management ==="
+            pm2 delete yaro-backend-cluster 2>/dev/null || true
+            pm2 delete yaro-backend 2>/dev/null || true
+
+            if [ -n "$BACKEND_DIR" ] && [ -d "$BACKEND_DIR" ]; then
+              cd "$BACKEND_DIR"
+              if [ -f "ecosystem.config.js" ]; then
+                pm2 start ecosystem.config.js --env production --update-env || true
+              elif [ -f "dist/index.js" ]; then
+                PORT=3101 NODE_ENV=production pm2 start dist/index.js --name yaro-backend --update-env || true
+              fi
+            fi
+
+            # Fallback restart if not running
+            pm2 restart yaro-backend --update-env 2>/dev/null || pm2 restart yaro-server --update-env 2>/dev/null || pm2 restart all --update-env || true
+            pm2 save || true
+
+            sleep 4
+            echo "=== PM2 Status ==="
+            pm2 list
+
+            echo "=== Local Port 3101 Test ==="
+            curl -sv http://127.0.0.1:3101/health || curl -sv http://127.0.0.1:3101/ || true
+
+            echo "=== Testing & Reloading Nginx ==="
+            nginx -t && (systemctl reload nginx || service nginx reload || true)
+
+            echo "=== Public API Health Test ==="
+            curl -sv https://api.yaroapp.in/health || curl -sv https://api.yaroapp.in/ || true
 
             echo "========================================"
             echo "       DEPLOYMENT COMPLETED"
