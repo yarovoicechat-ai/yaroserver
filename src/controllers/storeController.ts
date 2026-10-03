@@ -853,3 +853,46 @@ export const buyStoreItem = async (req: any, res: Response) => {
     return sendResponse(res, 500, false, error.message || 'Failed to process store purchase');
   }
 };
+
+export const equipStoreItem = async (req: any, res: Response) => {
+  try {
+    const userId = req.user?.id;
+    if (!userId) {
+      return sendResponse(res, 401, false, 'Unauthorized');
+    }
+
+    const { name, category, type, imageUrl, animationUrl } = req.body;
+    const cat = category || type || '';
+    const update: any = {};
+
+    if (cat === 'Frames' || cat === 'Frame' || (!cat && name)) {
+      update.equippedFrame = name || 'default';
+      update.equippedFrameAsset = name && name !== 'default' ? {
+        name,
+        imageUrl: imageUrl || '',
+        animationUrl: animationUrl || '',
+      } : null;
+    }
+
+    if (cat === 'Mic Wave') {
+      update.equippedMicWave = name || '';
+    }
+
+    if (cat === 'Chat Bubble') {
+      update.equippedChatBubble = name || '';
+    }
+
+    const user = await User.findByIdAndUpdate(userId, { $set: update }, { new: true })
+      .select('equippedFrame equippedFrameAsset equippedMicWave equippedChatBubble');
+
+    if (!user) {
+      return sendResponse(res, 404, false, 'User not found');
+    }
+
+    return sendResponse(res, 200, true, 'Item equipped successfully', user);
+  } catch (error: any) {
+    console.error('equipStoreItem error:', error);
+    return sendResponse(res, 500, false, error.message || 'Failed to equip store item');
+  }
+};
+

@@ -10,6 +10,7 @@ import {
   toggleStoreItem,
   resetStoreCatalog,
   buyStoreItem,
+  equipStoreItem,
 } from '../controllers/storeController';
 import { requireRoles, verifyToken } from '../middlewares/authorize.middleware';
 
@@ -23,6 +24,7 @@ router.get('/inventory', verifyToken, getStoreInventory);
 router.get('/items/:id', getStoreItemById);
 router.post('/buy', verifyToken, buyStoreItem);
 router.post('/purchase', verifyToken, buyStoreItem);
+router.post('/equip', verifyToken, equipStoreItem);
 
 // Admin management endpoints
 router.post('/items', verifyToken, storeManagers, createStoreItem);

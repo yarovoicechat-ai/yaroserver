@@ -68,6 +68,8 @@ const userSchema = new Schema<UserInterface>(
     },
     age: { type: Number, default: 18 },
     frameId: { type: String, default: "" },
+    equippedFrame: { type: String, default: "Rose frame" },
+    equippedFrameAsset: { type: Schema.Types.Mixed, default: null },
     equippedEntryEffect: { type: Schema.Types.ObjectId, ref: 'EntryEffect', default: null },
     equippedEntryTag: { type: String, default: "" },
     ownedEntryEffects: [{ type: Schema.Types.ObjectId, ref: 'EntryEffect' }],

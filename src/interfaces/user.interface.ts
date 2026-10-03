@@ -39,6 +39,8 @@ export interface UserInterface extends Document {
   country?: { name?: string; code?: string; flag?: string };
   age?: number;
   frameId?: string;
+  equippedFrame?: string;
+  equippedFrameAsset?: any;
   equippedEntryEffect?: Types.ObjectId | null;
   equippedEntryTag?: string;
   ownedEntryEffects?: Types.ObjectId[];
