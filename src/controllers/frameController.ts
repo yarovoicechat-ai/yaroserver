@@ -79,29 +79,34 @@ export const createLevel = async (req: AuthRequest, res: Response) => {
               { days: 30, diamonds: parsedPrice },
             ];
 
+        const updateDoc: any = {
+          name: frameName,
+          category: 'Frames',
+          price: parsedPrice,
+          priceOptions: normalizedPrices,
+          validity: validity || '30 Days',
+          badgeText: badgeText || 'HOT',
+          previewColor: '#F43F5E',
+          imageUrl: imageUrl,
+          desc: desc || `Avatar profile frame: ${frameName}`,
+          isActive: true,
+          sortOrder: frameLevel,
+        };
+
+        if (animationUrl !== undefined && animationUrl !== null) {
+          updateDoc.animationUrl = animationUrl;
+          updateDoc.metadata = {
+            frameLevel,
+            animated: Boolean(animationUrl),
+          };
+        }
+
         await StoreItem.findOneAndUpdate(
           {
             category: { $in: ['Frames', 'Frame'] },
             $or: [{ name: frameName }, { imageUrl: imageUrl }]
           },
-          {
-            name: frameName,
-            category: 'Frames',
-            price: parsedPrice,
-            priceOptions: normalizedPrices,
-            validity: validity || '30 Days',
-            badgeText: badgeText || 'HOT',
-            previewColor: '#F43F5E',
-            imageUrl: imageUrl,
-            animationUrl: animationUrl || '',
-            desc: desc || `Avatar profile frame: ${frameName}`,
-            isActive: true,
-            sortOrder: frameLevel,
-            metadata: {
-              frameLevel,
-              animated: Boolean(animationUrl),
-            },
-          },
+          updateDoc,
           { upsert: true, new: true }
         );
 

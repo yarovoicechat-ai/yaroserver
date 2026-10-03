@@ -826,7 +826,20 @@ export const buyStoreItem = async (req: any, res: Response) => {
     };
 
     if (item.category === 'Unique ID' && item.metadata?.number) {
-      update.$set = { specialCode: item.metadata.number };
+      update.$set = { ...(update.$set || {}), specialCode: item.metadata.number };
+    }
+
+    if (item.category === 'Frames' || item.category === 'Frame') {
+      update.$set = {
+        ...(update.$set || {}),
+        equippedFrame: item.name,
+        equippedFrameAsset: {
+          name: item.name,
+          imageUrl: item.imageUrl || (item as any).image || '',
+          animationUrl: item.animationUrl || '',
+          expiresAt,
+        },
+      };
     }
 
     const updatedUser = await User.findOneAndUpdate(
@@ -867,11 +880,27 @@ export const equipStoreItem = async (req: any, res: Response) => {
 
     if (cat === 'Frames' || cat === 'Frame' || (!cat && name)) {
       update.equippedFrame = name || 'default';
-      update.equippedFrameAsset = name && name !== 'default' ? {
-        name,
-        imageUrl: imageUrl || '',
-        animationUrl: animationUrl || '',
-      } : null;
+      if (name && name !== 'default') {
+        let finalImage = imageUrl || '';
+        let finalAnim = animationUrl || '';
+        if (!finalAnim) {
+          const matchedItem = await StoreItem.findOne({
+            category: { $in: ['Frames', 'Frame'] },
+            $or: [{ name: new RegExp(`^${name.trim()}$`, 'i') }, { id: name }]
+          }).lean();
+          if (matchedItem) {
+            finalAnim = (matchedItem as any).animationUrl || '';
+            if (!finalImage) finalImage = (matchedItem as any).imageUrl || (matchedItem as any).image || '';
+          }
+        }
+        update.equippedFrameAsset = {
+          name,
+          imageUrl: finalImage,
+          animationUrl: finalAnim,
+        };
+      } else {
+        update.equippedFrameAsset = null;
+      }
     }
 
     if (cat === 'Mic Wave') {
