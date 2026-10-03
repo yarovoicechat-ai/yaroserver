@@ -41,6 +41,12 @@ export interface UserInterface extends Document {
   frameId?: string;
   equippedFrame?: string;
   equippedFrameAsset?: any;
+  equippedEntry?: string | null;
+  equippedEntryAsset?: any;
+  equippedTassel?: string | null;
+  equippedTasselAsset?: any;
+  equippedEntrance?: string | null;
+  equippedEntranceAsset?: any;
   equippedEntryEffect?: Types.ObjectId | null;
   equippedEntryTag?: string;
   ownedEntryEffects?: Types.ObjectId[];

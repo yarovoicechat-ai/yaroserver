@@ -842,6 +842,49 @@ export const buyStoreItem = async (req: any, res: Response) => {
       };
     }
 
+    if (item.category === 'Entry' || item.category === 'Entry Effect' || item.category === 'Entry Effects') {
+      update.$set = {
+        ...(update.$set || {}),
+        equippedEntry: item.name,
+        equippedEntryAsset: {
+          name: item.name,
+          imageUrl: item.imageUrl || (item as any).image || '',
+          animationUrl: item.animationUrl || '',
+          tagText: item.tag || (item as any).metadata?.tag || 'VIP ENTRY',
+          bannerColors: (item as any).bannerColors || ['#7C3AED', '#4C1D95'],
+          expiresAt,
+        },
+      };
+    }
+
+    if (item.category === 'Tassel' || item.category === 'Tassels') {
+      update.$set = {
+        ...(update.$set || {}),
+        equippedTassel: item.name,
+        equippedTasselAsset: {
+          name: item.name,
+          imageUrl: item.imageUrl || (item as any).image || '',
+          animationUrl: item.animationUrl || '',
+          previewColor: (item as any).previewColor || '#F59E0B',
+          tag: item.tag || (item as any).metadata?.tag || 'Mic Tassel Ornament',
+          expiresAt,
+        },
+      };
+    }
+
+    if (item.category === 'Entrance' || item.category === 'Ride' || item.category === 'Profile Entry') {
+      update.$set = {
+        ...(update.$set || {}),
+        equippedEntrance: item.name,
+        equippedEntranceAsset: {
+          name: item.name,
+          imageUrl: item.imageUrl || (item as any).image || '',
+          animationUrl: item.animationUrl || '',
+          expiresAt,
+        },
+      };
+    }
+
     const updatedUser = await User.findOneAndUpdate(
       { _id: userId, diamonds: { $gte: costInDiamonds } },
       update,
@@ -903,6 +946,81 @@ export const equipStoreItem = async (req: any, res: Response) => {
       }
     }
 
+    if (cat === 'Entry' || cat === 'Entry Effect' || cat === 'Entry Effects') {
+      update.equippedEntry = name || '';
+      if (name && name !== 'default' && name !== 'none') {
+        let finalImage = imageUrl || '';
+        let finalAnim = animationUrl || '';
+        if (!finalAnim) {
+          const matchedItem = await StoreItem.findOne({
+            category: { $in: ['Entry', 'Entry Effect', 'Entry Effects', 'Entrance'] },
+            $or: [{ name: new RegExp(`^${name.trim()}$`, 'i') }, { id: name }]
+          }).lean();
+          if (matchedItem) {
+            finalAnim = (matchedItem as any).animationUrl || '';
+            if (!finalImage) finalImage = (matchedItem as any).imageUrl || (matchedItem as any).image || '';
+          }
+        }
+        update.equippedEntryAsset = {
+          name,
+          imageUrl: finalImage,
+          animationUrl: finalAnim,
+        };
+      } else {
+        update.equippedEntryAsset = null;
+      }
+    }
+
+    if (cat === 'Tassel' || cat === 'Tassels') {
+      update.equippedTassel = name || '';
+      if (name && name !== 'default' && name !== 'none') {
+        let finalImage = imageUrl || '';
+        let finalAnim = animationUrl || '';
+        if (!finalAnim) {
+          const matchedItem = await StoreItem.findOne({
+            category: { $in: ['Tassel', 'Tassels'] },
+            $or: [{ name: new RegExp(`^${name.trim()}$`, 'i') }, { id: name }]
+          }).lean();
+          if (matchedItem) {
+            finalAnim = (matchedItem as any).animationUrl || '';
+            if (!finalImage) finalImage = (matchedItem as any).imageUrl || (matchedItem as any).image || '';
+          }
+        }
+        update.equippedTasselAsset = {
+          name,
+          imageUrl: finalImage,
+          animationUrl: finalAnim,
+        };
+      } else {
+        update.equippedTasselAsset = null;
+      }
+    }
+
+    if (cat === 'Entrance' || cat === 'Ride' || cat === 'Profile Entry') {
+      update.equippedEntrance = name || '';
+      if (name && name !== 'default' && name !== 'none') {
+        let finalImage = imageUrl || '';
+        let finalAnim = animationUrl || '';
+        if (!finalAnim) {
+          const matchedItem = await StoreItem.findOne({
+            category: { $in: ['Entrance', 'Ride', 'Profile Entry'] },
+            $or: [{ name: new RegExp(`^${name.trim()}$`, 'i') }, { id: name }]
+          }).lean();
+          if (matchedItem) {
+            finalAnim = (matchedItem as any).animationUrl || '';
+            if (!finalImage) finalImage = (matchedItem as any).imageUrl || (matchedItem as any).image || '';
+          }
+        }
+        update.equippedEntranceAsset = {
+          name,
+          imageUrl: finalImage,
+          animationUrl: finalAnim,
+        };
+      } else {
+        update.equippedEntranceAsset = null;
+      }
+    }
+
     if (cat === 'Mic Wave') {
       update.equippedMicWave = name || '';
     }
@@ -912,7 +1030,7 @@ export const equipStoreItem = async (req: any, res: Response) => {
     }
 
     const user = await User.findByIdAndUpdate(userId, { $set: update }, { new: true })
-      .select('equippedFrame equippedFrameAsset equippedMicWave equippedChatBubble');
+      .select('equippedFrame equippedFrameAsset equippedMicWave equippedChatBubble equippedEntry equippedEntryAsset equippedTassel equippedTasselAsset equippedEntrance equippedEntranceAsset');
 
     if (!user) {
       return sendResponse(res, 404, false, 'User not found');

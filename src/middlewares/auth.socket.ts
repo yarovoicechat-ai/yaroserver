@@ -64,7 +64,16 @@ export const socketAuth = async (
             name: user.name as any,
             gender: user.gender as any,
             coins: user.coins as any,
-        };
+            avatar: user.image || (user as any).avatar,
+            equippedFrame: user.equippedFrame || null,
+            equippedFrameAsset: user.equippedFrameAsset || null,
+            equippedEntry: (user as any).equippedEntry || null,
+            equippedEntryAsset: (user as any).equippedEntryAsset || null,
+            equippedTassel: (user as any).equippedTassel || null,
+            equippedTasselAsset: (user as any).equippedTasselAsset || null,
+            equippedEntrance: (user as any).equippedEntrance || null,
+            equippedEntranceAsset: (user as any).equippedEntranceAsset || null,
+        } as any;
 
         return next();
     } catch (error) {

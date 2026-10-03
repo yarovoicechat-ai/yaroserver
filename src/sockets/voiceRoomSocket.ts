@@ -13,6 +13,8 @@ export interface VoiceRoomSeat {
     avatar: string;
     gender?: string;
     level?: number;
+    equippedFrame?: any;
+    equippedFrameAsset?: any;
   } | null;
   isMuted: boolean;
   isLocked: boolean;
@@ -122,6 +124,8 @@ export const registerVoiceRoomHandlers = (io: Server, socket: AuthenticatedSocke
         avatar: String(data?.user?.avatar || data?.user?.image || "https://api.yaroapp.in/uploads/avatars/female_default.webp"),
         gender: data?.user?.gender || "male",
         level: data?.user?.level || 1,
+        equippedFrame: data?.user?.equippedFrameAsset || data?.user?.equippedFrame || (user as any)?.equippedFrameAsset || (user as any)?.equippedFrame || null,
+        equippedFrameAsset: data?.user?.equippedFrameAsset || (user as any)?.equippedFrameAsset || null,
       };
 
       // 24-hour ban check
@@ -222,6 +226,8 @@ export const registerVoiceRoomHandlers = (io: Server, socket: AuthenticatedSocke
         avatar: String(data?.user?.avatar || data?.user?.image || "https://api.yaroapp.in/uploads/avatars/female_default.webp"),
         gender: data?.user?.gender || "male",
         level: data?.user?.level || 1,
+        equippedFrame: data?.user?.equippedFrameAsset || data?.user?.equippedFrame || (user as any)?.equippedFrameAsset || (user as any)?.equippedFrame || null,
+        equippedFrameAsset: data?.user?.equippedFrameAsset || (user as any)?.equippedFrameAsset || null,
       };
 
       const socketRoomChannel = `voice_room_channel:${roomId}`;

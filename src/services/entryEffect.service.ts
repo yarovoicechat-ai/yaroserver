@@ -253,11 +253,84 @@ export class EntryEffectService {
         }
       }
 
-      const effect = dbUser?.equippedEntryEffect as any;
-      const tagText = dbUser?.equippedEntryTag || effect?.tagText || '';
+      // Resolve equipped Entry Effect
+      let entryEffect: any = dbUser?.equippedEntryAsset || null;
+      if (!entryEffect && dbUser?.equippedEntryEffect) {
+        const eff = dbUser.equippedEntryEffect as any;
+        entryEffect = {
+          id: eff._id,
+          name: eff.name,
+          animationType: eff.animationType || 'BANNER',
+          tagText: dbUser?.equippedEntryTag || eff.tagText || 'VIP ENTRY',
+          bannerColors: eff.bannerColors || ['#7C3AED', '#4C1D95'],
+          duration: eff.duration || 3000,
+          icon: eff.icon || '👑',
+          image: eff.image || eff.imageUrl || '',
+          animationUrl: eff.animationUrl || '',
+          sound: eff.sound || '',
+        };
+      }
+      if (!entryEffect && (dbUser?.equippedEntry || user?.equippedEntryAsset || user?.equippedEntry)) {
+        const entryName = dbUser?.equippedEntry || user?.equippedEntry?.name || user?.equippedEntry;
+        const fromInv = dbUser?.storeInventory?.find((i: any) =>
+          (i.category === 'Entry' || i.category === 'Entry Effect' || i.category === 'Entry Effects') &&
+          i.name === entryName
+        );
+        entryEffect = user?.equippedEntryAsset || {
+          id: 'store_entry_' + Date.now(),
+          name: entryName || 'VIP Grand Entry',
+          animationType: 'BANNER',
+          tagText: fromInv?.tag || '👑 VIP HAS ENTERED',
+          bannerColors: fromInv?.bannerColors || ['#7C3AED', '#4C1D95'],
+          duration: 3200,
+          icon: '👑',
+          image: fromInv?.imageUrl || fromInv?.image || '',
+          animationUrl: fromInv?.animationUrl || '',
+        };
+      }
 
+      // Check if user has an active equipped entry
+      const hasEquippedEntry = Boolean(entryEffect);
+      if (!hasEquippedEntry) {
+        // User is not using an entry effect, skip full entry orchestration
+        return null;
+      }
+
+      // Resolve equipped Tassel ornament (or inventory tassel / fallback)
+      let tasselEffect: any = dbUser?.equippedTasselAsset || user?.equippedTasselAsset || null;
+      if (!tasselEffect) {
+        const tasselName = dbUser?.equippedTassel || user?.equippedTassel;
+        const fromInv = dbUser?.storeInventory?.find((i: any) =>
+          (i.category === 'Tassel' || i.category === 'Tassels') &&
+          (!tasselName || i.name === tasselName)
+        );
+        tasselEffect = {
+          name: fromInv?.name || tasselName || 'Imperial Gold Silk Tassel',
+          previewColor: fromInv?.previewColor || '#F59E0B',
+          tag: fromInv?.tag || 'Mic Tassel Ornament',
+          animationUrl: fromInv?.animationUrl || '',
+          image: fromInv?.imageUrl || fromInv?.image || '',
+        };
+      }
+
+      // Resolve equipped Entrance (Ride / VIP supercar / dragon)
+      let entranceEffect: any = dbUser?.equippedEntranceAsset || user?.equippedEntranceAsset || null;
+      if (!entranceEffect) {
+        const entranceName = dbUser?.equippedEntrance || user?.equippedEntrance;
+        const fromInv = dbUser?.storeInventory?.find((i: any) =>
+          (i.category === 'Entrance' || i.category === 'Ride' || i.category === 'Profile Entry') &&
+          (!entranceName || i.name === entranceName)
+        );
+        entranceEffect = {
+          name: fromInv?.name || entranceName || 'Grand Supercar Entrance',
+          animationUrl: fromInv?.animationUrl || '',
+          image: fromInv?.imageUrl || fromInv?.image || 'https://images.unsplash.com/photo-1542282088-72c9c27ed0cd?w=400',
+          tag: fromInv?.tag || 'Luxury Ride',
+        };
+      }
+
+      const tagText = entryEffect?.tagText || dbUser?.equippedEntryTag || 'VIP ENTRY';
       const entryId = `entry_${Date.now()}_${Math.random().toString(36).substr(2, 6)}`;
-
       const vipExperience = await VipService.resolveVipExperience(dbUser || user);
 
       const payload = {
@@ -272,31 +345,16 @@ export class EntryEffectService {
           name: dbUser?.name || user.name,
           avatar: dbUser?.image || user.avatar || user.image,
           level: dbUser?.level || user.level || 1,
+          equippedFrame: dbUser?.equippedFrameAsset || dbUser?.equippedFrame || user.equippedFrameAsset || user.equippedFrame || null,
+          equippedFrameAsset: dbUser?.equippedFrameAsset || user.equippedFrameAsset || null,
         },
-        effect: effect
-          ? {
-              id: effect._id,
-              name: effect.name,
-              animationType: effect.animationType,
-              tagText: tagText || effect.tagText,
-              bannerColors: effect.bannerColors,
-              duration: effect.duration,
-              icon: effect.icon,
-              image: effect.image,
-              animationUrl: effect.animationUrl,
-              sound: effect.sound,
-            }
-          : {
-              id: 'default_party_entry',
-              name: 'Room Welcome',
-              animationType: 'BANNER',
-              tagText: tagText || 'MEMBER',
-              bannerColors: ['#6366F1', '#8B5CF6'],
-              duration: 2500,
-              icon: '✨',
-            },
+        hasEntry: true,
+        entry: entryEffect,
+        effect: entryEffect,
+        tassel: tasselEffect,
+        entrance: entranceEffect,
         vipExperience: vipExperience.isVip ? vipExperience : null,
-        tagText: tagText || vipExperience.entryTag || 'MEMBER',
+        tagText: tagText || vipExperience.entryTag || 'VIP ENTRY',
         timestamp: Date.now(),
       };
 
