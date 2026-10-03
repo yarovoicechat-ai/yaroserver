@@ -38,6 +38,13 @@ export const getUploadSignature = async (req: AuthRequest, res: Response) => {
             case 'frames':
                 folderName = 'frames';
                 break;
+            case 'entry':
+            case 'entries':
+                folderName = 'entries';
+                break;
+            case 'store':
+                folderName = 'store_assets';
+                break;
             case 'help':
                 folderName = 'help_support';
                 break;
@@ -60,7 +67,7 @@ export const getUploadSignature = async (req: AuthRequest, res: Response) => {
                 folderName = 'voice_recordings';
                 break;
             default:
-                return sendResponse(res, 400, false, `Invalid upload type: ${type}. Allowed: kyc, avatar, frame, help, chat, host, banner, raw, audio, voice, doc`);
+                return sendResponse(res, 400, false, `Invalid upload type: ${type}. Allowed: kyc, avatar, frame, entry, store, help, chat, host, banner, raw, audio, voice, doc`);
         }
 
         const uniqueSuffix = uuidv4().split('-')[0];

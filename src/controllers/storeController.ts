@@ -3,6 +3,8 @@ import { StoreItem, IStoreItem, StoreCategory } from '../models/storeItem.model'
 import { User } from '../models/user.model';
 import sendResponse from '../utils/reponse';
 import HostLevel from '../models/hostLevel.model';
+import Level from '../models/level.model';
+import { EntryEffect } from '../models/entryEffect.model';
 import { recalculateAndUpdateHostLevel } from '../services/user.service';
 
 const STORE_DURATIONS = [3, 7, 15, 30] as const;
@@ -434,9 +436,54 @@ export const getStoreItems = async (req: Request, res: Response) => {
       await StoreItem.insertMany(DEFAULT_SEED_ITEMS);
     }
 
+    // Auto-sync any existing frames from Level collection (e.g., 'new frame' uploaded via Admin) into StoreItem
+    try {
+      const levels = await Level.find({ image: { $exists: true, $ne: "" } }).lean();
+      for (const lvl of levels) {
+        const frameName = lvl.name || lvl.text;
+        if (!frameName) continue;
+        const exists = await StoreItem.findOne({
+          category: { $in: ['Frames', 'Frame'] },
+          $or: [{ name: frameName }, { imageUrl: lvl.image }]
+        });
+        if (!exists) {
+          const price = 3500;
+          await StoreItem.create({
+            name: frameName,
+            category: 'Frames',
+            price,
+            priceOptions: [
+              { days: 3, diamonds: 525 },
+              { days: 7, diamonds: 1050 },
+              { days: 15, diamonds: 1925 },
+              { days: 30, diamonds: price },
+            ],
+            validity: '30 Days',
+            badgeText: 'HOT',
+            previewColor: '#F43F5E',
+            imageUrl: lvl.image,
+            desc: `Avatar profile frame: ${frameName}`,
+            isActive: true,
+            sortOrder: lvl.level || 1,
+            metadata: { frameLevel: lvl.level || 1 },
+          });
+          console.log(`[StoreItem] Auto-synced frame "${frameName}" from Level to StoreItem catalog.`);
+        }
+      }
+    } catch (syncErr: any) {
+      console.warn('[StoreItem] Frame sync notice:', syncErr.message);
+    }
+
     const filter: any = {};
     if (category && category !== 'All') {
-      filter.category = category;
+      const cat = String(category).trim();
+      if (cat === 'Frames' || cat === 'Frame') {
+        filter.category = { $in: ['Frames', 'Frame'] };
+      } else if (cat === 'Entry' || cat === 'Entry Effect' || cat === 'Entry Effects') {
+        filter.category = { $in: ['Entry', 'Entry Effect'] };
+      } else {
+        filter.category = cat;
+      }
     }
     if (activeOnly === 'true') {
       filter.isActive = true;
@@ -453,8 +500,18 @@ export const getStoreItems = async (req: Request, res: Response) => {
     const items = await StoreItem.find(filter).sort({ category: 1, sortOrder: 1, createdAt: -1 }).lean();
     const serializedItems = items.map(serializeStoreItem);
     const catalog = serializedItems.reduce((grouped: Record<string, any[]>, item: any) => {
-      if (!grouped[item.category]) grouped[item.category] = [];
-      grouped[item.category].push(item);
+      // Normalize category keys so mobile app's STORE_CATEGORIES find them easily
+      const normCat = item.category === 'Frame' ? 'Frames'
+        : (item.category === 'Entry Effect' || item.category === 'Entry Effects') ? 'Entry'
+        : item.category;
+
+      if (!grouped[normCat]) grouped[normCat] = [];
+      grouped[normCat].push({ ...item, category: normCat });
+
+      if (item.category !== normCat) {
+        if (!grouped[item.category]) grouped[item.category] = [];
+        grouped[item.category].push(item);
+      }
       return grouped;
     }, {});
 
@@ -507,13 +564,42 @@ export const getStoreInventory = async (req: any, res: Response) => {
   }
 };
 
-export const getStoreLevels = async (_req: Request, res: Response) => {
+export const getStoreLevels = async (req: Request, res: Response) => {
   try {
+    const { type } = req.query; // 'wealth' | 'charm' | undefined
     const now = new Date();
     const levels = await HostLevel.find({
       $or: [{ expiresAt: { $exists: false } }, { expiresAt: null }, { expiresAt: { $gt: now } }],
-    }).select('level name coinPerMinute minCalls minMinutes rewards').sort({ level: 1 }).lean();
-    return sendResponse(res, 200, true, 'Levels fetched', { levels });
+    }).select('level name coinPerMinute minCalls minMinutes rewards image text').sort({ level: 1 }).lean();
+
+    const charmLevels = levels.map((l: any) => ({
+      ...l,
+      type: 'charm',
+      category: 'Charm Level',
+      expRequired: (Number(l.minMinutes) || 0) * 60 + (Number(l.minCalls) || 0) * 10,
+    }));
+
+    const wealthLevels = levels.map((l: any) => {
+      const lvl = Number(l.level) || 1;
+      return {
+        _id: `wealth_${l._id || lvl}`,
+        level: lvl,
+        name: `Wealth Monarch Lv.${lvl}`,
+        type: 'wealth',
+        category: 'Wealth Level',
+        coinsRequired: Math.round(Math.pow(lvl, 1.8) * 1000),
+        rewards: l.rewards || [{ name: `Wealth Level ${lvl} Frame`, type: 'frame' }],
+        badge: lvl >= 50 ? '👑' : lvl >= 25 ? '💎' : '🥇',
+      };
+    });
+
+    const activeList = type === 'wealth' ? wealthLevels : charmLevels;
+
+    return sendResponse(res, 200, true, 'Levels fetched', {
+      levels: activeList,
+      wealthLevels,
+      charmLevels,
+    });
   } catch (error: any) {
     return sendResponse(res, 500, false, error.message || 'Failed to fetch levels');
   }
@@ -521,7 +607,7 @@ export const getStoreLevels = async (_req: Request, res: Response) => {
 
 export const createStoreItem = async (req: Request, res: Response) => {
   try {
-    const {
+    let {
       name,
       category,
       price,
@@ -543,17 +629,23 @@ export const createStoreItem = async (req: Request, res: Response) => {
       return sendResponse(res, 400, false, 'Name, category, and price are required');
     }
 
+    // Normalize category
+    if (category === 'Frame') category = 'Frames';
+    if (category === 'Entry Effect' || category === 'Entry Effects') category = 'Entry';
+
     const normalizedPrices = normalizePriceOptions(priceOptions, Number(price) || 0);
+    const thirtyDayPrice = normalizedPrices.find((option) => option.days === 30)?.diamonds || Number(price) || 0;
+
     const newItem = await StoreItem.create({
-      name,
+      name: String(name).trim(),
       category,
-      price: normalizedPrices.find((option) => option.days === 30)?.diamonds || 0,
+      price: thirtyDayPrice,
       priceOptions: normalizedPrices,
       validity: validity || '30 Days',
       badgeText: badgeText || '',
       previewColor: previewColor || '#8B5CF6',
       bgColors: Array.isArray(bgColors) ? bgColors : ['#3B0764', '#7C3AED'],
-      icon: icon || 'sparkles',
+      icon: icon || (category === 'Entry' ? 'car-sport' : category === 'Frames' ? 'shield' : 'sparkles'),
       imageUrl: imageUrl || '',
       animationUrl: animationUrl || '',
       desc: desc || '',
@@ -561,6 +653,46 @@ export const createStoreItem = async (req: Request, res: Response) => {
       sortOrder: Number(sortOrder) || 0,
       metadata: metadata || {},
     });
+
+    // Cross-sync: If Entry, ensure EntryEffect document exists
+    if (category === 'Entry') {
+      try {
+        const slug = `${name.toLowerCase().replace(/[^a-z0-9]+/g, '-')}-${Date.now().toString(36)}`;
+        await EntryEffect.findOneAndUpdate(
+          { name: name.trim() },
+          {
+            name: name.trim(),
+            slug,
+            tagText: metadata?.banner || metadata?.tagText || badgeText || '👑 VIP HAS ENTERED',
+            animationType: metadata?.animationType || 'BANNER',
+            image: imageUrl || '',
+            animationUrl: animationUrl || '',
+            sound: metadata?.sound || '',
+            price: thirtyDayPrice,
+            isActive: newItem.isActive,
+            duration: metadata?.duration || 3000,
+            metadata: { storeItemId: String(newItem._id), ...metadata },
+          },
+          { upsert: true, new: true }
+        );
+      } catch (entrySyncErr: any) {
+        console.warn('[createStoreItem] EntryEffect sync notice:', entrySyncErr.message);
+      }
+    }
+
+    // Cross-sync: If Frames and level is supplied, ensure Level exists
+    if (category === 'Frames' && (metadata?.frameLevel || metadata?.level)) {
+      try {
+        const frameLvl = Number(metadata.frameLevel || metadata.level) || 1;
+        await Level.findOneAndUpdate(
+          { level: frameLvl },
+          { name: name.trim(), text: name.trim(), level: frameLvl, image: imageUrl || '' },
+          { upsert: true }
+        );
+      } catch (lvlSyncErr: any) {
+        console.warn('[createStoreItem] Level sync notice:', lvlSyncErr.message);
+      }
+    }
 
     return sendResponse(res, 201, true, 'Store item created successfully', newItem);
   } catch (error: any) {

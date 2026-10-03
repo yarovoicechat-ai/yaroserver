@@ -3,11 +3,23 @@ import mongoose, { Schema, Document } from 'mongoose';
 export type StoreCategory =
   | 'Unique ID'
   | 'Chat Bubble'
+  | 'Chat Bubbles'
   | 'Theme'
+  | 'Themes'
   | 'Tassel'
+  | 'Tassels'
   | 'Mic Wave'
+  | 'Mic Waves'
   | 'Frames'
+  | 'Frame'
   | 'Entry'
+  | 'Entry Effect'
+  | 'Profile Card'
+  | 'Profile Cards'
+  | 'Room Card'
+  | 'Room Cards'
+  | 'Profile Entry'
+  | 'Profile Entries'
   | 'VIP'
   | 'King of Kings'
   | 'Badge'
@@ -48,11 +60,23 @@ const StoreItemSchema = new Schema<IStoreItem>(
       enum: [
         'Unique ID',
         'Chat Bubble',
+        'Chat Bubbles',
         'Theme',
+        'Themes',
         'Tassel',
+        'Tassels',
         'Mic Wave',
+        'Mic Waves',
         'Frames',
+        'Frame',
         'Entry',
+        'Entry Effect',
+        'Profile Card',
+        'Profile Cards',
+        'Room Card',
+        'Room Cards',
+        'Profile Entry',
+        'Profile Entries',
         'VIP',
         'King of Kings',
         'Badge',
