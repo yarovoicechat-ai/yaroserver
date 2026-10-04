@@ -3,6 +3,7 @@ import { AuthenticatedSocket } from "../middlewares/auth.socket";
 import redis from "../configs/redisConfig";
 import { GiftService } from "../gift/gift.service";
 import { EntryEffectService } from "../services/entryEffect.service";
+import { Room } from "../models/room.model";
 
 export interface VoiceRoomSeat {
   seatIndex: number;
@@ -27,6 +28,10 @@ export interface VoiceRoomState {
   seatCount: number;
   seats: VoiceRoomSeat[];
   onlineUsers: Record<string, { userId: string; name: string; avatar: string; socketId: string }>;
+  themeId?: string | null;
+  themeAsset?: any;
+  seatSkinId?: string | null;
+  seatSkinAsset?: any;
   updatedAt: number;
 }
 
@@ -141,6 +146,8 @@ export const registerVoiceRoomHandlers = (io: Server, socket: AuthenticatedSocke
         equippedTasselAsset: data?.user?.equippedTasselAsset || (user as any)?.equippedTasselAsset || null,
         equippedBadge: data?.user?.equippedBadge || (user as any)?.equippedBadge || null,
         equippedBadges: data?.user?.equippedBadges || (user as any)?.equippedBadges || [],
+        equippedChatBubble: data?.user?.equippedChatBubble || (user as any)?.equippedChatBubble || null,
+        equippedChatBubbleAsset: data?.user?.equippedChatBubbleAsset || (user as any)?.equippedChatBubbleAsset || null,
       };
 
       // 24-hour ban check
@@ -198,6 +205,10 @@ export const registerVoiceRoomHandlers = (io: Server, socket: AuthenticatedSocke
         onlineCount: Object.keys(state.onlineUsers).length,
         onlineUsers: Object.values(state.onlineUsers),
         hostUser: state.hostUser,
+        themeId: state.themeId || null,
+        themeAsset: state.themeAsset || null,
+        seatSkinId: state.seatSkinId || null,
+        seatSkinAsset: state.seatSkinAsset || null,
       });
 
       // Broadcast user join to all sockets in the channel
@@ -447,6 +458,9 @@ export const registerVoiceRoomHandlers = (io: Server, socket: AuthenticatedSocke
       const msg = {
         ...data.message,
         id: data.message.id || ("msg-" + Date.now() + "-" + Math.random().toString(36).substr(2, 4)),
+        senderId: data.message.senderId || (socket as any).voiceUser?.userId || user?.userId || "user",
+        chatBubble: data.message.chatBubble || (socket as any).voiceUser?.equippedChatBubbleAsset || (socket as any).voiceUser?.equippedChatBubble || (user as any)?.equippedChatBubbleAsset || (user as any)?.equippedChatBubble || null,
+        chatBubbleId: data.message.chatBubbleId || (socket as any).voiceUser?.equippedChatBubble || (user as any)?.equippedChatBubble || null,
         timestamp: Date.now(),
       };
 
@@ -866,6 +880,122 @@ export const registerVoiceRoomHandlers = (io: Server, socket: AuthenticatedSocke
       };
       socket.emit("gift:failed", errPayload);
       if (typeof callback === "function") callback({ success: false, ...errPayload });
+    }
+  });
+
+  // 11. Update Room Theme (Owner Only)
+  socket.on("voice_room:update_theme", async (data: { roomId: string; themeId?: string; themeAsset?: any }) => {
+    try {
+      const rawRoomId = String(data?.roomId || (socket as any).voiceRawRoomId || (socket as any).voiceRoomId || "").trim();
+      if (!rawRoomId) return;
+      const roomId = normalizeRoomId(rawRoomId);
+      const state = await getVoiceRoomState(roomId);
+
+      // Backend owner security validation
+      const authUserId = String(user?.userId || "").trim();
+      const hostUserId = String(state.hostUser?.userId || "").trim();
+      const isOwner = Boolean(
+        (authUserId && hostUserId && authUserId === hostUserId) ||
+        (authUserId && normalizeRoomId(authUserId) === roomId) ||
+        (user as any)?.role === "superAdmin" ||
+        (user as any)?.role === "admin"
+      );
+
+      if (!isOwner) {
+        socket.emit("voice_room:error", {
+          message: "Only the room owner is authorized to change the room theme",
+          code: "NOT_ROOM_OWNER",
+        });
+        return;
+      }
+
+      state.themeId = data.themeId || data.themeAsset?.name || null;
+      state.themeAsset = data.themeAsset || null;
+      await saveVoiceRoomState(state);
+
+      // Persist to MongoDB Room
+      try {
+        await Room.findOneAndUpdate(
+          { $or: [{ channelName: roomId }, { channelName: rawRoomId }] },
+          { $set: { themeId: state.themeId, themeAsset: state.themeAsset } }
+        );
+      } catch (dbErr) {
+        console.warn("[VoiceRoom] DB theme persist warning:", dbErr);
+      }
+
+      const socketRoomChannel = `voice_room_channel:${roomId}`;
+      const payload = {
+        themeId: state.themeId,
+        themeAsset: state.themeAsset,
+        updatedBy: authUserId,
+      };
+
+      io.to(socketRoomChannel).emit("voice_room:theme_updated", payload);
+      if (rawRoomId !== roomId) {
+        io.to(`voice_room_channel:${rawRoomId}`).emit("voice_room:theme_updated", payload);
+      }
+      console.log(`[VoiceRoom] Room ${roomId} theme updated to ${state.themeId} by owner ${authUserId}`);
+    } catch (err: any) {
+      console.error("[VoiceRoom] Update theme error:", err);
+      socket.emit("voice_room:error", { message: err?.message || "Failed to update theme" });
+    }
+  });
+
+  // 12. Update Seat Skin (Owner Only)
+  socket.on("voice_room:update_seat_skin", async (data: { roomId: string; seatSkinId?: string; seatSkinAsset?: any }) => {
+    try {
+      const rawRoomId = String(data?.roomId || (socket as any).voiceRawRoomId || (socket as any).voiceRoomId || "").trim();
+      if (!rawRoomId) return;
+      const roomId = normalizeRoomId(rawRoomId);
+      const state = await getVoiceRoomState(roomId);
+
+      // Backend owner security validation
+      const authUserId = String(user?.userId || "").trim();
+      const hostUserId = String(state.hostUser?.userId || "").trim();
+      const isOwner = Boolean(
+        (authUserId && hostUserId && authUserId === hostUserId) ||
+        (authUserId && normalizeRoomId(authUserId) === roomId) ||
+        (user as any)?.role === "superAdmin" ||
+        (user as any)?.role === "admin"
+      );
+
+      if (!isOwner) {
+        socket.emit("voice_room:error", {
+          message: "Only the room owner is authorized to change the seat skin",
+          code: "NOT_ROOM_OWNER",
+        });
+        return;
+      }
+
+      state.seatSkinId = data.seatSkinId || data.seatSkinAsset?.name || null;
+      state.seatSkinAsset = data.seatSkinAsset || null;
+      await saveVoiceRoomState(state);
+
+      // Persist to MongoDB Room
+      try {
+        await Room.findOneAndUpdate(
+          { $or: [{ channelName: roomId }, { channelName: rawRoomId }] },
+          { $set: { seatSkinId: state.seatSkinId, seatSkinAsset: state.seatSkinAsset } }
+        );
+      } catch (dbErr) {
+        console.warn("[VoiceRoom] DB seat skin persist warning:", dbErr);
+      }
+
+      const socketRoomChannel = `voice_room_channel:${roomId}`;
+      const payload = {
+        seatSkinId: state.seatSkinId,
+        seatSkinAsset: state.seatSkinAsset,
+        updatedBy: authUserId,
+      };
+
+      io.to(socketRoomChannel).emit("voice_room:seat_skin_updated", payload);
+      if (rawRoomId !== roomId) {
+        io.to(`voice_room_channel:${rawRoomId}`).emit("voice_room:seat_skin_updated", payload);
+      }
+      console.log(`[VoiceRoom] Room ${roomId} seat skin updated to ${state.seatSkinId} by owner ${authUserId}`);
+    } catch (err: any) {
+      console.error("[VoiceRoom] Update seat skin error:", err);
+      socket.emit("voice_room:error", { message: err?.message || "Failed to update seat skin" });
     }
   });
 };

@@ -84,6 +84,7 @@ const userSchema = new Schema<UserInterface>(
     equippedSvipId: { type: String, default: null },
     ownedSvipIds: [{ type: String, default: [] }],
     equippedChatBubble: { type: String, default: null },
+    equippedChatBubbleAsset: { type: Schema.Types.Mixed, default: null },
     equippedMicWave: { type: String, default: null },
     equippedRoomTheme: { type: String, default: null },
     equippedEntryFrame: { type: String, default: null },

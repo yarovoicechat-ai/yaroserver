@@ -351,6 +351,50 @@ const DEFAULT_SEED_ITEMS: Partial<IStoreItem>[] = [
     isActive: true,
   },
 
+  // 6.1 SEAT SKINS
+  {
+    name: 'Imperial Gold Throne',
+    category: 'Seat Skin',
+    price: 6000,
+    validity: '30 Days',
+    badgeText: 'HOT',
+    previewColor: '#F59E0B',
+    bgColors: ['#78350F', '#B45309', '#F59E0B'],
+    icon: 'chair-rolling',
+    desc: 'Majestic golden throne seat skin with carved royal lions and velvet cushion.',
+    metadata: { seatSkinType: 'throne_gold', accent: '#F59E0B' },
+    sortOrder: 55,
+    isActive: true,
+  },
+  {
+    name: 'Cyber Neon Pod',
+    category: 'Seat Skin',
+    price: 5500,
+    validity: '30 Days',
+    badgeText: 'NEW',
+    previewColor: '#06B6D4',
+    bgColors: ['#083344', '#06B6D4', '#22D3EE'],
+    icon: 'headset',
+    desc: 'Futuristic floating neon pod seat with interactive cyber rings.',
+    metadata: { seatSkinType: 'cyber_pod', accent: '#06B6D4' },
+    sortOrder: 56,
+    isActive: true,
+  },
+  {
+    name: 'Emerald Lotus Seat',
+    category: 'Seat Skin',
+    price: 5000,
+    validity: '30 Days',
+    badgeText: 'LIMITED',
+    previewColor: '#10B981',
+    bgColors: ['#064E3B', '#059669', '#10B981'],
+    icon: 'flower',
+    desc: 'Serene glowing emerald lotus flower pedestal for room voice chairs.',
+    metadata: { seatSkinType: 'lotus_emerald', accent: '#10B981' },
+    sortOrder: 57,
+    isActive: true,
+  },
+
   // 7. TASSELS
   {
     name: 'Golden Peacock Tassel',
@@ -885,6 +929,23 @@ export const buyStoreItem = async (req: any, res: Response) => {
       };
     }
 
+    if (item.category === 'Chat Bubble' || item.category === 'Chat Bubbles') {
+      update.$set = {
+        ...(update.$set || {}),
+        equippedChatBubble: item.name,
+        equippedChatBubbleAsset: {
+          name: item.name,
+          textColor: (item as any).metadata?.textColor || '#FEF3C7',
+          borderColor: (item as any).metadata?.borderColor || item.previewColor || '#F59E0B',
+          bgColors: item.bgColors || ['#78350F', '#B45309', '#D97706'],
+          previewColor: item.previewColor || '#F59E0B',
+          icon: item.icon || 'chatbubble-ellipses',
+          imageUrl: item.imageUrl || '',
+          expiresAt,
+        },
+      };
+    }
+
     const updatedUser = await User.findOneAndUpdate(
       { _id: userId, diamonds: { $gte: costInDiamonds } },
       update,
@@ -1025,12 +1086,29 @@ export const equipStoreItem = async (req: any, res: Response) => {
       update.equippedMicWave = name || '';
     }
 
-    if (cat === 'Chat Bubble') {
+    if (cat === 'Chat Bubble' || cat === 'Chat Bubbles') {
       update.equippedChatBubble = name || '';
+      if (name && name !== 'default' && name !== 'none') {
+        const matchedItem = await StoreItem.findOne({
+          category: { $in: ['Chat Bubble', 'Chat Bubbles'] },
+          $or: [{ name: new RegExp(`^${name.trim()}$`, 'i') }, { id: name }]
+        }).lean();
+        update.equippedChatBubbleAsset = {
+          name,
+          textColor: (matchedItem as any)?.metadata?.textColor || '#FEF3C7',
+          borderColor: (matchedItem as any)?.metadata?.borderColor || (matchedItem as any)?.previewColor || '#F59E0B',
+          bgColors: (matchedItem as any)?.bgColors || ['#78350F', '#B45309', '#D97706'],
+          previewColor: (matchedItem as any)?.previewColor || '#F59E0B',
+          icon: (matchedItem as any)?.icon || 'chatbubble-ellipses',
+          imageUrl: imageUrl || (matchedItem as any)?.imageUrl || '',
+        };
+      } else {
+        update.equippedChatBubbleAsset = null;
+      }
     }
 
     const user = await User.findByIdAndUpdate(userId, { $set: update }, { new: true })
-      .select('equippedFrame equippedFrameAsset equippedMicWave equippedChatBubble equippedEntry equippedEntryAsset equippedTassel equippedTasselAsset equippedEntrance equippedEntranceAsset');
+      .select('equippedFrame equippedFrameAsset equippedMicWave equippedChatBubble equippedChatBubbleAsset equippedEntry equippedEntryAsset equippedTassel equippedTasselAsset equippedEntrance equippedEntranceAsset');
 
     if (!user) {
       return sendResponse(res, 404, false, 'User not found');

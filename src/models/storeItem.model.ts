@@ -6,6 +6,8 @@ export type StoreCategory =
   | 'Chat Bubbles'
   | 'Theme'
   | 'Themes'
+  | 'Seat Skin'
+  | 'Seat Skins'
   | 'Tassel'
   | 'Tassels'
   | 'Mic Wave'
@@ -63,6 +65,8 @@ const StoreItemSchema = new Schema<IStoreItem>(
         'Chat Bubbles',
         'Theme',
         'Themes',
+        'Seat Skin',
+        'Seat Skins',
         'Tassel',
         'Tassels',
         'Mic Wave',

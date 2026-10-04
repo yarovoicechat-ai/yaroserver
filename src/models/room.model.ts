@@ -16,6 +16,10 @@ export interface IRoom extends Document {
     isPinned?: boolean;
     pinnedOrder?: number;
     pinnedAt?: Date;
+    themeId?: string;
+    themeAsset?: any;
+    seatSkinId?: string;
+    seatSkinAsset?: any;
     createdAt: Date;
     updatedAt: Date;
 }
@@ -36,6 +40,10 @@ const RoomSchema = new Schema<IRoom>({
     isPinned: { type: Boolean, default: false },
     pinnedOrder: { type: Number, default: 0 },
     pinnedAt: { type: Date },
+    themeId: { type: String, default: null },
+    themeAsset: { type: Schema.Types.Mixed, default: null },
+    seatSkinId: { type: String, default: null },
+    seatSkinAsset: { type: Schema.Types.Mixed, default: null },
 }, { timestamps: true });
 
 RoomSchema.index({ ownerId: 1 });

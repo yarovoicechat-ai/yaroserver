@@ -54,9 +54,9 @@ export function validateAvatarSecurity(input: unknown): AvatarValidationResult {
   const lastDot = filename.lastIndexOf('.');
   const fileExt = lastDot !== -1 ? filename.substring(lastDot) : '';
 
-  // Check if filename ends with or contains any disallowed extension
+  // Check if filename ends with or has compound disallowed extension (e.g. avatar.exe.jpg)
   for (const ext of DISALLOWED_EXTENSIONS) {
-    if (filename.endsWith(ext) || pathname.includes(`${ext}/`) || filename.includes(ext)) {
+    if (fileExt === ext || filename.endsWith(ext) || filename.includes(`${ext}.`)) {
       return { valid: false, error: `Invalid avatar file format. Executables and script files are forbidden (${ext})` };
     }
   }

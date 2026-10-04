@@ -55,6 +55,7 @@ export interface UserInterface extends Document {
   equippedSvipId?: string | null;
   ownedSvipIds?: string[];
   equippedChatBubble?: string | null;
+  equippedChatBubbleAsset?: any;
   equippedMicWave?: string | null;
   equippedRoomTheme?: string | null;
   equippedEntryFrame?: string | null;
