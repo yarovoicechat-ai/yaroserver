@@ -64,6 +64,9 @@ export const broadcastGiftSuccess = (params: BroadcastGiftParams) => {
     id: String(gift._id || gift.id),
     name: gift.name,
     icon: gift.icon,
+    image: gift.image || (gift.icon?.startsWith('http') ? gift.icon : '') || gift.previewUrl || '',
+    giftImage: gift.image || (gift.icon?.startsWith('http') ? gift.icon : '') || gift.previewUrl || '',
+    giftIcon: gift.icon,
     animationUrl: gift.animationUrl || '',
     previewUrl: gift.previewUrl || '',
     animationType: gift.animationType || 'NORMAL',
@@ -91,6 +94,8 @@ export const broadcastGiftSuccess = (params: BroadcastGiftParams) => {
     receivers: receiversSummary,
     receiver: receiversSummary[0] || null, // Backwards compatibility for single-receiver readers
     gift: giftSummary,
+    giftImage: giftSummary.image,
+    giftIcon: giftSummary.icon,
     quantity,
     totalDiamonds: resolvedDiamonds,
     totalPrice: resolvedDiamonds,
@@ -137,19 +142,18 @@ export const broadcastGiftSuccess = (params: BroadcastGiftParams) => {
       // Voice room events
       io.to(channel).emit('voice_room:gift_received', {
         ...giftSummary,
+        transactionId: basePayload.transactionId,
         senderId: senderSummary.userId,
         senderName: senderSummary.name,
+        senderAvatar: senderSummary.avatar,
+        receiverId: receiversSummary[0]?.userId,
         receiverName: receiversSummary.map((r) => r.name).join(', '),
+        gift: giftSummary,
+        giftImage: giftSummary.image,
+        giftIcon: giftSummary.icon,
+        giftName: giftSummary.name,
         quantity,
-      });
-
-      io.to(channel).emit('voice_room:chat_message', {
-        id: `gift-${transaction?._id || Date.now()}-${Math.random().toString(36).substr(2, 4)}`,
-        type: 'gift',
-        user: senderSummary.name,
-        gift: `${giftSummary.icon} ${giftSummary.name} x${quantity}`,
-        to: receiversSummary.map((r) => r.name).join(', '),
-        timestamp: Date.now(),
+        combo: comboCount || 1,
       });
     });
   }

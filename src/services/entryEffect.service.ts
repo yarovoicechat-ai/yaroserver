@@ -243,18 +243,25 @@ export class EntryEffectService {
 
     try {
       let dbUser: any = null;
-      const lookupId = user._id || user.userId || user.id;
+      const lookupId = user._id || user.id || user.userId;
       if (lookupId) {
-        if (Types.ObjectId.isValid(String(lookupId))) {
+        if (Types.ObjectId.isValid(String(lookupId)) && String(lookupId).length === 24) {
           dbUser = await User.findById(lookupId).populate('equippedEntryEffect').lean();
         }
         if (!dbUser) {
-          dbUser = await User.findOne({ userId: String(lookupId) }).populate('equippedEntryEffect').lean();
+          const numId = Number(lookupId);
+          dbUser = await User.findOne({
+            $or: [
+              ...(isNaN(numId) ? [] : [{ userId: numId }]),
+              { userId: String(lookupId) },
+              ...(Types.ObjectId.isValid(String(lookupId)) && String(lookupId).length === 24 ? [{ _id: lookupId }] : []),
+            ],
+          }).populate('equippedEntryEffect').lean();
         }
       }
 
       // Resolve equipped Entry Effect
-      let entryEffect: any = dbUser?.equippedEntryAsset || null;
+      let entryEffect: any = dbUser?.equippedEntryAsset || user?.equippedEntryAsset || null;
       if (!entryEffect && dbUser?.equippedEntryEffect) {
         const eff = dbUser.equippedEntryEffect as any;
         entryEffect = {
@@ -272,20 +279,32 @@ export class EntryEffectService {
       }
       if (!entryEffect && (dbUser?.equippedEntry || user?.equippedEntryAsset || user?.equippedEntry)) {
         const entryName = dbUser?.equippedEntry || user?.equippedEntry?.name || user?.equippedEntry;
-        const fromInv = dbUser?.storeInventory?.find((i: any) =>
+        let fromInv = dbUser?.storeInventory?.find((i: any) =>
           (i.category === 'Entry' || i.category === 'Entry Effect' || i.category === 'Entry Effects') &&
           i.name === entryName
         );
+        let catalogEffect: any = null;
+        if (!fromInv) {
+          catalogEffect = await EntryEffect.findOne({
+            $or: [{ name: entryName }, { slug: entryName }],
+          }).lean();
+          if (!catalogEffect) {
+            catalogEffect = await StoreItem.findOne({
+              category: { $in: ['Entry', 'Entry Effect', 'Entry Effects', 'Entrance'] },
+              name: entryName,
+            }).lean();
+          }
+        }
         entryEffect = user?.equippedEntryAsset || {
-          id: 'store_entry_' + Date.now(),
+          id: catalogEffect?._id || fromInv?._id || ('store_entry_' + Date.now()),
           name: entryName || 'VIP Grand Entry',
-          animationType: 'BANNER',
-          tagText: fromInv?.tag || '👑 VIP HAS ENTERED',
-          bannerColors: fromInv?.bannerColors || ['#7C3AED', '#4C1D95'],
-          duration: 3200,
-          icon: '👑',
-          image: fromInv?.imageUrl || fromInv?.image || '',
-          animationUrl: fromInv?.animationUrl || '',
+          animationType: catalogEffect?.animationType || 'BANNER',
+          tagText: catalogEffect?.tagText || fromInv?.tag || '👑 VIP HAS ENTERED',
+          bannerColors: catalogEffect?.bannerColors || fromInv?.bannerColors || ['#7C3AED', '#4C1D95'],
+          duration: catalogEffect?.duration || 3200,
+          icon: catalogEffect?.icon || '👑',
+          image: catalogEffect?.image || catalogEffect?.imageUrl || fromInv?.imageUrl || fromInv?.image || '',
+          animationUrl: catalogEffect?.animationUrl || fromInv?.animationUrl || '',
         };
       }
 
@@ -360,20 +379,16 @@ export class EntryEffectService {
 
       const io = getIOOptional();
       if (io) {
-        const channels = [
-          `room:${roomId}`,
-          `voice_room_channel:${roomId}`,
-        ];
+        const entryEventId = `entry_${Date.now()}_${user?.userId || user?._id || 'u'}_${Math.random().toString(36).substr(2, 4)}`;
+        payload.entryId = entryEventId;
+        (payload as any).id = entryEventId;
 
-        channels.forEach((channel) => {
-          io.to(channel).emit('entry:effect', payload);
-          io.to(channel).emit('room:entry', payload);
+        // io.to(...).to(...) deduplicates sockets in multiple rooms so each client receives exactly once
+        io.to(`voice_room_channel:${roomId}`).to(`room:${roomId}`).emit('entry:effect', payload);
 
-          if (vipExperience.isVip) {
-            io.to(channel).emit('room:vip-entry', payload);
-            io.to(channel).emit('vip:entry', payload);
-          }
-        });
+        if (vipExperience.isVip) {
+          io.to(`voice_room_channel:${roomId}`).to(`room:${roomId}`).emit('room:vip-entry', payload);
+        }
       }
 
       return payload;

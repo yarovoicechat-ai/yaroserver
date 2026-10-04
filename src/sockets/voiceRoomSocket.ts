@@ -119,13 +119,28 @@ export const registerVoiceRoomHandlers = (io: Server, socket: AuthenticatedSocke
       const authorizedHost = Boolean(data.isHost && user?.userId && normalizeRoomId(String(user.userId)) === roomId);
 
       const userData = {
+        id: String((user as any)?._id || user?.id || data?.user?._id || data?.user?.id || ""),
+        _id: String((user as any)?._id || user?.id || data?.user?._id || data?.user?.id || ""),
         userId: String(user?.userId || data?.user?.userId || "guest"),
+        numericUserId: Number(user?.userId || data?.user?.userId || 0),
         name: String(user?.name || data?.user?.name || "Guest"),
-        avatar: String(data?.user?.avatar || data?.user?.image || "https://api.yaroapp.in/uploads/avatars/female_default.webp"),
-        gender: data?.user?.gender || "male",
-        level: data?.user?.level || 1,
+        avatar: String(data?.user?.avatar || data?.user?.image || (user as any)?.image || (user as any)?.avatar || "https://api.yaroapp.in/uploads/avatars/female_default.webp"),
+        image: String(data?.user?.avatar || data?.user?.image || (user as any)?.image || (user as any)?.avatar || "https://api.yaroapp.in/uploads/avatars/female_default.webp"),
+        gender: data?.user?.gender || (user as any)?.gender || "male",
+        level: data?.user?.level || (user as any)?.level || 1,
         equippedFrame: data?.user?.equippedFrameAsset || data?.user?.equippedFrame || (user as any)?.equippedFrameAsset || (user as any)?.equippedFrame || null,
         equippedFrameAsset: data?.user?.equippedFrameAsset || (user as any)?.equippedFrameAsset || null,
+        equippedProfileFrame: data?.user?.equippedProfileFrame || (user as any)?.equippedProfileFrame || null,
+        equippedEntry: data?.user?.equippedEntryAsset || data?.user?.equippedEntry || (user as any)?.equippedEntryAsset || (user as any)?.equippedEntry || null,
+        equippedEntryAsset: data?.user?.equippedEntryAsset || (user as any)?.equippedEntryAsset || null,
+        equippedEntryEffect: data?.user?.equippedEntryEffect || (user as any)?.equippedEntryEffect || null,
+        equippedEntryTag: data?.user?.equippedEntryTag || (user as any)?.equippedEntryTag || null,
+        equippedEntrance: data?.user?.equippedEntranceAsset || data?.user?.equippedEntrance || (user as any)?.equippedEntranceAsset || (user as any)?.equippedEntrance || null,
+        equippedEntranceAsset: data?.user?.equippedEntranceAsset || (user as any)?.equippedEntranceAsset || null,
+        equippedTassel: data?.user?.equippedTasselAsset || data?.user?.equippedTassel || (user as any)?.equippedTasselAsset || (user as any)?.equippedTassel || null,
+        equippedTasselAsset: data?.user?.equippedTasselAsset || (user as any)?.equippedTasselAsset || null,
+        equippedBadge: data?.user?.equippedBadge || (user as any)?.equippedBadge || null,
+        equippedBadges: data?.user?.equippedBadges || (user as any)?.equippedBadges || [],
       };
 
       // 24-hour ban check
@@ -192,7 +207,7 @@ export const registerVoiceRoomHandlers = (io: Server, socket: AuthenticatedSocke
           onlineCount: Object.keys(state.onlineUsers).length,
           announcementSent: true,
         });
-        io.to(socketRoomChannel).emit("voice_room:chat_message", {
+        socket.broadcast.to(socketRoomChannel).emit("voice_room:chat_message", {
           id: "sys-" + Date.now() + "-" + Math.random().toString(36).substr(2, 4),
           type: "system",
           text: `${userData.name} joined the party!`,
@@ -221,13 +236,20 @@ export const registerVoiceRoomHandlers = (io: Server, socket: AuthenticatedSocke
       const roomId = normalizeRoomId(rawRoomId);
 
       const userData = {
-        userId: String(user?.userId || "guest"),
-        name: String(user?.name || "Guest"),
-        avatar: String(data?.user?.avatar || data?.user?.image || "https://api.yaroapp.in/uploads/avatars/female_default.webp"),
-        gender: data?.user?.gender || "male",
-        level: data?.user?.level || 1,
+        id: String((user as any)?._id || user?.id || data?.user?._id || data?.user?.id || ""),
+        _id: String((user as any)?._id || user?.id || data?.user?._id || data?.user?.id || ""),
+        userId: String(user?.userId || data?.user?.userId || "guest"),
+        numericUserId: Number(user?.userId || data?.user?.userId || 0),
+        name: String(user?.name || data?.user?.name || "Guest"),
+        avatar: String(data?.user?.avatar || data?.user?.image || (user as any)?.image || (user as any)?.avatar || "https://api.yaroapp.in/uploads/avatars/female_default.webp"),
+        image: String(data?.user?.avatar || data?.user?.image || (user as any)?.image || (user as any)?.avatar || "https://api.yaroapp.in/uploads/avatars/female_default.webp"),
+        gender: data?.user?.gender || (user as any)?.gender || "male",
+        level: data?.user?.level || (user as any)?.level || 1,
         equippedFrame: data?.user?.equippedFrameAsset || data?.user?.equippedFrame || (user as any)?.equippedFrameAsset || (user as any)?.equippedFrame || null,
         equippedFrameAsset: data?.user?.equippedFrameAsset || (user as any)?.equippedFrameAsset || null,
+        equippedProfileFrame: data?.user?.equippedProfileFrame || (user as any)?.equippedProfileFrame || null,
+        equippedBadge: data?.user?.equippedBadge || (user as any)?.equippedBadge || null,
+        equippedBadges: data?.user?.equippedBadges || (user as any)?.equippedBadges || [],
       };
 
       const socketRoomChannel = `voice_room_channel:${roomId}`;
@@ -487,6 +509,8 @@ export const registerVoiceRoomHandlers = (io: Server, socket: AuthenticatedSocke
         id: String(giftObj.id || giftObj._id || "gift"),
         name: giftObj.name || giftObj.giftName || "Gift",
         icon: giftObj.icon || giftObj.giftEmoji || "🎁",
+        image: giftObj.image || giftObj.giftImage || (giftObj.icon?.startsWith('http') ? giftObj.icon : '') || giftObj.previewUrl || "",
+        previewUrl: giftObj.previewUrl || "",
         animationUrl: giftObj.animationUrl || "",
         animationType: giftObj.animationType || "NORMAL",
         price: Number(giftObj.price || giftObj.cost || 1),
@@ -516,6 +540,9 @@ export const registerVoiceRoomHandlers = (io: Server, socket: AuthenticatedSocke
         receivers: [receiverSummary],
         receiver: receiverSummary,
         gift: giftSummary,
+        giftImage: giftSummary.image,
+        giftIcon: giftSummary.icon,
+        giftName: giftSummary.name,
         quantity,
         comboCount,
         timestamp: Date.now(),
@@ -527,6 +554,9 @@ export const registerVoiceRoomHandlers = (io: Server, socket: AuthenticatedSocke
         senderId: senderSummary.userId,
         sender: senderSummary,
         receiver: receiverSummary,
+        giftImage: giftSummary.image,
+        giftIcon: giftSummary.icon,
+        giftName: giftSummary.name,
         gift: {
           ...giftSummary,
           senderName: senderSummary.name,
@@ -534,13 +564,14 @@ export const registerVoiceRoomHandlers = (io: Server, socket: AuthenticatedSocke
           receiverName: receiverSummary.name,
           giftName: giftSummary.name,
           giftIcon: giftSummary.icon,
+          giftImage: giftSummary.image,
         },
       };
 
       channels.forEach((channel) => {
-        io.to(channel).emit("gift:received", giftReceivedPayload);
-        io.to(channel).emit("gift:animation", animationPayload);
-        io.to(channel).emit("voice_room:gift_received", payloadWithGift);
+        socket.broadcast.to(channel).emit("gift:received", giftReceivedPayload);
+        socket.broadcast.to(channel).emit("gift:animation", animationPayload);
+        socket.broadcast.to(channel).emit("voice_room:gift_received", payloadWithGift);
       });
     } catch (err: any) {
       console.error("[VoiceRoom] Gift error:", err);
