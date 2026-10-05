@@ -70,13 +70,33 @@ export async function checkAndLockDeviceRegistration(
       });
     } catch (err: any) {
       if (err.code === 11000) {
-        // Race condition detected! Simultaneous request acquired targetIndex
+        const registeredUsers = await User.countDocuments({
+          $or: [
+            { "device.createdDeviceId": cleanDeviceId },
+            { "device.currentDeviceId": cleanDeviceId },
+            { deviceId: cleanDeviceId }
+          ],
+          role: { $in: APP_ACCOUNT_ROLES },
+          isDeleted: false,
+        });
+        if (registeredUsers < maxAllowed) {
+          await DeviceRegistrationLock.updateOne(
+            { deviceId: cleanDeviceId, accountIndex: targetIndex },
+            { $set: { userId: userId || 0, updatedAt: new Date() } }
+          );
+          return {
+            allowed: true,
+            maxAllowed,
+            existingCount: registeredUsers,
+            lockAcquired: true
+          };
+        }
         return {
           allowed: false,
           code: "DEVICE_REGISTRATION_LIMIT_REACHED",
           message: `Registration limit reached for this device (Limit: ${maxAllowed}). Contact Admin to increase your device registration limit.`,
           maxAllowed,
-          existingCount
+          existingCount: registeredUsers
         };
       }
       throw err;
