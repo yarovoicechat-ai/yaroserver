@@ -8,6 +8,9 @@ import {
   updateStoreItem,
   deleteStoreItem,
   toggleStoreItem,
+  getKingMembers,
+  grantKingMembership,
+  revokeKingMembership,
   resetStoreCatalog,
   buyStoreItem,
   equipStoreItem,
@@ -31,6 +34,9 @@ router.post('/items', verifyToken, storeManagers, createStoreItem);
 router.put('/items/:id', verifyToken, storeManagers, updateStoreItem);
 router.delete('/items/:id', verifyToken, storeManagers, deleteStoreItem);
 router.patch('/items/:id/toggle', verifyToken, storeManagers, toggleStoreItem);
+router.get('/king-members', verifyToken, storeManagers, getKingMembers);
+router.post('/king-members/grant', verifyToken, storeManagers, grantKingMembership);
+router.delete('/king-members/:userId', verifyToken, storeManagers, revokeKingMembership);
 router.post('/reset-catalog', verifyToken, storeManagers, resetStoreCatalog);
 
 export default router;

@@ -13,31 +13,45 @@ const storage = multer.diskStorage({
     cb(null, uploadDir);
   },
   filename: (req: any, file, cb) => {
-    const ext = path.extname(file.originalname).toLowerCase();
+    let ext = path.extname(file.originalname || "").toLowerCase();
+    if (!allowedExtensions.has(ext)) {
+      ext = file.mimetype.includes("png") ? ".png" : file.mimetype.includes("webp") ? ".webp" : ".jpg";
+    }
     const userId = req.user?.userId || "user";
     const uniqueSuffix = `${Date.now()}-${Math.round(Math.random() * 1e4)}`;
     cb(null, `avatar-${userId}-${uniqueSuffix}${ext}`);
   },
 });
 
-const allowedExtensions = new Set([".jpg", ".jpeg", ".png", ".webp"]);
-const allowedMimeTypes = new Set(["image/jpeg", "image/png", "image/webp"]);
+const allowedExtensions = new Set([".jpg", ".jpeg", ".png", ".webp", ""]);
+const allowedMimeTypes = new Set([
+  "image/jpeg",
+  "image/jpg",
+  "image/png",
+  "image/webp",
+  "image/pjpeg",
+  "application/octet-stream",
+]);
 const disallowedExtensions = new Set([
   ".exe", ".sh", ".bat", ".cmd", ".js", ".ts", ".php", ".py", ".bin",
   ".jar", ".apk", ".vbs", ".msi", ".scr", ".com", ".pif", ".cgi", ".pl"
 ]);
 
 const fileFilter = (_req: any, file: Express.Multer.File, cb: multer.FileFilterCallback) => {
-  const ext = path.extname(file.originalname).toLowerCase();
+  const ext = path.extname(file.originalname || "").toLowerCase();
 
-  if (disallowedExtensions.has(ext)) {
+  if (ext && disallowedExtensions.has(ext)) {
     return cb(new Error("Executable or script files are strictly forbidden"));
   }
 
-  if (allowedExtensions.has(ext) && allowedMimeTypes.has(file.mimetype.toLowerCase())) {
+  const mime = (file.mimetype || "").toLowerCase();
+  const isValidMime = allowedMimeTypes.has(mime) || mime.startsWith("image/");
+  const isValidExt = !ext || allowedExtensions.has(ext);
+
+  if (isValidMime && isValidExt) {
     cb(null, true);
   } else {
-    cb(new Error(`Invalid image file format. Allowed formats: JPG, JPEG, PNG, WEBP`));
+    cb(new Error(`Invalid image file format (${mime || ext}). Allowed formats: JPG, JPEG, PNG, WEBP`));
   }
 };
 

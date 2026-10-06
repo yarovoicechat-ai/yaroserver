@@ -479,7 +479,7 @@ export const updateUser = async (req: AuthRequest, res: Response) => {
     // Image security check: support both image and profilePic fields safely
     const rawImage = image !== undefined ? image : profilePic;
     let cleanImage: string | undefined;
-    if (rawImage !== undefined) {
+    if (rawImage !== undefined && rawImage !== null && String(rawImage).trim() !== "") {
       const validation = validateAvatarSecurity(rawImage);
       if (!validation.valid || !validation.cleanAvatar) {
         return sendResponse(res, 400, false, validation.error || "Invalid avatar image format");
@@ -1540,12 +1540,14 @@ export const getUserProfile = async (req: AuthRequest, res: Response) => {
     let user: any = null;
     if (mongoose.Types.ObjectId.isValid(String(requesterId))) {
       user = await User.findById(requesterId)
+        .select('-password -refreshToken -activeToken')
         .populate('equippedEntryEffect')
         .populate('ownedEntryEffects')
         .lean();
     }
     if (!user) {
       user = await User.findOne({ userId: Number(requesterId) })
+        .select('-password -refreshToken -activeToken')
         .populate('equippedEntryEffect')
         .populate('ownedEntryEffects')
         .lean();

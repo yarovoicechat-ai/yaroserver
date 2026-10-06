@@ -73,6 +73,15 @@ export const socketAuth = async (
             equippedTasselAsset: (user as any).equippedTasselAsset || null,
             equippedEntrance: (user as any).equippedEntrance || null,
             equippedEntranceAsset: (user as any).equippedEntranceAsset || null,
+            equippedEntryEffect: (user as any).equippedEntryEffect || null,
+            equippedEntryTag: (user as any).equippedEntryTag || null,
+            equippedChatBubble: (user as any).equippedChatBubble || null,
+            equippedChatBubbleAsset: (user as any).equippedChatBubbleAsset || null,
+            equippedBadge: (user as any).equippedBadge || null,
+            equippedBadges: (user as any).equippedBadges || [],
+            equippedVipId: (user as any).equippedVipId || null,
+            equippedSvipId: (user as any).equippedSvipId || null,
+            level: (user as any).level || 1,
         } as any;
 
         return next();

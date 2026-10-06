@@ -49,8 +49,11 @@ export interface UserInterface extends Document {
   equippedEntranceAsset?: any;
   equippedEntryEffect?: Types.ObjectId | null;
   equippedEntryTag?: string;
+  equippedBadge?: any;
+  equippedBadges?: any[];
   ownedEntryEffects?: Types.ObjectId[];
   equippedVipId?: string | null;
+  equippedVipExpiresAt?: Date | null;
   ownedVipIds?: string[];
   equippedSvipId?: string | null;
   ownedSvipIds?: string[];
@@ -69,6 +72,16 @@ export interface UserInterface extends Document {
   meethiId?: string;
   blockedUsers?: Types.ObjectId[];
   level?: number;
+  wealthExp?: number;
+  wealthLevel?: number;
+  charmExp?: number;
+  charmLevel?: number;
+  claimedLevelRewards?: string[];
+  equippedVehicle?: string | null;
+  equippedVehicleAsset?: any;
+  equippedCustomId?: string | null;
+  equippedProfileBorder?: string | null;
+  equippedProfileBorderAsset?: any;
   employeeCode?: string;
   parentId?: Types.ObjectId;
   referredBy?: any;

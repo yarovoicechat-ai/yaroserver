@@ -3,6 +3,7 @@ import { VipId, IVipId } from '../models/vipId.model';
 import { SvipTier, ISvipTier } from '../models/svipTier.model';
 import { User } from '../models/user.model';
 import { EntryEffect } from '../models/entryEffect.model';
+import { LevelService } from './level.service';
 
 export interface EffectiveVipExperience {
   isVip: boolean;
@@ -73,7 +74,11 @@ export class VipService {
 
     // Load equipped VIP package if exists
     let vip: IVipId | null = null;
-    if (user.equippedVipId) {
+    const vipExpired = Boolean(
+      user.equippedVipExpiresAt &&
+      new Date(user.equippedVipExpiresAt).getTime() <= Date.now(),
+    );
+    if (user.equippedVipId && !vipExpired) {
       if (mongoose.connection.readyState === 1) {
         if (mongoose.Types.ObjectId.isValid(String(user.equippedVipId))) {
           vip = await VipId.findById(user.equippedVipId).lean();
@@ -318,6 +323,11 @@ export class VipService {
       throw new Error('Diamond deduction failed due to concurrent update. Please retry.');
     }
 
+    // Award Wealth EXP
+    LevelService.addWealthExp(userId, price, 'vip_purchase', vip.slug).catch(err =>
+      console.warn('Failed to award wealth EXP for VIP purchase:', err?.message)
+    );
+
     return {
       success: true,
       vip,
@@ -359,6 +369,11 @@ export class VipService {
     if (!updatedUser) {
       throw new Error('Diamond deduction failed due to concurrent update. Please retry.');
     }
+
+    // Award Wealth EXP
+    LevelService.addWealthExp(userId, price, 'svip_purchase', svip.slug).catch(err =>
+      console.warn('Failed to award wealth EXP for SVIP purchase:', err?.message)
+    );
 
     return {
       success: true,

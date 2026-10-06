@@ -5,7 +5,8 @@ export type EntryAnimationType =
   | 'CENTER_AVATAR'
   | 'PARTICLES'
   | 'VIP_ENTRANCE'
-  | 'SPECIAL_EVENT';
+  | 'SPECIAL_EVENT'
+  | 'FULL_SCREEN';
 
 export interface IEntryEffect extends Document {
   name: string;
@@ -36,8 +37,8 @@ const EntryEffectSchema = new Schema<IEntryEffect>(
     tagText: { type: String, required: true, default: '👑 VIP HAS ENTERED' },
     animationType: {
       type: String,
-      enum: ['BANNER', 'CENTER_AVATAR', 'PARTICLES', 'VIP_ENTRANCE', 'SPECIAL_EVENT'],
-      default: 'BANNER',
+      enum: ['BANNER', 'CENTER_AVATAR', 'PARTICLES', 'VIP_ENTRANCE', 'SPECIAL_EVENT', 'FULL_SCREEN'],
+      default: 'FULL_SCREEN',
       index: true,
     },
     image: { type: String, default: '' },

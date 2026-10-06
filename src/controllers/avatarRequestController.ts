@@ -20,7 +20,12 @@ export const submitAvatarRequest = async (req: AuthRequest, res: Response) => {
     let rawAvatar: string | undefined;
 
     // Direct multipart file upload support
-    const uploadedFile = req.file || (req.files as any)?.file?.[0] || (req.files as any)?.avatar?.[0] || (req.files as any)?.image?.[0];
+    const uploadedFile =
+      req.file ||
+      (req.files as any)?.file?.[0] ||
+      (req.files as any)?.avatar?.[0] ||
+      (req.files as any)?.image?.[0] ||
+      (req.files as any)?.profilePic?.[0];
     if (uploadedFile) {
       const host = req.get('host') || 'api.yaroapp.in';
       const protocol = req.protocol === 'https' || req.headers['x-forwarded-proto'] === 'https' ? 'https' : 'http';

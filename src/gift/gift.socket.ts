@@ -12,6 +12,8 @@ const normalizeRoomId = (id: string): string => {
 
 export interface BroadcastGiftParams {
   transaction?: any;
+  transactionId?: string;
+  requestId?: string;
   sender: any;
   receivers: any[];
   gift: any;
@@ -33,6 +35,8 @@ export const broadcastGiftSuccess = (params: BroadcastGiftParams) => {
 
   const {
     transaction,
+    transactionId,
+    requestId,
     sender,
     receivers,
     gift,
@@ -86,8 +90,8 @@ export const broadcastGiftSuccess = (params: BroadcastGiftParams) => {
   );
 
   const basePayload = {
-    transactionId: String(transaction?._id || transaction?.id || `tx_${Date.now()}`),
-    requestId: transaction?.requestId || `req_${Date.now()}`,
+    transactionId: String(transaction?._id || transaction?.id || transactionId || `tx_${Date.now()}`),
+    requestId: transaction?.requestId || requestId || `req_${Date.now()}`,
     roomId: roomId || '',
     callId: callId || '',
     sender: senderSummary,
@@ -128,34 +132,16 @@ export const broadcastGiftSuccess = (params: BroadcastGiftParams) => {
       channels.push(`room:${roomId}`);
     }
 
-    channels.forEach((channel) => {
-      io.to(channel).emit('gift:received', basePayload);
-      io.to(channel).emit('gift:animation', animationPayload);
-      if (receivers.length > 1) {
-        io.to(channel).emit('gift:batch', {
-          ...basePayload,
-          isBatch: true,
-          receiverCount: receivers.length,
-        });
-      }
-
-      // Voice room events
-      io.to(channel).emit('voice_room:gift_received', {
-        ...giftSummary,
-        transactionId: basePayload.transactionId,
-        senderId: senderSummary.userId,
-        senderName: senderSummary.name,
-        senderAvatar: senderSummary.avatar,
-        receiverId: receiversSummary[0]?.userId,
-        receiverName: receiversSummary.map((r) => r.name).join(', '),
-        gift: giftSummary,
-        giftImage: giftSummary.image,
-        giftIcon: giftSummary.icon,
-        giftName: giftSummary.name,
-        quantity,
-        combo: comboCount || 1,
+    const roomBroadcast = io.to(channels);
+    roomBroadcast.emit('gift:received', basePayload);
+    roomBroadcast.emit('gift:animation', animationPayload);
+    if (receivers.length > 1) {
+      roomBroadcast.emit('gift:batch', {
+        ...basePayload,
+        isBatch: true,
+        receiverCount: receivers.length,
       });
-    });
+    }
   }
 
   // 2. Broadcast to In-Call Channels

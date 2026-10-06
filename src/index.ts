@@ -24,6 +24,7 @@ import adminVerificationRoutes from "./routes/adminVerificationRoutes";
 import { giftRouter, adminGiftRouter } from "./gift/gift.routes";
 import { entryEffectRouter } from "./routes/entryEffect.routes";
 import { vipRouter } from "./routes/vip.routes";
+import levelRouter from "./routes/level.routes";
 import { GiftService } from "./gift/gift.service";
 import { VipService } from "./services/vip.service";
 
@@ -206,6 +207,10 @@ app.use("/api/vip", vipRouter);
 app.use("/api/v1/vip", vipRouter);
 app.use("/api/svip", vipRouter);
 app.use("/api/v1/svip", vipRouter);
+app.use("/api/level", levelRouter);
+app.use("/api/v1/level", levelRouter);
+app.use("/api/levels", levelRouter);
+app.use("/api/v1/levels", levelRouter);
 app.use("/api/v1/admin/verifications", adminVerificationRoutes);
 app.get("/api/admin/sellers/stock-requests", verifyToken, getAllStockRequestsAdmin);
 app.post("/api/admin/sellers/stock-requests/:id/approve", verifyToken, approveStockRequest);

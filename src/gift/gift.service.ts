@@ -5,6 +5,7 @@ import { CoinsTransaction } from '../models/spentCoinModel';
 import { TransactionType } from '../constants/user';
 import { getCachedSettings } from '../controllers/settingsController';
 import { broadcastGiftSuccess } from './gift.socket';
+import { LevelService } from '../services/level.service';
 import {
   CreateCategoryDTO,
   CreateGiftDTO,
@@ -596,6 +597,27 @@ export class GiftService {
       console.warn('[GiftService] CoinsTransaction log error:', logErr);
     }
 
+    // Award Wealth EXP to Sender & Charm EXP to Receivers
+    try {
+      await LevelService.addWealthExp(
+        String(sender._id),
+        totalDiamonds,
+        'send_gift',
+        String(transactionDoc?._id || requestId)
+      );
+
+      for (const rec of receivers) {
+        await LevelService.addCharmExp(
+          String(rec._id),
+          perReceiverCost,
+          'receive_gift',
+          String(transactionDoc?._id || requestId)
+        );
+      }
+    } catch (levelErr: any) {
+      console.warn('[GiftService] Level EXP award error:', levelErr?.message);
+    }
+
     // 10. Real-time Socket Broadcast
     const payload = {
       transactionId: String(transactionDoc._id),
@@ -624,6 +646,9 @@ export class GiftService {
         id: String(gift._id),
         name: gift.name,
         icon: gift.icon,
+        image: (gift as any).image || (gift as any).imageUrl || (gift as any).previewUrl || '',
+        giftImage: (gift as any).image || (gift as any).imageUrl || (gift as any).previewUrl || '',
+        previewUrl: (gift as any).previewUrl || (gift as any).imageUrl || '',
         animationUrl: gift.animationUrl,
         animationType: gift.animationType,
         rarity: gift.rarity,
@@ -639,7 +664,7 @@ export class GiftService {
       timestamp: Date.now(),
     };
 
-    broadcastGiftSuccess(payload);
+    broadcastGiftSuccess({ ...payload, transaction: transactionDoc });
 
     return {
       success: true,

@@ -5,6 +5,7 @@ import { CallStatus, TransactionType } from '../constants/user';
 import Conversation from '../models/conversation.model';
 import HostLevel from '../models/hostLevel.model';
 import { recalculateAndUpdateHostLevel } from './user.service';
+import { LevelService } from './level.service';
 import { getCachedSettings } from '../controllers/settingsController';
 import { getIO, getUserRoom } from '../sockets';
 import {
@@ -432,6 +433,19 @@ export class BillingService {
                         console.error("Failed to evaluate referral call milestone (host):", err)
                     );
                 }
+            }
+
+            // Award Level Progression EXP
+            if (transaction.userId && billedMinutes > 0) {
+                const diamondsSpent = billedMinutes * callDiamondsPerMinute;
+                LevelService.addWealthExp(transaction.userId, diamondsSpent, 'voice_call_spend', String(transaction._id)).catch(err =>
+                    console.error("Failed to award caller wealth EXP:", err)
+                );
+            }
+            if (transaction.hostId && hostEarning > 0) {
+                LevelService.addCharmExp(transaction.hostId, hostEarning, 'voice_call_receive', String(transaction._id)).catch(err =>
+                    console.error("Failed to award host charm EXP:", err)
+                );
             }
 
             // Enable chat rule

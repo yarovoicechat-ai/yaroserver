@@ -298,60 +298,76 @@ export class EntryEffectService {
         entryEffect = user?.equippedEntryAsset || {
           id: catalogEffect?._id || fromInv?._id || ('store_entry_' + Date.now()),
           name: entryName || 'VIP Grand Entry',
-          animationType: catalogEffect?.animationType || 'BANNER',
+          animationType: catalogEffect?.animationType || catalogEffect?.metadata?.animationType || 'FULL_SCREEN',
           tagText: catalogEffect?.tagText || fromInv?.tag || '👑 VIP HAS ENTERED',
-          bannerColors: catalogEffect?.bannerColors || fromInv?.bannerColors || ['#7C3AED', '#4C1D95'],
-          duration: catalogEffect?.duration || 3200,
+          bannerColors: catalogEffect?.bannerColors || catalogEffect?.bgColors || fromInv?.bannerColors || ['#7C3AED', '#4C1D95'],
+          duration: catalogEffect?.duration || catalogEffect?.metadata?.duration || 4200,
           icon: catalogEffect?.icon || '👑',
           image: catalogEffect?.image || catalogEffect?.imageUrl || fromInv?.imageUrl || fromInv?.image || '',
           animationUrl: catalogEffect?.animationUrl || fromInv?.animationUrl || '',
         };
       }
 
-      // Check if user has an active equipped entry
+      const vipExperience = await VipService.resolveVipExperience(dbUser || user);
+      if (!entryEffect && vipExperience.isVip) {
+        const vipVisual = vipExperience.entryFrame || vipExperience.roomTheme?.bgUrl || '';
+        entryEffect = {
+          id: `vip-entry:${dbUser?.equippedVipId || dbUser?.equippedSvipId || 'vip'}`,
+          name: vipExperience.isKingOfKings
+            ? 'King of Kings Full-Screen Entry'
+            : `${vipExperience.badge || 'VIP'} Entry`,
+          animationType: 'FULL_SCREEN',
+          tagText: vipExperience.entryTag || (vipExperience.isKingOfKings ? 'KING OF KINGS HAS ENTERED' : 'VIP HAS ENTERED'),
+          bannerColors: vipExperience.nameEffect?.gradient?.length
+            ? vipExperience.nameEffect.gradient
+            : ['#F59E0B', '#7C2D12'],
+          duration: vipExperience.isKingOfKings ? 5200 : 4200,
+          icon: vipExperience.crown || 'VIP',
+          image: vipVisual,
+          animationUrl: vipVisual,
+          sound: vipExperience.sound || '',
+        };
+      }
+
+      // Check if user has an active equipped entry or VIP/KOK arrival experience.
       const hasEquippedEntry = Boolean(entryEffect);
       if (!hasEquippedEntry) {
         // User is not using an entry effect, skip full entry orchestration
         return null;
       }
 
-      // Resolve equipped Tassel ornament (or inventory tassel / fallback)
+      // Resolve only the actually equipped tassel. Never fabricate a fallback item.
       let tasselEffect: any = dbUser?.equippedTasselAsset || user?.equippedTasselAsset || null;
       if (!tasselEffect) {
         const tasselName = dbUser?.equippedTassel || user?.equippedTassel;
-        const fromInv = dbUser?.storeInventory?.find((i: any) =>
+        const fromInv = tasselName ? dbUser?.storeInventory?.find((i: any) =>
           (i.category === 'Tassel' || i.category === 'Tassels') &&
-          (!tasselName || i.name === tasselName)
-        );
-        tasselEffect = {
-          name: fromInv?.name || tasselName || 'Imperial Gold Silk Tassel',
-          previewColor: fromInv?.previewColor || '#F59E0B',
-          tag: fromInv?.tag || 'Mic Tassel Ornament',
-          animationUrl: fromInv?.animationUrl || '',
-          image: fromInv?.imageUrl || fromInv?.image || '',
-        };
+          i.name === tasselName
+        ) : null;
+        tasselEffect = fromInv ? {
+          name: fromInv.name,
+          animationUrl: fromInv.animationUrl || '',
+          image: fromInv.imageUrl || fromInv.image || '',
+        } : null;
       }
 
-      // Resolve equipped Entrance (Ride / VIP supercar / dragon)
+      // Resolve only the actually equipped entrance. Never show a stock car.
       let entranceEffect: any = dbUser?.equippedEntranceAsset || user?.equippedEntranceAsset || null;
       if (!entranceEffect) {
         const entranceName = dbUser?.equippedEntrance || user?.equippedEntrance;
-        const fromInv = dbUser?.storeInventory?.find((i: any) =>
+        const fromInv = entranceName ? dbUser?.storeInventory?.find((i: any) =>
           (i.category === 'Entrance' || i.category === 'Ride' || i.category === 'Profile Entry') &&
-          (!entranceName || i.name === entranceName)
-        );
-        entranceEffect = {
-          name: fromInv?.name || entranceName || 'Grand Supercar Entrance',
-          animationUrl: fromInv?.animationUrl || '',
-          image: fromInv?.imageUrl || fromInv?.image || 'https://images.unsplash.com/photo-1542282088-72c9c27ed0cd?w=400',
-          tag: fromInv?.tag || 'Luxury Ride',
-        };
+          i.name === entranceName
+        ) : null;
+        entranceEffect = fromInv ? {
+          name: fromInv.name,
+          animationUrl: fromInv.animationUrl || '',
+          image: fromInv.imageUrl || fromInv.image || '',
+        } : null;
       }
 
       const tagText = entryEffect?.tagText || dbUser?.equippedEntryTag || 'VIP ENTRY';
       const entryId = `entry_${Date.now()}_${Math.random().toString(36).substr(2, 6)}`;
-      const vipExperience = await VipService.resolveVipExperience(dbUser || user);
-
       const payload = {
         entryId,
         roomId,

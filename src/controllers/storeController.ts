@@ -5,7 +5,16 @@ import sendResponse from '../utils/reponse';
 import HostLevel from '../models/hostLevel.model';
 import Level from '../models/level.model';
 import { EntryEffect } from '../models/entryEffect.model';
+import { VipId } from '../models/vipId.model';
 import { recalculateAndUpdateHostLevel } from '../services/user.service';
+import { LevelService } from '../services/level.service';
+import {
+  WEALTH_THRESHOLDS,
+  CHARM_THRESHOLDS,
+  WEALTH_REWARDS,
+  CHARM_PACKAGES,
+  CHARM_MILESTONES,
+} from '../services/levelEngine';
 
 const STORE_DURATIONS = [3, 7, 15, 30] as const;
 
@@ -40,6 +49,136 @@ const serializeStoreItem = (item: any) => {
     tag: metadata.tag || plain?.badgeText,
     banner: metadata.banner,
     benefits: Array.isArray(metadata.benefits) ? metadata.benefits : [],
+  };
+};
+
+const normalizeStoreCategory = (value: string = '') => {
+  const category = value.trim().toLowerCase();
+  if (['frame', 'frames'].includes(category)) return 'Frames';
+  if (['entry', 'entry effect', 'entry effects'].includes(category)) return 'Entry';
+  if (['tassel', 'tassels'].includes(category)) return 'Tassel';
+  if (['entrance', 'ride', 'profile entry', 'profile entries'].includes(category)) return 'Entrance';
+  if (['chat bubble', 'chat bubbles'].includes(category)) return 'Chat Bubble';
+  if (['mic wave', 'mic waves'].includes(category)) return 'Mic Wave';
+  if (['theme', 'themes'].includes(category)) return 'Theme';
+  if (['seat skin', 'seat skins'].includes(category)) return 'Seat Skin';
+  if (['vip', 'king of kings'].includes(category)) return 'VIP';
+  if (['badge', 'tag'].includes(category)) return 'Badge';
+  return value.trim();
+};
+
+const toCatalogSlug = (value: string = '') =>
+  value
+    .toLowerCase()
+    .trim()
+    .replace(/[^a-z0-9]+/g, '-')
+    .replace(/^-+|-+$/g, '') || `vip-${Date.now().toString(36)}`;
+
+const syncStoreVipPackage = async (item: any) => {
+  if (!item || !['VIP', 'King of Kings'].includes(String(item.category || ''))) return null;
+
+  const metadata = item.metadata || {};
+  const isKingOfKings = item.category === 'King of Kings' || metadata.isKingOfKings === true;
+  const slug = String(metadata.vipSlug || toCatalogSlug(item.name));
+  const bgColors = Array.isArray(item.bgColors) && item.bgColors.length
+    ? item.bgColors
+    : [item.previewColor || '#F59E0B', '#7C2D12'];
+  const entryTag = metadata.entryTag || metadata.banner || item.badgeText ||
+    (isKingOfKings ? 'KING OF KINGS HAS ENTERED' : 'VIP HAS ENTERED');
+
+  const vip = await VipId.findOneAndUpdate(
+    { slug },
+    {
+      $set: {
+        name: item.name,
+        slug,
+        displayName: metadata.displayName || item.name,
+        vipLevel: Math.max(1, Number(metadata.vipLevel || metadata.tierLevel || (isKingOfKings ? 10 : 1))),
+        rarity: metadata.rarity || (isKingOfKings ? 'mythic' : 'epic'),
+        price: Math.max(0, Number(item.price || 0)),
+        badge: item.badgeText || metadata.badge || (isKingOfKings ? 'KING OF KINGS' : 'VIP'),
+        crown: metadata.crown || (isKingOfKings ? 'KING' : 'VIP'),
+        icon: item.icon || 'crown',
+        entryTag,
+        entryFrame: item.animationUrl || item.imageUrl || metadata.entryFrame || '',
+        avatarFrame: metadata.avatarFrame || item.imageUrl || '',
+        floatingEntryAnimation: metadata.floatingEntryAnimation || 'FULL_SCREEN',
+        micWave: metadata.micWave || {
+          waveColor: item.previewColor || '#F59E0B',
+          waveColors: bgColors,
+          waveIntensity: isKingOfKings ? 1.5 : 1.1,
+          waveSpeed: 1,
+          waveStyle: isKingOfKings ? 'fire' : 'rings',
+        },
+        chatBubble: metadata.chatBubble || {
+          bubbleName: `${item.name} Bubble`,
+          bgGradient: bgColors,
+          bgColor: bgColors[0],
+          textColor: '#FFFFFF',
+          borderColor: item.previewColor || '#F59E0B',
+          borderRadius: 16,
+          shadowColor: item.previewColor || '#F59E0B',
+          bubbleStyle: isKingOfKings ? 'sovereign' : 'vip',
+        },
+        roomTheme: metadata.roomTheme || {
+          themeName: `${item.name} Room`,
+          bgUrl: metadata.roomThemeUrl || item.imageUrl || '',
+          overlayGradient: bgColors.map((color: string) => `${color}DD`),
+          overlayOpacity: 0.85,
+          particleType: isKingOfKings ? 'gold_sparkles' : 'stars',
+        },
+        nameEffect: metadata.nameEffect || {
+          gradient: bgColors,
+          glowColor: item.previewColor || '#F59E0B',
+          isAnimated: true,
+          prefixBadge: isKingOfKings ? 'KING' : 'VIP',
+        },
+        entrySound: metadata.entrySound || '',
+        particleEffect: metadata.particleEffect || (isKingOfKings ? 'gold_particles' : 'vip_particles'),
+        isVip: true,
+        isSvip: Boolean(metadata.isSvip),
+        isKing: Boolean(isKingOfKings || metadata.isKing),
+        isKingOfKings,
+        isLimited: Boolean(metadata.isLimited),
+        isActive: item.isActive !== false,
+        sortOrder: Number(item.sortOrder || 0),
+        metadata: { ...metadata, storeItemId: String(item._id) },
+      },
+    },
+    { upsert: true, new: true, setDefaultsOnInsert: true },
+  );
+
+  if (metadata.vipSlug !== slug) {
+    await StoreItem.updateOne(
+      { _id: item._id },
+      { $set: { 'metadata.vipSlug': slug, 'metadata.isKingOfKings': isKingOfKings } },
+    );
+  }
+  return vip;
+};
+
+const buildCanonicalAsset = (item: any, expiresAt?: Date | null) => {
+  const plain = typeof item?.toObject === 'function' ? item.toObject() : item;
+  const metadata = plain?.metadata || {};
+  return {
+    id: String(plain?._id || plain?.id || ''),
+    itemId: String(plain?._id || plain?.id || ''),
+    name: plain?.name || '',
+    category: plain?.category || '',
+    imageUrl: plain?.imageUrl || '',
+    animationUrl: plain?.animationUrl || '',
+    previewColor: plain?.previewColor || metadata.previewColor || '',
+    bgColors: plain?.bgColors || metadata.bgColors || [],
+    icon: plain?.icon || metadata.icon || '',
+    textColor: metadata.textColor || '',
+    borderColor: metadata.borderColor || '',
+    bgColor: metadata.bgColor || '',
+    seatSkinType: metadata.seatSkinType || '',
+    tag: metadata.tag || plain?.badgeText || '',
+    tagText: metadata.tagText || metadata.tag || plain?.badgeText || '',
+    bannerColors: metadata.bannerColors || plain?.bgColors || [],
+    metadata,
+    expiresAt: expiresAt || null,
   };
 };
 
@@ -351,7 +490,29 @@ const DEFAULT_SEED_ITEMS: Partial<IStoreItem>[] = [
     isActive: true,
   },
 
-  // 6.1 SEAT SKINS
+  // 6.1 HD SEAT SKINS (5 HD skins + 1 Default skin)
+  {
+    name: 'Cyber Glass VIP Seat',
+    category: 'Seat Skin',
+    price: 0,
+    validity: 'Permanent',
+    badgeText: 'DEFAULT',
+    previewColor: '#C084FC',
+    bgColors: ['#1E1B4B', '#581C87', '#C084FC'],
+    icon: 'microphone-variant',
+    imageUrl: '/uploads/seats/default_seat.jpg',
+    desc: 'Ultra luxury neon glassmorphic VIP voice seat with holographic microphone pedestal.',
+    metadata: {
+      seatSkinType: 'default',
+      isFree: true,
+      themeLocation: 'BOTH',
+      borderColor: 'rgba(192, 132, 252, 0.75)',
+      bgColor: 'rgba(168, 85, 247, 0.18)',
+      ringColors: ['#C084FC', '#8B5CF6'],
+    },
+    sortOrder: 54,
+    isActive: true,
+  },
   {
     name: 'Imperial Gold Throne',
     category: 'Seat Skin',
@@ -360,9 +521,15 @@ const DEFAULT_SEED_ITEMS: Partial<IStoreItem>[] = [
     badgeText: 'HOT',
     previewColor: '#F59E0B',
     bgColors: ['#78350F', '#B45309', '#F59E0B'],
-    icon: 'chair-rolling',
-    desc: 'Majestic golden throne seat skin with carved royal lions and velvet cushion.',
-    metadata: { seatSkinType: 'throne_gold', accent: '#F59E0B' },
+    icon: 'crown',
+    imageUrl: '/uploads/seats/golden_throne.jpg',
+    desc: 'Majestic 24k golden throne with carved royal lions, floating crown, and ruby velvet.',
+    metadata: {
+      seatSkinType: 'golden_throne',
+      borderColor: 'rgba(245, 158, 11, 0.85)',
+      bgColor: 'rgba(245, 158, 11, 0.22)',
+      ringColors: ['#F59E0B', '#FBBF24'],
+    },
     sortOrder: 55,
     isActive: true,
   },
@@ -374,14 +541,20 @@ const DEFAULT_SEED_ITEMS: Partial<IStoreItem>[] = [
     badgeText: 'NEW',
     previewColor: '#06B6D4',
     bgColors: ['#083344', '#06B6D4', '#22D3EE'],
-    icon: 'headset',
-    desc: 'Futuristic floating neon pod seat with interactive cyber rings.',
-    metadata: { seatSkinType: 'cyber_pod', accent: '#06B6D4' },
+    icon: 'lightning-bolt',
+    imageUrl: '/uploads/seats/cyber_pod.jpg',
+    desc: 'Futuristic floating neon gaming pod with interactive soundwave visualization rings.',
+    metadata: {
+      seatSkinType: 'cyber_pod',
+      borderColor: 'rgba(6, 182, 212, 0.85)',
+      bgColor: 'rgba(6, 182, 212, 0.22)',
+      ringColors: ['#06B6D4', '#22D3EE'],
+    },
     sortOrder: 56,
     isActive: true,
   },
   {
-    name: 'Emerald Lotus Seat',
+    name: 'Emerald Lotus Throne',
     category: 'Seat Skin',
     price: 5000,
     validity: '30 Days',
@@ -389,9 +562,55 @@ const DEFAULT_SEED_ITEMS: Partial<IStoreItem>[] = [
     previewColor: '#10B981',
     bgColors: ['#064E3B', '#059669', '#10B981'],
     icon: 'flower',
-    desc: 'Serene glowing emerald lotus flower pedestal for room voice chairs.',
-    metadata: { seatSkinType: 'lotus_emerald', accent: '#10B981' },
+    imageUrl: '/uploads/seats/lotus_throne.jpg',
+    desc: 'Ethereal glowing jade crystal lotus blossom throne with celestial runes.',
+    metadata: {
+      seatSkinType: 'lotus_throne',
+      borderColor: 'rgba(16, 185, 129, 0.85)',
+      bgColor: 'rgba(16, 185, 129, 0.22)',
+      ringColors: ['#10B981', '#34D399'],
+    },
     sortOrder: 57,
+    isActive: true,
+  },
+  {
+    name: 'Phoenix Dragon Throne',
+    category: 'Seat Skin',
+    price: 7500,
+    validity: '30 Days',
+    badgeText: 'EXCLUSIVE',
+    previewColor: '#EF4444',
+    bgColors: ['#7F1D1D', '#DC2626', '#F59E0B'],
+    icon: 'fire',
+    imageUrl: '/uploads/seats/phoenix_fire.jpg',
+    desc: 'Legendary sovereign throne sculpted with fiery dragon wings and blazing phoenix flames.',
+    metadata: {
+      seatSkinType: 'phoenix_fire',
+      borderColor: 'rgba(239, 68, 68, 0.85)',
+      bgColor: 'rgba(239, 68, 68, 0.22)',
+      ringColors: ['#EF4444', '#F59E0B'],
+    },
+    sortOrder: 58,
+    isActive: true,
+  },
+  {
+    name: 'Mermaid Pearl Seashell',
+    category: 'Seat Skin',
+    price: 5800,
+    validity: '30 Days',
+    badgeText: 'RARE',
+    previewColor: '#38BDF8',
+    bgColors: ['#0C4A6E', '#0284C7', '#38BDF8'],
+    icon: 'water',
+    imageUrl: '/uploads/seats/mermaid_pearl.jpg',
+    desc: 'Oceanic pearl oyster seashell throne with aquamarine water crystals and golden coral.',
+    metadata: {
+      seatSkinType: 'mermaid_pearl',
+      borderColor: 'rgba(56, 189, 248, 0.85)',
+      bgColor: 'rgba(56, 189, 248, 0.22)',
+      ringColors: ['#38BDF8', '#818CF8'],
+    },
+    sortOrder: 59,
     isActive: true,
   },
 
@@ -518,6 +737,20 @@ export const getStoreItems = async (req: Request, res: Response) => {
       console.warn('[StoreItem] Frame sync notice:', syncErr.message);
     }
 
+    // Auto-sync seat skins to ensure 6 HD seat skins exist in StoreItem collection
+    try {
+      const HD_SEAT_SKINS = DEFAULT_SEED_ITEMS.filter((item) => item.category === 'Seat Skin');
+      for (const skin of HD_SEAT_SKINS) {
+        await StoreItem.findOneAndUpdate(
+          { category: 'Seat Skin', $or: [{ name: skin.name }, { 'metadata.seatSkinType': skin.metadata?.seatSkinType }] },
+          { $set: skin },
+          { upsert: true, new: true, setDefaultsOnInsert: true }
+        );
+      }
+    } catch (seatSyncErr: any) {
+      console.warn('[StoreItem] Seat skin sync notice:', seatSyncErr.message);
+    }
+
     const filter: any = {};
     if (category && category !== 'All') {
       const cat = String(category).trim();
@@ -599,9 +832,39 @@ export const getStoreInventory = async (req: any, res: Response) => {
     const user = await User.findById(req.user?.id).select('storeInventory');
     if (!user) return sendResponse(res, 404, false, 'User not found');
     const now = Date.now();
-    const items = (user.storeInventory || [])
+    const activeInventory: any[] = (user.storeInventory || [])
       .filter((item) => !item.expiresAt || new Date(item.expiresAt).getTime() > now)
       .sort((a, b) => new Date(b.purchasedAt).getTime() - new Date(a.purchasedAt).getTime());
+    const catalogIds = activeInventory.map((item) => item.itemId).filter(Boolean);
+    const catalogItems: any[] = await StoreItem.find({
+      _id: { $in: catalogIds },
+      isActive: true,
+    }).lean();
+    const catalogById = new Map(
+      catalogItems.map((item) => [String(item._id), serializeStoreItem(item)]),
+    );
+    const items = activeInventory.map((inventoryItem: any) => {
+      const plain =
+        typeof inventoryItem?.toObject === 'function'
+          ? inventoryItem.toObject()
+          : inventoryItem;
+      const catalogItem = catalogById.get(String(plain.itemId)) || null;
+      return {
+        ...plain,
+        itemId: String(plain.itemId || ''),
+        catalogItem,
+        ...(catalogItem
+          ? {
+              imageUrl: catalogItem.imageUrl || plain.imageUrl || '',
+              animationUrl: catalogItem.animationUrl || plain.animationUrl || '',
+              previewColor: catalogItem.previewColor,
+              bgColors: catalogItem.bgColors,
+              icon: catalogItem.icon,
+              metadata: catalogItem.metadata || {},
+            }
+          : {}),
+      };
+    });
     return sendResponse(res, 200, true, 'Active items fetched', { items });
   } catch (error: any) {
     return sendResponse(res, 500, false, error.message || 'Failed to fetch inventory');
@@ -616,24 +879,51 @@ export const getStoreLevels = async (req: Request, res: Response) => {
       $or: [{ expiresAt: { $exists: false } }, { expiresAt: null }, { expiresAt: { $gt: now } }],
     }).select('level name coinPerMinute minCalls minMinutes rewards image text').sort({ level: 1 }).lean();
 
-    const charmLevels = levels.map((l: any) => ({
-      ...l,
-      type: 'charm',
-      category: 'Charm Level',
-      expRequired: (Number(l.minMinutes) || 0) * 60 + (Number(l.minCalls) || 0) * 10,
-    }));
 
-    const wealthLevels = levels.map((l: any) => {
-      const lvl = Number(l.level) || 1;
+    const wealthLevels = WEALTH_THRESHOLDS.map((wt) => {
+      const rewards = WEALTH_REWARDS.filter((r) => r.requiredLevel === wt.level).map((r) => ({
+        id: r.id,
+        name: r.name,
+        type: r.type,
+        category: r.categoryName,
+        durationDays: r.durationDays,
+        previewColor: r.previewColor,
+      }));
       return {
-        _id: `wealth_${l._id || lvl}`,
-        level: lvl,
-        name: `Wealth Monarch Lv.${lvl}`,
+        _id: `wealth_${wt.level}`,
+        level: wt.level,
+        name: wt.title,
+        tier: wt.tier,
         type: 'wealth',
         category: 'Wealth Level',
-        coinsRequired: Math.round(Math.pow(lvl, 1.8) * 1000),
-        rewards: l.rewards || [{ name: `Wealth Level ${lvl} Frame`, type: 'frame' }],
-        badge: lvl >= 50 ? '👑' : lvl >= 25 ? '💎' : '🥇',
+        coinsRequired: wt.requiredExp,
+        expRequired: wt.requiredExp,
+        badge: wt.badgeIcon,
+        rewards: rewards.length > 0 ? rewards : [{ name: `Wealth Lv.${wt.level} Badge`, type: 'badge' }],
+      };
+    });
+
+    const charmLevels = CHARM_THRESHOLDS.map((ct) => {
+      const pkg = CHARM_PACKAGES[ct.level] || [];
+      const rewards = pkg.map((r) => ({
+        id: r.id,
+        name: r.name,
+        type: r.type,
+        category: r.categoryName,
+        durationDays: r.durationDays,
+        previewColor: r.previewColor,
+      }));
+      return {
+        _id: `charm_${ct.level}`,
+        level: ct.level,
+        name: ct.title,
+        tier: ct.tier,
+        type: 'charm',
+        category: 'Charm Level',
+        expRequired: ct.requiredExp,
+        coinsRequired: ct.requiredExp,
+        badge: ct.badgeIcon,
+        rewards: rewards.length > 0 ? rewards : [{ name: `Charm Lv.${ct.level} Badge`, type: 'badge' }],
       };
     });
 
@@ -738,6 +1028,10 @@ export const createStoreItem = async (req: Request, res: Response) => {
       }
     }
 
+    if (category === 'VIP' || category === 'King of Kings') {
+      await syncStoreVipPackage(newItem);
+    }
+
     return sendResponse(res, 201, true, 'Store item created successfully', newItem);
   } catch (error: any) {
     console.error('createStoreItem error:', error);
@@ -766,6 +1060,10 @@ export const updateStoreItem = async (req: Request, res: Response) => {
       return sendResponse(res, 404, false, 'Store item not found');
     }
 
+    if (updated.category === 'VIP' || updated.category === 'King of Kings') {
+      await syncStoreVipPackage(updated);
+    }
+
     return sendResponse(res, 200, true, 'Store item updated successfully', updated);
   } catch (error: any) {
     console.error('updateStoreItem error:', error);
@@ -779,6 +1077,10 @@ export const deleteStoreItem = async (req: Request, res: Response) => {
     const deleted = await StoreItem.findByIdAndDelete(id);
     if (!deleted) {
       return sendResponse(res, 404, false, 'Store item not found');
+    }
+    if (deleted.category === 'VIP' || deleted.category === 'King of Kings') {
+      const vipSlug = String((deleted as any).metadata?.vipSlug || toCatalogSlug(deleted.name));
+      await VipId.updateOne({ slug: vipSlug }, { $set: { isActive: false } });
     }
     return sendResponse(res, 200, true, 'Store item deleted successfully', { id });
   } catch (error: any) {
@@ -799,6 +1101,123 @@ export const toggleStoreItem = async (req: Request, res: Response) => {
     return sendResponse(res, 200, true, `Store item ${item.isActive ? 'activated' : 'deactivated'}`, item);
   } catch (error: any) {
     return sendResponse(res, 500, false, error.message || 'Failed to toggle item state');
+  }
+};
+
+export const getKingMembers = async (_req: Request, res: Response) => {
+  try {
+    const kingPackages = await VipId.find({ isKingOfKings: true }).select('slug name').lean();
+    const kingSlugs = kingPackages.map((item: any) => item.slug);
+    const packageNames = new Map(kingPackages.map((item: any) => [item.slug, item.name]));
+    const users: any[] = kingSlugs.length
+      ? await User.find({ equippedVipId: { $in: kingSlugs } })
+          .select('_id userId name image equippedVipId equippedVipExpiresAt')
+          .sort({ equippedVipExpiresAt: -1, updatedAt: -1 })
+          .lean()
+      : [];
+    const now = Date.now();
+    const members = users.map((account: any) => {
+      const expiresAt = account.equippedVipExpiresAt || null;
+      return {
+        _id: String(account._id),
+        userId: String(account._id),
+        userNumericId: String(account.userId || ''),
+        userName: account.name || 'User',
+        userAvatar: account.image || '',
+        packageTier: packageNames.get(account.equippedVipId) || account.equippedVipId,
+        packageSlug: account.equippedVipId,
+        grantedAt: null,
+        expiresAt,
+        status: !expiresAt || new Date(expiresAt).getTime() > now ? 'active' : 'expired',
+      };
+    });
+    return sendResponse(res, 200, true, 'King of Kings members fetched', { members });
+  } catch (error: any) {
+    return sendResponse(res, 500, false, error.message || 'Failed to fetch King of Kings members');
+  }
+};
+
+export const grantKingMembership = async (req: Request, res: Response) => {
+  try {
+    const userNumericId = String(req.body?.userNumericId || '').trim();
+    const packageId = String(req.body?.packageId || '').trim();
+    const durationDays = Math.max(1, Number(req.body?.durationDays || 30));
+    if (!userNumericId || !packageId) {
+      return sendResponse(res, 400, false, 'User numeric ID and King package are required');
+    }
+
+    const item: any = await StoreItem.findOne({
+      _id: packageId,
+      category: 'King of Kings',
+      isActive: true,
+    });
+    if (!item) return sendResponse(res, 404, false, 'King of Kings package not found');
+    const vipPackage = await syncStoreVipPackage(item);
+    if (!vipPackage) return sendResponse(res, 409, false, 'King package could not be activated');
+
+    const numericId = Number(userNumericId);
+    const account: any = await User.findOne({
+      $or: [
+        ...(!Number.isNaN(numericId) ? [{ userId: numericId }] : []),
+        { meethiId: userNumericId },
+        { specialCode: userNumericId },
+      ],
+    });
+    if (!account) return sendResponse(res, 404, false, 'User account not found');
+
+    const purchasedAt = new Date();
+    const expiresAt = new Date(purchasedAt.getTime() + durationDays * 24 * 60 * 60 * 1000);
+    account.equippedVipId = vipPackage.slug;
+    account.equippedVipExpiresAt = expiresAt;
+    account.ownedVipIds = Array.isArray(account.ownedVipIds) ? account.ownedVipIds : [];
+    if (!account.ownedVipIds.includes(vipPackage.slug)) account.ownedVipIds.push(vipPackage.slug);
+    account.storeInventory.push({
+      itemId: item._id,
+      name: item.name,
+      category: item.category,
+      durationDays,
+      purchasedAt,
+      expiresAt,
+      imageUrl: item.imageUrl || '',
+      animationUrl: item.animationUrl || '',
+      source: 'store',
+      grantKey: `admin-king:${Date.now()}`,
+    });
+    await account.save();
+
+    return sendResponse(res, 200, true, 'King of Kings membership granted', {
+      member: {
+        _id: String(account._id),
+        userId: String(account._id),
+        userNumericId: String(account.userId),
+        userName: account.name || 'User',
+        userAvatar: account.image || '',
+        packageTier: item.name,
+        packageSlug: vipPackage.slug,
+        grantedAt: purchasedAt,
+        expiresAt,
+        status: 'active',
+      },
+    });
+  } catch (error: any) {
+    return sendResponse(res, 500, false, error.message || 'Failed to grant King of Kings membership');
+  }
+};
+
+export const revokeKingMembership = async (req: Request, res: Response) => {
+  try {
+    const account = await User.findByIdAndUpdate(
+      req.params.userId,
+      {
+        $set: { equippedVipId: null, equippedVipExpiresAt: null },
+        $pull: { storeInventory: { category: 'King of Kings' } },
+      },
+      { new: true },
+    );
+    if (!account) return sendResponse(res, 404, false, 'King member not found');
+    return sendResponse(res, 200, true, 'King of Kings membership revoked', { userId: req.params.userId });
+  } catch (error: any) {
+    return sendResponse(res, 500, false, error.message || 'Failed to revoke King of Kings membership');
   }
 };
 
@@ -851,7 +1270,13 @@ export const buyStoreItem = async (req: any, res: Response) => {
     }
 
     const purchasedAt = new Date();
-    const expiresAt = new Date(purchasedAt.getTime() + durationDays * 24 * 60 * 60 * 1000);
+    const isPermanent =
+      item.metadata?.isFree === true ||
+      Number(costInDiamonds || 0) === 0 ||
+      String(item.validity || '').toLowerCase() === 'permanent';
+    const expiresAt = isPermanent
+      ? null
+      : new Date(purchasedAt.getTime() + durationDays * 24 * 60 * 60 * 1000);
     const update: any = {
       $inc: { diamonds: -costInDiamonds },
       $push: {
@@ -946,6 +1371,29 @@ export const buyStoreItem = async (req: any, res: Response) => {
       };
     }
 
+    if (item.category === 'Mic Wave' || item.category === 'Mic Waves') {
+      update.$set = {
+        ...(update.$set || {}),
+        equippedMicWave: item.name,
+      };
+    }
+
+    if (item.category === 'VIP' || item.category === 'King of Kings') {
+      const vipPackage = await syncStoreVipPackage(item);
+      if (!vipPackage) {
+        return sendResponse(res, 409, false, 'VIP package activation could not be prepared');
+      }
+      update.$set = {
+        ...(update.$set || {}),
+        equippedVipId: vipPackage.slug,
+        equippedVipExpiresAt: expiresAt,
+      };
+      update.$addToSet = {
+        ...(update.$addToSet || {}),
+        ownedVipIds: vipPackage.slug,
+      };
+    }
+
     const updatedUser = await User.findOneAndUpdate(
       { _id: userId, diamonds: { $gte: costInDiamonds } },
       update,
@@ -958,6 +1406,14 @@ export const buyStoreItem = async (req: any, res: Response) => {
 
     item.salesCount = (item.salesCount || 0) + 1;
     await item.save();
+
+    // Award Wealth EXP based on diamonds spent
+    await LevelService.addWealthExp(
+      userId,
+      costInDiamonds,
+      'store_purchase',
+      String(item._id)
+    ).catch((err) => console.warn('Failed to add wealth exp for store purchase:', err.message));
 
     return sendResponse(res, 200, true, 'Purchase successful 🎉', {
       remainingDiamonds: updatedUser.diamonds,
@@ -978,137 +1434,140 @@ export const equipStoreItem = async (req: any, res: Response) => {
       return sendResponse(res, 401, false, 'Unauthorized');
     }
 
-    const { name, category, type, imageUrl, animationUrl } = req.body;
-    const cat = category || type || '';
+    const { itemId, name, category, type, equipped = true } = req.body;
+    const requestedCategory = normalizeStoreCategory(category || type || '');
+    if (!requestedCategory) {
+      return sendResponse(res, 400, false, 'Item category is required');
+    }
+
     const update: any = {};
+    const clearRequested =
+      equipped === false ||
+      !name ||
+      ['default', 'none'].includes(String(name).trim().toLowerCase());
 
-    if (cat === 'Frames' || cat === 'Frame' || (!cat && name)) {
-      update.equippedFrame = name || 'default';
-      if (name && name !== 'default') {
-        let finalImage = imageUrl || '';
-        let finalAnim = animationUrl || '';
-        if (!finalAnim) {
-          const matchedItem = await StoreItem.findOne({
-            category: { $in: ['Frames', 'Frame'] },
-            $or: [{ name: new RegExp(`^${name.trim()}$`, 'i') }, { id: name }]
-          }).lean();
-          if (matchedItem) {
-            finalAnim = (matchedItem as any).animationUrl || '';
-            if (!finalImage) finalImage = (matchedItem as any).imageUrl || (matchedItem as any).image || '';
-          }
-        }
-        update.equippedFrameAsset = {
-          name,
-          imageUrl: finalImage,
-          animationUrl: finalAnim,
-        };
-      } else {
+    const clearCategory = () => {
+      if (requestedCategory === 'Frames') {
+        update.equippedFrame = null;
         update.equippedFrameAsset = null;
-      }
-    }
-
-    if (cat === 'Entry' || cat === 'Entry Effect' || cat === 'Entry Effects') {
-      update.equippedEntry = name || '';
-      if (name && name !== 'default' && name !== 'none') {
-        let finalImage = imageUrl || '';
-        let finalAnim = animationUrl || '';
-        if (!finalAnim) {
-          const matchedItem = await StoreItem.findOne({
-            category: { $in: ['Entry', 'Entry Effect', 'Entry Effects', 'Entrance'] },
-            $or: [{ name: new RegExp(`^${name.trim()}$`, 'i') }, { id: name }]
-          }).lean();
-          if (matchedItem) {
-            finalAnim = (matchedItem as any).animationUrl || '';
-            if (!finalImage) finalImage = (matchedItem as any).imageUrl || (matchedItem as any).image || '';
-          }
-        }
-        update.equippedEntryAsset = {
-          name,
-          imageUrl: finalImage,
-          animationUrl: finalAnim,
-        };
-      } else {
+      } else if (requestedCategory === 'Entry') {
+        update.equippedEntry = null;
         update.equippedEntryAsset = null;
-      }
-    }
-
-    if (cat === 'Tassel' || cat === 'Tassels') {
-      update.equippedTassel = name || '';
-      if (name && name !== 'default' && name !== 'none') {
-        let finalImage = imageUrl || '';
-        let finalAnim = animationUrl || '';
-        if (!finalAnim) {
-          const matchedItem = await StoreItem.findOne({
-            category: { $in: ['Tassel', 'Tassels'] },
-            $or: [{ name: new RegExp(`^${name.trim()}$`, 'i') }, { id: name }]
-          }).lean();
-          if (matchedItem) {
-            finalAnim = (matchedItem as any).animationUrl || '';
-            if (!finalImage) finalImage = (matchedItem as any).imageUrl || (matchedItem as any).image || '';
-          }
-        }
-        update.equippedTasselAsset = {
-          name,
-          imageUrl: finalImage,
-          animationUrl: finalAnim,
-        };
-      } else {
+      } else if (requestedCategory === 'Tassel') {
+        update.equippedTassel = null;
         update.equippedTasselAsset = null;
-      }
-    }
-
-    if (cat === 'Entrance' || cat === 'Ride' || cat === 'Profile Entry') {
-      update.equippedEntrance = name || '';
-      if (name && name !== 'default' && name !== 'none') {
-        let finalImage = imageUrl || '';
-        let finalAnim = animationUrl || '';
-        if (!finalAnim) {
-          const matchedItem = await StoreItem.findOne({
-            category: { $in: ['Entrance', 'Ride', 'Profile Entry'] },
-            $or: [{ name: new RegExp(`^${name.trim()}$`, 'i') }, { id: name }]
-          }).lean();
-          if (matchedItem) {
-            finalAnim = (matchedItem as any).animationUrl || '';
-            if (!finalImage) finalImage = (matchedItem as any).imageUrl || (matchedItem as any).image || '';
-          }
-        }
-        update.equippedEntranceAsset = {
-          name,
-          imageUrl: finalImage,
-          animationUrl: finalAnim,
-        };
-      } else {
+      } else if (requestedCategory === 'Entrance') {
+        update.equippedEntrance = null;
         update.equippedEntranceAsset = null;
-      }
-    }
-
-    if (cat === 'Mic Wave') {
-      update.equippedMicWave = name || '';
-    }
-
-    if (cat === 'Chat Bubble' || cat === 'Chat Bubbles') {
-      update.equippedChatBubble = name || '';
-      if (name && name !== 'default' && name !== 'none') {
-        const matchedItem = await StoreItem.findOne({
-          category: { $in: ['Chat Bubble', 'Chat Bubbles'] },
-          $or: [{ name: new RegExp(`^${name.trim()}$`, 'i') }, { id: name }]
-        }).lean();
-        update.equippedChatBubbleAsset = {
-          name,
-          textColor: (matchedItem as any)?.metadata?.textColor || '#FEF3C7',
-          borderColor: (matchedItem as any)?.metadata?.borderColor || (matchedItem as any)?.previewColor || '#F59E0B',
-          bgColors: (matchedItem as any)?.bgColors || ['#78350F', '#B45309', '#D97706'],
-          previewColor: (matchedItem as any)?.previewColor || '#F59E0B',
-          icon: (matchedItem as any)?.icon || 'chatbubble-ellipses',
-          imageUrl: imageUrl || (matchedItem as any)?.imageUrl || '',
-        };
-      } else {
+      } else if (requestedCategory === 'Chat Bubble') {
+        update.equippedChatBubble = null;
         update.equippedChatBubbleAsset = null;
+      } else if (requestedCategory === 'Mic Wave') {
+        update.equippedMicWave = null;
+      } else if (requestedCategory === 'Theme') {
+        update.equippedRoomTheme = null;
+      } else if (requestedCategory === 'VIP') {
+        update.equippedVipId = null;
+      } else if (requestedCategory === 'Badge') {
+        update.equippedBadge = null;
+      } else if (requestedCategory === 'Vehicle') {
+        update.equippedVehicle = null;
+        update.equippedVehicleAsset = null;
+      } else if (requestedCategory === 'Profile Border') {
+        update.equippedProfileBorder = null;
+        update.equippedProfileBorderAsset = null;
+      } else if (requestedCategory === 'Custom ID') {
+        update.equippedCustomId = null;
+      }
+    };
+
+    if (clearRequested) {
+      clearCategory();
+    } else {
+      const account: any = await User.findById(userId)
+        .select('storeInventory')
+        .lean();
+      if (!account) return sendResponse(res, 404, false, 'User not found');
+
+      const now = Date.now();
+      const ownedItem = (account.storeInventory || []).find((inventoryItem: any) => {
+        const active =
+          !inventoryItem.expiresAt ||
+          new Date(inventoryItem.expiresAt).getTime() > now;
+        const idMatches =
+          itemId && String(inventoryItem.itemId) === String(itemId);
+        const nameMatches =
+          name &&
+          String(inventoryItem.name || '').toLowerCase() ===
+            String(name).toLowerCase();
+        return active && (idMatches || nameMatches);
+      });
+      if (!ownedItem) {
+        return sendResponse(res, 403, false, 'This item is not in your active inventory');
+      }
+
+      let catalogItem: any = null;
+      if (ownedItem.itemId) {
+        catalogItem = await StoreItem.findOne({
+          _id: ownedItem.itemId,
+          isActive: true,
+        }).lean();
+      }
+
+      const itemCategory = catalogItem ? catalogItem.category : (ownedItem.category || requestedCategory);
+      const actualCategory = normalizeStoreCategory(itemCategory);
+      const itemName = catalogItem ? catalogItem.name : ownedItem.name;
+
+      const asset = catalogItem
+        ? buildCanonicalAsset(catalogItem, ownedItem.expiresAt)
+        : {
+            id: String(ownedItem._id || ownedItem.grantKey || itemName),
+            name: itemName,
+            imageUrl: ownedItem.imageUrl || '',
+            animationUrl: ownedItem.animationUrl || '',
+            source: ownedItem.source || 'level',
+            expiresAt: ownedItem.expiresAt,
+          };
+
+      if (actualCategory === 'Frames') {
+        update.equippedFrame = itemName;
+        update.equippedFrameAsset = asset;
+      } else if (actualCategory === 'Entry') {
+        update.equippedEntry = itemName;
+        update.equippedEntryAsset = asset;
+      } else if (actualCategory === 'Tassel') {
+        update.equippedTassel = itemName;
+        update.equippedTasselAsset = asset;
+      } else if (actualCategory === 'Entrance') {
+        update.equippedEntrance = itemName;
+        update.equippedEntranceAsset = asset;
+      } else if (actualCategory === 'Chat Bubble') {
+        update.equippedChatBubble = itemName;
+        update.equippedChatBubbleAsset = asset;
+      } else if (actualCategory === 'Mic Wave') {
+        update.equippedMicWave = itemName;
+      } else if (actualCategory === 'Theme') {
+        update.equippedRoomTheme = catalogItem ? String(catalogItem._id) : itemName;
+      } else if (actualCategory === 'VIP') {
+        update.equippedVipId = catalogItem ? String(catalogItem._id) : itemName;
+      } else if (actualCategory === 'Badge') {
+        update.equippedBadge = itemName;
+        update.equippedBadges = [itemName];
+      } else if (actualCategory === 'Vehicle') {
+        update.equippedVehicle = itemName;
+        update.equippedVehicleAsset = asset;
+      } else if (actualCategory === 'Profile Border') {
+        update.equippedProfileBorder = itemName;
+        update.equippedProfileBorderAsset = asset;
+      } else if (actualCategory === 'Custom ID') {
+        update.equippedCustomId = itemName;
+      } else {
+        return sendResponse(res, 400, false, 'This category cannot be equipped');
       }
     }
 
     const user = await User.findByIdAndUpdate(userId, { $set: update }, { new: true })
-      .select('equippedFrame equippedFrameAsset equippedMicWave equippedChatBubble equippedChatBubbleAsset equippedEntry equippedEntryAsset equippedTassel equippedTasselAsset equippedEntrance equippedEntranceAsset');
+      .select('equippedFrame equippedFrameAsset equippedMicWave equippedChatBubble equippedChatBubbleAsset equippedEntry equippedEntryAsset equippedTassel equippedTasselAsset equippedEntrance equippedEntranceAsset equippedVipId equippedSvipId equippedBadge equippedBadges equippedRoomTheme equippedVehicle equippedVehicleAsset equippedCustomId equippedProfileBorder equippedProfileBorderAsset');
 
     if (!user) {
       return sendResponse(res, 404, false, 'User not found');
@@ -1120,4 +1579,3 @@ export const equipStoreItem = async (req: any, res: Response) => {
     return sendResponse(res, 500, false, error.message || 'Failed to equip store item');
   }
 };
-

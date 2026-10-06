@@ -1,9 +1,12 @@
+import { Types } from "mongoose";
 import { Server } from "socket.io";
 import { AuthenticatedSocket } from "../middlewares/auth.socket";
 import redis from "../configs/redisConfig";
 import { GiftService } from "../gift/gift.service";
 import { EntryEffectService } from "../services/entryEffect.service";
 import { Room } from "../models/room.model";
+import { User } from "../models/user.model";
+import { StoreItem } from "../models/storeItem.model";
 
 export interface VoiceRoomSeat {
   seatIndex: number;
@@ -69,6 +72,88 @@ const normalizeRoomId = (id: string): string => {
 
 const getRoomKey = (roomId: string) => `voice_room:${normalizeRoomId(roomId)}`;
 
+const normalizeItemCategory = (value: string = "") => {
+  const category = value.toLowerCase().trim();
+  if (["theme", "themes"].includes(category)) return "Theme";
+  if (["seat skin", "seat skins"].includes(category)) return "Seat Skin";
+  return value;
+};
+
+const canonicalRoomAsset = (item: any, expiresAt?: Date | null) => {
+  const metadata = item?.metadata || {};
+  return {
+    id: String(item?._id || item?.id || ""),
+    itemId: String(item?._id || item?.id || ""),
+    name: item?.name || "",
+    category: item?.category || "",
+    imageUrl: item?.imageUrl || "",
+    coverImage: item?.imageUrl || metadata.coverImage || "",
+    animationUrl: item?.animationUrl || "",
+    previewColor: item?.previewColor || metadata.previewColor || "",
+    bgColors: item?.bgColors || metadata.bgColors || [],
+    icon: item?.icon || metadata.icon || "",
+    borderColor: metadata.borderColor || "",
+    bgColor: metadata.bgColor || "",
+    seatSkinType: metadata.seatSkinType || "",
+    metadata,
+    expiresAt: expiresAt || null,
+  };
+};
+
+const getCanonicalRoomUser = async (socketUser: any, fallback: any = {}) => {
+  const targetId = socketUser?.id || socketUser?._id;
+  const targetUserId = socketUser?.userId || fallback?.userId;
+  const query =
+    targetId && Types.ObjectId.isValid(String(targetId))
+      ? { _id: targetId }
+      : targetUserId && !isNaN(Number(targetUserId))
+        ? { userId: Number(targetUserId) }
+        : null;
+
+  const dbUser: any = query
+    ? await User.findOne(query)
+        .select(
+          "userId name image avatar gender level equippedFrame equippedFrameAsset equippedEntry equippedEntryAsset equippedEntryEffect equippedEntryTag equippedEntrance equippedEntranceAsset equippedTassel equippedTasselAsset equippedBadge equippedBadges equippedChatBubble equippedChatBubbleAsset equippedVipId equippedSvipId",
+        )
+        .lean()
+    : null;
+  const source: any = dbUser || socketUser || {};
+  const id = String(source?._id || source?.id || "");
+  const avatar =
+    source?.image ||
+    source?.avatar ||
+    fallback?.image ||
+    fallback?.avatar ||
+    "https://api.yaroapp.in/uploads/avatars/female_default.webp";
+  return {
+    id,
+    _id: id,
+    userId: String(source?.userId || fallback?.userId || "guest"),
+    numericUserId: Number(source?.userId || fallback?.userId || 0),
+    name: String(source?.name || fallback?.name || "Guest"),
+    avatar: String(avatar),
+    image: String(avatar),
+    gender: source?.gender || fallback?.gender || "male",
+    level: source?.level || 1,
+    equippedFrame: source?.equippedFrameAsset || source?.equippedFrame || null,
+    equippedFrameAsset: source?.equippedFrameAsset || null,
+    equippedEntry: source?.equippedEntryAsset || source?.equippedEntry || null,
+    equippedEntryAsset: source?.equippedEntryAsset || null,
+    equippedEntryEffect: source?.equippedEntryEffect || null,
+    equippedEntryTag: source?.equippedEntryTag || null,
+    equippedEntrance: source?.equippedEntranceAsset || source?.equippedEntrance || null,
+    equippedEntranceAsset: source?.equippedEntranceAsset || null,
+    equippedTassel: source?.equippedTasselAsset || source?.equippedTassel || null,
+    equippedTasselAsset: source?.equippedTasselAsset || null,
+    equippedBadge: source?.equippedBadge || null,
+    equippedBadges: source?.equippedBadges || [],
+    equippedChatBubble: source?.equippedChatBubble || null,
+    equippedChatBubbleAsset: source?.equippedChatBubbleAsset || null,
+    equippedVipId: source?.equippedVipId || null,
+    equippedSvipId: source?.equippedSvipId || null,
+  };
+};
+
 export const getVoiceRoomState = async (roomId: string, defaultSeatsCount = 8, hostUser: any = null): Promise<VoiceRoomState> => {
   const canonicalId = normalizeRoomId(roomId);
   try {
@@ -76,6 +161,15 @@ export const getVoiceRoomState = async (roomId: string, defaultSeatsCount = 8, h
     if (raw) {
       const parsed = JSON.parse(raw);
       if (parsed && Array.isArray(parsed.seats)) {
+        while (parsed.seats.length < 15) {
+          parsed.seats.push({
+            seatIndex: parsed.seats.length,
+            isHost: false,
+            user: null,
+            isMuted: true,
+            isLocked: false,
+          });
+        }
         return parsed;
       }
     }
@@ -83,13 +177,28 @@ export const getVoiceRoomState = async (roomId: string, defaultSeatsCount = 8, h
     console.warn(`[VoiceRoom] Redis get error for ${canonicalId}:`, err);
   }
 
+  let persistedRoom: any = null;
+  try {
+    persistedRoom = await Room.findOne({
+      $or: [{ channelName: canonicalId }, { channelName: String(roomId) }],
+    })
+      .select("title channelName themeId themeAsset seatSkinId seatSkinAsset")
+      .lean();
+  } catch (err) {
+    console.warn(`[VoiceRoom] Mongo room read warning for ${canonicalId}:`, err);
+  }
+
   const initial: VoiceRoomState = {
     roomId: canonicalId,
-    title: `Voice Room #${canonicalId}`,
+    title: persistedRoom?.title || `Voice Room #${canonicalId}`,
     hostUser: hostUser || null,
     seatCount: defaultSeatsCount,
     seats: buildInitialSeats(defaultSeatsCount, hostUser),
     onlineUsers: {},
+    themeId: persistedRoom?.themeId || null,
+    themeAsset: persistedRoom?.themeAsset || null,
+    seatSkinId: persistedRoom?.seatSkinId || null,
+    seatSkinAsset: persistedRoom?.seatSkinAsset || null,
     updatedAt: Date.now(),
   };
 
@@ -121,34 +230,16 @@ export const registerVoiceRoomHandlers = (io: Server, socket: AuthenticatedSocke
       const rawRoomId = String(data?.roomId || "").trim();
       if (!rawRoomId) return;
       const roomId = normalizeRoomId(rawRoomId);
-      const authorizedHost = Boolean(data.isHost && user?.userId && normalizeRoomId(String(user.userId)) === roomId);
-
-      const userData = {
-        id: String((user as any)?._id || user?.id || data?.user?._id || data?.user?.id || ""),
-        _id: String((user as any)?._id || user?.id || data?.user?._id || data?.user?.id || ""),
-        userId: String(user?.userId || data?.user?.userId || "guest"),
-        numericUserId: Number(user?.userId || data?.user?.userId || 0),
-        name: String(user?.name || data?.user?.name || "Guest"),
-        avatar: String(data?.user?.avatar || data?.user?.image || (user as any)?.image || (user as any)?.avatar || "https://api.yaroapp.in/uploads/avatars/female_default.webp"),
-        image: String(data?.user?.avatar || data?.user?.image || (user as any)?.image || (user as any)?.avatar || "https://api.yaroapp.in/uploads/avatars/female_default.webp"),
-        gender: data?.user?.gender || (user as any)?.gender || "male",
-        level: data?.user?.level || (user as any)?.level || 1,
-        equippedFrame: data?.user?.equippedFrameAsset || data?.user?.equippedFrame || (user as any)?.equippedFrameAsset || (user as any)?.equippedFrame || null,
-        equippedFrameAsset: data?.user?.equippedFrameAsset || (user as any)?.equippedFrameAsset || null,
-        equippedProfileFrame: data?.user?.equippedProfileFrame || (user as any)?.equippedProfileFrame || null,
-        equippedEntry: data?.user?.equippedEntryAsset || data?.user?.equippedEntry || (user as any)?.equippedEntryAsset || (user as any)?.equippedEntry || null,
-        equippedEntryAsset: data?.user?.equippedEntryAsset || (user as any)?.equippedEntryAsset || null,
-        equippedEntryEffect: data?.user?.equippedEntryEffect || (user as any)?.equippedEntryEffect || null,
-        equippedEntryTag: data?.user?.equippedEntryTag || (user as any)?.equippedEntryTag || null,
-        equippedEntrance: data?.user?.equippedEntranceAsset || data?.user?.equippedEntrance || (user as any)?.equippedEntranceAsset || (user as any)?.equippedEntrance || null,
-        equippedEntranceAsset: data?.user?.equippedEntranceAsset || (user as any)?.equippedEntranceAsset || null,
-        equippedTassel: data?.user?.equippedTasselAsset || data?.user?.equippedTassel || (user as any)?.equippedTasselAsset || (user as any)?.equippedTassel || null,
-        equippedTasselAsset: data?.user?.equippedTasselAsset || (user as any)?.equippedTasselAsset || null,
-        equippedBadge: data?.user?.equippedBadge || (user as any)?.equippedBadge || null,
-        equippedBadges: data?.user?.equippedBadges || (user as any)?.equippedBadges || [],
-        equippedChatBubble: data?.user?.equippedChatBubble || (user as any)?.equippedChatBubble || null,
-        equippedChatBubbleAsset: data?.user?.equippedChatBubbleAsset || (user as any)?.equippedChatBubbleAsset || null,
-      };
+      const roomDocument: any = await Room.findOne({
+        $or: [{ channelName: roomId }, { channelName: rawRoomId }],
+      })
+        .select("ownerId")
+        .lean();
+      const authorizedHost = Boolean(
+        roomDocument?.ownerId &&
+          String(roomDocument.ownerId) === String((user as any)?.id),
+      );
+      const userData = await getCanonicalRoomUser(user, data?.user);
 
       // 24-hour ban check
       try {
@@ -183,7 +274,6 @@ export const registerVoiceRoomHandlers = (io: Server, socket: AuthenticatedSocke
 
       if (data.roomTitle) state.title = data.roomTitle;
       if (authorizedHost) {
-        state.seats[0].user = userData;
         state.hostUser = userData;
       }
 
@@ -214,15 +304,10 @@ export const registerVoiceRoomHandlers = (io: Server, socket: AuthenticatedSocke
       // Broadcast user join to all sockets in the channel
       if (!wasOnline) {
         io.to(socketRoomChannel).emit("voice_room:user_joined", {
+          eventId: `join:${roomId}:${userData.userId}:${Date.now()}`,
           user: userData,
           onlineCount: Object.keys(state.onlineUsers).length,
           announcementSent: true,
-        });
-        socket.broadcast.to(socketRoomChannel).emit("voice_room:chat_message", {
-          id: "sys-" + Date.now() + "-" + Math.random().toString(36).substr(2, 4),
-          type: "system",
-          text: `${userData.name} joined the party!`,
-          timestamp: Date.now(),
         });
 
         // Broadcast Entry Effect to the voice room
@@ -246,22 +331,9 @@ export const registerVoiceRoomHandlers = (io: Server, socket: AuthenticatedSocke
       if (!rawRoomId || isNaN(seatIndex) || seatIndex < 0) return;
       const roomId = normalizeRoomId(rawRoomId);
 
-      const userData = {
-        id: String((user as any)?._id || user?.id || data?.user?._id || data?.user?.id || ""),
-        _id: String((user as any)?._id || user?.id || data?.user?._id || data?.user?.id || ""),
-        userId: String(user?.userId || data?.user?.userId || "guest"),
-        numericUserId: Number(user?.userId || data?.user?.userId || 0),
-        name: String(user?.name || data?.user?.name || "Guest"),
-        avatar: String(data?.user?.avatar || data?.user?.image || (user as any)?.image || (user as any)?.avatar || "https://api.yaroapp.in/uploads/avatars/female_default.webp"),
-        image: String(data?.user?.avatar || data?.user?.image || (user as any)?.image || (user as any)?.avatar || "https://api.yaroapp.in/uploads/avatars/female_default.webp"),
-        gender: data?.user?.gender || (user as any)?.gender || "male",
-        level: data?.user?.level || (user as any)?.level || 1,
-        equippedFrame: data?.user?.equippedFrameAsset || data?.user?.equippedFrame || (user as any)?.equippedFrameAsset || (user as any)?.equippedFrame || null,
-        equippedFrameAsset: data?.user?.equippedFrameAsset || (user as any)?.equippedFrameAsset || null,
-        equippedProfileFrame: data?.user?.equippedProfileFrame || (user as any)?.equippedProfileFrame || null,
-        equippedBadge: data?.user?.equippedBadge || (user as any)?.equippedBadge || null,
-        equippedBadges: data?.user?.equippedBadges || (user as any)?.equippedBadges || [],
-      };
+      const userData =
+        (socket as any).voiceUser ||
+        (await getCanonicalRoomUser(user, data?.user));
 
       const socketRoomChannel = `voice_room_channel:${roomId}`;
       await socket.join(socketRoomChannel);
@@ -459,8 +531,8 @@ export const registerVoiceRoomHandlers = (io: Server, socket: AuthenticatedSocke
         ...data.message,
         id: data.message.id || ("msg-" + Date.now() + "-" + Math.random().toString(36).substr(2, 4)),
         senderId: data.message.senderId || (socket as any).voiceUser?.userId || user?.userId || "user",
-        chatBubble: data.message.chatBubble || (socket as any).voiceUser?.equippedChatBubbleAsset || (socket as any).voiceUser?.equippedChatBubble || (user as any)?.equippedChatBubbleAsset || (user as any)?.equippedChatBubble || null,
-        chatBubbleId: data.message.chatBubbleId || (socket as any).voiceUser?.equippedChatBubble || (user as any)?.equippedChatBubble || null,
+        chatBubble: (socket as any).voiceUser?.equippedChatBubbleAsset || (socket as any).voiceUser?.equippedChatBubble || (user as any)?.equippedChatBubbleAsset || (user as any)?.equippedChatBubble || data.message.chatBubble || null,
+        chatBubbleId: (socket as any).voiceUser?.equippedChatBubble || (user as any)?.equippedChatBubble || data.message.chatBubbleId || null,
         timestamp: Date.now(),
       };
 
@@ -486,110 +558,6 @@ export const registerVoiceRoomHandlers = (io: Server, socket: AuthenticatedSocke
         await socket.join(`room:${rawRoomId}`);
       }
     } catch (_) {}
-  });
-
-  // 8. Send Gift (Real-Time Live Broadcast across devices)
-  socket.on("voice_room:send_gift", async (data: { roomId: string; gift: any }) => {
-    try {
-      const rawRoomId = String(data?.roomId || (socket as any).voiceRawRoomId || (socket as any).voiceRoomId || "").trim();
-      if (!rawRoomId || !data?.gift) return;
-      const roomId = normalizeRoomId(rawRoomId);
-
-      const giftObj = data.gift;
-      const channels = [
-        `voice_room_channel:${roomId}`,
-        `room:${roomId}`,
-      ];
-      if (rawRoomId !== roomId) {
-        channels.push(`voice_room_channel:${rawRoomId}`);
-        channels.push(`room:${rawRoomId}`);
-      }
-
-      const senderSummary = {
-        id: String(giftObj.senderId || user?.userId || user?.id || "guest"),
-        userId: giftObj.senderId || user?.userId || "guest",
-        name: giftObj.senderName || user?.name || "Someone",
-        avatar: giftObj.senderAvatar || (user as any)?.avatar || "https://api.yaroapp.in/uploads/avatars/female_default.webp",
-      };
-
-      const receiverSummary = {
-        id: String(giftObj.receiverId || giftObj.toId || "host"),
-        userId: giftObj.receiverId || giftObj.toId || "host",
-        name: giftObj.receiverName || "Host",
-        avatar: giftObj.receiverAvatar || "https://api.yaroapp.in/uploads/avatars/female_default.webp",
-      };
-
-      const giftSummary = {
-        id: String(giftObj.id || giftObj._id || "gift"),
-        name: giftObj.name || giftObj.giftName || "Gift",
-        icon: giftObj.icon || giftObj.giftEmoji || "🎁",
-        image: giftObj.image || giftObj.giftImage || (giftObj.icon?.startsWith('http') ? giftObj.icon : '') || giftObj.previewUrl || "",
-        previewUrl: giftObj.previewUrl || "",
-        animationUrl: giftObj.animationUrl || "",
-        animationType: giftObj.animationType || "NORMAL",
-        price: Number(giftObj.price || giftObj.cost || 1),
-      };
-
-      const quantity = Number(giftObj.quantity || 1);
-      const comboCount = Number(giftObj.comboCount || 1);
-
-      const sharedTransactionId = `gift_${Date.now()}_${Math.random().toString(36).substr(2, 6)}`;
-
-      const animationPayload = {
-        animationId: sharedTransactionId,
-        transactionId: sharedTransactionId,
-        gift: giftSummary,
-        sender: senderSummary,
-        receivers: [receiverSummary],
-        receiver: receiverSummary,
-        quantity,
-        comboCount,
-        timestamp: Date.now(),
-      };
-
-      const giftReceivedPayload = {
-        transactionId: sharedTransactionId,
-        roomId,
-        sender: senderSummary,
-        receivers: [receiverSummary],
-        receiver: receiverSummary,
-        gift: giftSummary,
-        giftImage: giftSummary.image,
-        giftIcon: giftSummary.icon,
-        giftName: giftSummary.name,
-        quantity,
-        comboCount,
-        timestamp: Date.now(),
-      };
-
-      const payloadWithGift = {
-        ...giftObj,
-        transactionId: sharedTransactionId,
-        senderId: senderSummary.userId,
-        sender: senderSummary,
-        receiver: receiverSummary,
-        giftImage: giftSummary.image,
-        giftIcon: giftSummary.icon,
-        giftName: giftSummary.name,
-        gift: {
-          ...giftSummary,
-          senderName: senderSummary.name,
-          senderAvatar: senderSummary.avatar,
-          receiverName: receiverSummary.name,
-          giftName: giftSummary.name,
-          giftIcon: giftSummary.icon,
-          giftImage: giftSummary.image,
-        },
-      };
-
-      channels.forEach((channel) => {
-        socket.broadcast.to(channel).emit("gift:received", giftReceivedPayload);
-        socket.broadcast.to(channel).emit("gift:animation", animationPayload);
-        socket.broadcast.to(channel).emit("voice_room:gift_received", payloadWithGift);
-      });
-    } catch (err: any) {
-      console.error("[VoiceRoom] Gift error:", err);
-    }
   });
 
   // 8. Send Reaction
@@ -889,16 +857,15 @@ export const registerVoiceRoomHandlers = (io: Server, socket: AuthenticatedSocke
       const rawRoomId = String(data?.roomId || (socket as any).voiceRawRoomId || (socket as any).voiceRoomId || "").trim();
       if (!rawRoomId) return;
       const roomId = normalizeRoomId(rawRoomId);
-      const state = await getVoiceRoomState(roomId);
-
-      // Backend owner security validation
-      const authUserId = String(user?.userId || "").trim();
-      const hostUserId = String(state.hostUser?.userId || "").trim();
+      const authUserId = String((user as any)?.id || "").trim();
+      const roomDocument: any = await Room.findOne({
+        $or: [{ channelName: roomId }, { channelName: rawRoomId }],
+      });
       const isOwner = Boolean(
-        (authUserId && hostUserId && authUserId === hostUserId) ||
-        (authUserId && normalizeRoomId(authUserId) === roomId) ||
-        (user as any)?.role === "superAdmin" ||
-        (user as any)?.role === "admin"
+        roomDocument &&
+          (String(roomDocument.ownerId) === authUserId ||
+            (user as any)?.role === "superAdmin" ||
+            (user as any)?.role === "admin"),
       );
 
       if (!isOwner) {
@@ -908,22 +875,66 @@ export const registerVoiceRoomHandlers = (io: Server, socket: AuthenticatedSocke
         });
         return;
       }
+      const requestedThemeId = String(data.themeId || "").trim();
+      const state = await getVoiceRoomState(roomId);
+      const socketRoomChannel = `voice_room_channel:${roomId}`;
 
-      state.themeId = data.themeId || data.themeAsset?.name || null;
-      state.themeAsset = data.themeAsset || null;
-      await saveVoiceRoomState(state);
-
-      // Persist to MongoDB Room
-      try {
-        await Room.findOneAndUpdate(
-          { $or: [{ channelName: roomId }, { channelName: rawRoomId }] },
-          { $set: { themeId: state.themeId, themeAsset: state.themeAsset } }
-        );
-      } catch (dbErr) {
-        console.warn("[VoiceRoom] DB theme persist warning:", dbErr);
+      if (!requestedThemeId || ["default", "none"].includes(requestedThemeId.toLowerCase())) {
+        state.themeId = null;
+        state.themeAsset = null;
+        await saveVoiceRoomState(state);
+        roomDocument.themeId = null;
+        roomDocument.themeAsset = null;
+        await roomDocument.save();
+        io.to(socketRoomChannel).emit("voice_room:theme_updated", {
+          themeId: null,
+          themeAsset: null,
+          updatedBy: authUserId,
+        });
+        return;
       }
 
-      const socketRoomChannel = `voice_room_channel:${roomId}`;
+      const account: any = await User.findById(authUserId).select("storeInventory").lean();
+      const now = Date.now();
+      const owned = (account?.storeInventory || []).find(
+        (entry: any) =>
+          String(entry.itemId) === requestedThemeId &&
+          (!entry.expiresAt || new Date(entry.expiresAt).getTime() > now),
+      );
+      const item: any = await StoreItem.findOne({
+        _id: requestedThemeId,
+        isActive: true,
+      }).lean();
+      if (!item || normalizeItemCategory(item.category) !== "Theme") {
+        socket.emit("voice_room:error", {
+          message: "Selected theme is unavailable",
+          code: "THEME_UNAVAILABLE",
+        });
+        return;
+      }
+
+      const themeLocation = String(item.metadata?.themeLocation || "STORE")
+        .trim()
+        .toUpperCase()
+        .replace(/[ -]+/g, "_");
+      const isFreeRoomToolTheme =
+        (item.metadata?.isFree === true || Number(item.price || 0) === 0) &&
+        ["ROOM_TOOL", "BOTH"].includes(themeLocation);
+      if (!owned && !isFreeRoomToolTheme) {
+        socket.emit("voice_room:error", {
+          message: "Selected theme is neither free in Room Tools nor present in your active inventory",
+          code: "THEME_NOT_OWNED",
+        });
+        return;
+      }
+
+      state.themeId = String(item._id);
+      state.themeAsset = canonicalRoomAsset(item, owned?.expiresAt || null);
+      await saveVoiceRoomState(state);
+      roomDocument.themeId = state.themeId;
+      roomDocument.themeAsset = state.themeAsset;
+      await roomDocument.save();
+
       const payload = {
         themeId: state.themeId,
         themeAsset: state.themeAsset,
@@ -931,9 +942,6 @@ export const registerVoiceRoomHandlers = (io: Server, socket: AuthenticatedSocke
       };
 
       io.to(socketRoomChannel).emit("voice_room:theme_updated", payload);
-      if (rawRoomId !== roomId) {
-        io.to(`voice_room_channel:${rawRoomId}`).emit("voice_room:theme_updated", payload);
-      }
       console.log(`[VoiceRoom] Room ${roomId} theme updated to ${state.themeId} by owner ${authUserId}`);
     } catch (err: any) {
       console.error("[VoiceRoom] Update theme error:", err);
@@ -947,16 +955,15 @@ export const registerVoiceRoomHandlers = (io: Server, socket: AuthenticatedSocke
       const rawRoomId = String(data?.roomId || (socket as any).voiceRawRoomId || (socket as any).voiceRoomId || "").trim();
       if (!rawRoomId) return;
       const roomId = normalizeRoomId(rawRoomId);
-      const state = await getVoiceRoomState(roomId);
-
-      // Backend owner security validation
-      const authUserId = String(user?.userId || "").trim();
-      const hostUserId = String(state.hostUser?.userId || "").trim();
+      const authUserId = String((user as any)?.id || "").trim();
+      const roomDocument: any = await Room.findOne({
+        $or: [{ channelName: roomId }, { channelName: rawRoomId }],
+      });
       const isOwner = Boolean(
-        (authUserId && hostUserId && authUserId === hostUserId) ||
-        (authUserId && normalizeRoomId(authUserId) === roomId) ||
-        (user as any)?.role === "superAdmin" ||
-        (user as any)?.role === "admin"
+        roomDocument &&
+          (String(roomDocument.ownerId) === authUserId ||
+            (user as any)?.role === "superAdmin" ||
+            (user as any)?.role === "admin"),
       );
 
       if (!isOwner) {
@@ -966,22 +973,80 @@ export const registerVoiceRoomHandlers = (io: Server, socket: AuthenticatedSocke
         });
         return;
       }
+      const requestedSeatSkinId = String(data.seatSkinId || "").trim();
+      const state = await getVoiceRoomState(roomId);
+      const socketRoomChannel = `voice_room_channel:${roomId}`;
 
-      state.seatSkinId = data.seatSkinId || data.seatSkinAsset?.name || null;
-      state.seatSkinAsset = data.seatSkinAsset || null;
-      await saveVoiceRoomState(state);
-
-      // Persist to MongoDB Room
-      try {
-        await Room.findOneAndUpdate(
-          { $or: [{ channelName: roomId }, { channelName: rawRoomId }] },
-          { $set: { seatSkinId: state.seatSkinId, seatSkinAsset: state.seatSkinAsset } }
-        );
-      } catch (dbErr) {
-        console.warn("[VoiceRoom] DB seat skin persist warning:", dbErr);
+      if (!requestedSeatSkinId || ["default", "none"].includes(requestedSeatSkinId.toLowerCase())) {
+        state.seatSkinId = null;
+        state.seatSkinAsset = null;
+        await saveVoiceRoomState(state);
+        roomDocument.seatSkinId = null;
+        roomDocument.seatSkinAsset = null;
+        await roomDocument.save();
+        io.to(socketRoomChannel).emit("voice_room:seat_skin_updated", {
+          seatSkinId: null,
+          seatSkinAsset: null,
+          updatedBy: authUserId,
+        });
+        console.log(`[VoiceRoom] Room ${roomId} seat skin reset to default by owner ${authUserId}`);
+        return;
       }
 
-      const socketRoomChannel = `voice_room_channel:${roomId}`;
+      const account: any = await User.findById(authUserId).select("storeInventory").lean();
+      const now = Date.now();
+      const owned = (account?.storeInventory || []).find(
+        (entry: any) =>
+          String(entry.itemId) === requestedSeatSkinId &&
+          (!entry.expiresAt || new Date(entry.expiresAt).getTime() > now),
+      );
+
+      const isValidMongoId = /^[0-9a-fA-F]{24}$/.test(requestedSeatSkinId);
+      const item: any = await StoreItem.findOne({
+        $or: [
+          ...(isValidMongoId ? [{ _id: requestedSeatSkinId }] : []),
+          { name: requestedSeatSkinId },
+          { "metadata.seatSkinType": requestedSeatSkinId },
+        ],
+        isActive: true,
+      }).lean();
+
+      const isPreset = [
+        "preset_default",
+        "default",
+        "golden_throne",
+        "cyber_pod",
+        "lotus_throne",
+        "phoenix_fire",
+        "mermaid_pearl",
+      ].includes(requestedSeatSkinId.toLowerCase());
+
+      const isFreeRoomToolSeatSkin =
+        item &&
+        (item.metadata?.isFree === true ||
+          Number(item.price || 0) === 0 ||
+          ["ROOM_TOOL", "BOTH"].includes(
+            String(item.metadata?.themeLocation || "").toUpperCase()
+          ));
+
+      if (!owned && !isPreset && !isFreeRoomToolSeatSkin) {
+        socket.emit("voice_room:error", {
+          message: "Selected seat skin is not in your active inventory",
+          code: "SEAT_SKIN_NOT_OWNED",
+        });
+        return;
+      }
+
+      state.seatSkinId = item ? String(item._id) : requestedSeatSkinId;
+      state.seatSkinAsset = item
+        ? canonicalRoomAsset(item, owned?.expiresAt || null)
+        : data.seatSkinAsset || { id: requestedSeatSkinId, name: requestedSeatSkinId };
+
+      await saveVoiceRoomState(state);
+      roomDocument.seatSkinId = state.seatSkinId;
+      roomDocument.seatSkinAsset = state.seatSkinAsset;
+      await roomDocument.save();
+
       const payload = {
         seatSkinId: state.seatSkinId,
         seatSkinAsset: state.seatSkinAsset,
@@ -989,9 +1054,6 @@ export const registerVoiceRoomHandlers = (io: Server, socket: AuthenticatedSocke
       };
 
       io.to(socketRoomChannel).emit("voice_room:seat_skin_updated", payload);
-      if (rawRoomId !== roomId) {
-        io.to(`voice_room_channel:${rawRoomId}`).emit("voice_room:seat_skin_updated", payload);
-      }
       console.log(`[VoiceRoom] Room ${roomId} seat skin updated to ${state.seatSkinId} by owner ${authUserId}`);
     } catch (err: any) {
       console.error("[VoiceRoom] Update seat skin error:", err);
