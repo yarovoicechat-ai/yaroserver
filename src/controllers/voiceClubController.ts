@@ -248,7 +248,7 @@ export const getMyVoiceRoom = async (req: any, res: Response) => {
     if (!user) return res.status(401).json({ success: false, message: 'Unauthorized' });
 
     const room = await Room.findOne({ ownerId: user.id || user._id })
-      .populate('ownerId', 'userId name image avatar gender meethiId country')
+      .populate('ownerId', 'userId name image avatar gender meethiId country equippedFrame equippedFrameAsset')
       .lean();
 
     if (!room) {
@@ -276,6 +276,8 @@ export const getMyVoiceRoom = async (req: any, res: Response) => {
           flag: owner.country?.flag || '',
           ownerId: owner._id || user.id,
           coverImage: (room as any).coverImage || owner.image || user.image || '',
+          hostEquippedFrame: owner.equippedFrameAsset || owner.equippedFrame || null,
+          hostEquippedFrameAsset: owner.equippedFrameAsset || null,
           onlineCount: '1',
           category: room.category || 'Chat 💬',
           mode: (room as any).mode || 'Public',
@@ -333,6 +335,8 @@ export const createOrUpdateMyVoiceRoom = async (req: any, res: Response) => {
       hostId,
       ownerId: user.id || user._id,
       coverImage: (room as any).coverImage || user.image || '',
+      hostEquippedFrame: user.equippedFrameAsset || user.equippedFrame || null,
+      hostEquippedFrameAsset: user.equippedFrameAsset || null,
       onlineCount: '1',
       category: room.category || 'Chat 💬',
       mode: (room as any).mode || 'Public',

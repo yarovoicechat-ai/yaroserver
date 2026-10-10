@@ -466,6 +466,14 @@ router.post('/help/resolve', verifyToken, replyHelpTicket);
 router.post('/help/:id/reply', verifyToken, replyHelpTicket);
 router.patch('/help/:id/reply', verifyToken, replyHelpTicket);
 
+// ============ Content Moderation & Blocked Words ============
+router.get('/moderation/blocked-words', verifyToken, getBlockedWords);
+router.post('/moderation/blocked-words', verifyToken, addBlockedWord);
+router.delete('/moderation/blocked-words/:id', verifyToken, deleteBlockedWord);
+router.get('/blocked-words', verifyToken, getBlockedWords);
+router.post('/blocked-words', verifyToken, addBlockedWord);
+router.delete('/blocked-words/:id', verifyToken, deleteBlockedWord);
+
 // ============ Enterprise Platform Command Center Endpoints ============
 import {
     getFinanceOverview,
