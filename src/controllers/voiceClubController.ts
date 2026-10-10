@@ -282,6 +282,7 @@ export const getMyVoiceRoom = async (req: any, res: Response) => {
           category: room.category || 'Chat 💬',
           mode: (room as any).mode || 'Public',
           seatCount: (room as any).seatCount || 8,
+          showSeatCharm: Boolean((room as any).showSeatCharm),
           isSelfHost: true,
         },
       },
@@ -341,6 +342,7 @@ export const createOrUpdateMyVoiceRoom = async (req: any, res: Response) => {
       category: room.category || 'Chat 💬',
       mode: (room as any).mode || 'Public',
       seatCount: (room as any).seatCount || 8,
+      showSeatCharm: Boolean((room as any).showSeatCharm),
       isSelfHost: true,
     };
 

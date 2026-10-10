@@ -35,6 +35,7 @@ export interface VoiceRoomState {
   themeAsset?: any;
   seatSkinId?: string | null;
   seatSkinAsset?: any;
+  showSeatCharm?: boolean;
   updatedAt: number;
 }
 
@@ -182,7 +183,7 @@ export const getVoiceRoomState = async (roomId: string, defaultSeatsCount = 8, h
     persistedRoom = await Room.findOne({
       $or: [{ channelName: canonicalId }, { channelName: String(roomId) }],
     })
-      .select("title channelName themeId themeAsset seatSkinId seatSkinAsset")
+      .select("title channelName themeId themeAsset seatSkinId seatSkinAsset showSeatCharm")
       .lean();
   } catch (err) {
     console.warn(`[VoiceRoom] Mongo room read warning for ${canonicalId}:`, err);
@@ -199,6 +200,7 @@ export const getVoiceRoomState = async (roomId: string, defaultSeatsCount = 8, h
     themeAsset: persistedRoom?.themeAsset || null,
     seatSkinId: persistedRoom?.seatSkinId || null,
     seatSkinAsset: persistedRoom?.seatSkinAsset || null,
+    showSeatCharm: persistedRoom?.showSeatCharm || false,
     updatedAt: Date.now(),
   };
 
@@ -299,6 +301,7 @@ export const registerVoiceRoomHandlers = (io: Server, socket: AuthenticatedSocke
         themeAsset: state.themeAsset || null,
         seatSkinId: state.seatSkinId || null,
         seatSkinAsset: state.seatSkinAsset || null,
+        showSeatCharm: Boolean(state.showSeatCharm),
       });
 
       // Broadcast user join to all sockets in the channel
@@ -1058,6 +1061,42 @@ export const registerVoiceRoomHandlers = (io: Server, socket: AuthenticatedSocke
     } catch (err: any) {
       console.error("[VoiceRoom] Update seat skin error:", err);
       socket.emit("voice_room:error", { message: err?.message || "Failed to update seat skin" });
+    }
+  });
+
+  // 16. Update / Toggle Seat Charm (Flower 🌸) Visibility from Room Tools
+  socket.on("voice_room:update_seat_charm", async (data: { roomId: string; showSeatCharm: boolean }) => {
+    try {
+      const rawRoomId = String(data?.roomId || (socket as any).voiceRawRoomId || (socket as any).voiceRoomId || "").trim();
+      if (!rawRoomId) return;
+
+      const canonicalId = normalizeRoomId(rawRoomId);
+      const authUserId = (socket as any).userId || (socket as any).user?.id || (socket as any).user?._id;
+      const socketRoomChannel = `room_${canonicalId}`;
+
+      const state = await getVoiceRoomState(canonicalId);
+      state.showSeatCharm = Boolean(data.showSeatCharm);
+      await saveVoiceRoomState(state);
+
+      try {
+        await Room.updateOne(
+          { $or: [{ channelName: canonicalId }, { channelName: rawRoomId }] },
+          { showSeatCharm: state.showSeatCharm }
+        );
+      } catch (dbErr) {
+        console.warn(`[VoiceRoom] Room ${rawRoomId} showSeatCharm Mongo update warning:`, dbErr);
+      }
+
+      const payload = {
+        showSeatCharm: state.showSeatCharm,
+        updatedBy: authUserId,
+      };
+
+      io.to(socketRoomChannel).emit("voice_room:seat_charm_updated", payload);
+      console.log(`[VoiceRoom] Room ${rawRoomId} seat charm toggled to ${state.showSeatCharm} by ${authUserId}`);
+    } catch (err: any) {
+      console.error("[VoiceRoom] Update seat charm error:", err);
+      socket.emit("voice_room:error", { message: err?.message || "Failed to update seat charm" });
     }
   });
 };

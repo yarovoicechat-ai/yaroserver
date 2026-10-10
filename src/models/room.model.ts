@@ -20,6 +20,7 @@ export interface IRoom extends Document {
     themeAsset?: any;
     seatSkinId?: string;
     seatSkinAsset?: any;
+    showSeatCharm?: boolean;
     createdAt: Date;
     updatedAt: Date;
 }
@@ -44,6 +45,7 @@ const RoomSchema = new Schema<IRoom>({
     themeAsset: { type: Schema.Types.Mixed, default: null },
     seatSkinId: { type: String, default: null },
     seatSkinAsset: { type: Schema.Types.Mixed, default: null },
+    showSeatCharm: { type: Boolean, default: false },
 }, { timestamps: true });
 
 RoomSchema.index({ ownerId: 1 });
