@@ -329,6 +329,15 @@ export class EntryEffectService {
         };
       }
 
+      // Keep store covers in the catalog only. Room clients should receive the
+      // actual animation URL, never a static cover as a playable entry asset.
+      const roomEntryEffect = entryEffect ? { ...entryEffect } : null;
+      if (roomEntryEffect) {
+        delete roomEntryEffect.image;
+        delete roomEntryEffect.imageUrl;
+        delete roomEntryEffect.coverImageUrl;
+      }
+
       // Check if user has an active equipped entry or VIP/KOK arrival experience.
       const hasEquippedEntry = Boolean(entryEffect);
       if (!hasEquippedEntry) {
@@ -384,8 +393,8 @@ export class EntryEffectService {
           equippedFrameAsset: dbUser?.equippedFrameAsset || user.equippedFrameAsset || null,
         },
         hasEntry: true,
-        entry: entryEffect,
-        effect: entryEffect,
+        entry: roomEntryEffect,
+        effect: roomEntryEffect,
         tassel: tasselEffect,
         entrance: entranceEffect,
         vipExperience: vipExperience.isVip ? vipExperience : null,

@@ -73,6 +73,7 @@ export const getVipRewards = async (req: Request, res: Response) => {
 import { Room } from '../models/room.model';
 import { User } from '../models/user.model';
 import redis from '../configs/redisConfig';
+import bcrypt from 'bcryptjs';
 
 const normalizeRoomId = (id: string): string => {
   const clean = String(id || '').trim();
@@ -207,6 +208,7 @@ export const getAllActiveVoiceRooms = async (req: Request, res: Response) => {
         onlineCount: String(onlineCount > 0 ? onlineCount : (isPinned ? 0 : 1)),
         category: r.category || 'Chat 💬',
         mode: r.mode || 'Public',
+        isLocked: Boolean((r as any).isLocked || /private\s*\(pin\)/i.test(String((r as any).mode || ''))),
         seatCount: r.seatCount || 8,
         isActive: r.isActive,
         isPinned,
@@ -248,6 +250,7 @@ export const getMyVoiceRoom = async (req: any, res: Response) => {
     if (!user) return res.status(401).json({ success: false, message: 'Unauthorized' });
 
     const room = await Room.findOne({ ownerId: user.id || user._id })
+      .select('+pinHash')
       .populate('ownerId', 'userId name image avatar gender meethiId country equippedFrame equippedFrameAsset')
       .lean();
 
@@ -281,6 +284,8 @@ export const getMyVoiceRoom = async (req: any, res: Response) => {
           onlineCount: '1',
           category: room.category || 'Chat 💬',
           mode: (room as any).mode || 'Public',
+          isLocked: Boolean((room as any).isLocked || /private\s*\(pin\)/i.test(String((room as any).mode || ''))),
+          hasPin: Boolean((room as any).pinHash),
           seatCount: (room as any).seatCount || 8,
           showSeatCharm: Boolean((room as any).showSeatCharm),
           isSelfHost: true,
@@ -298,9 +303,19 @@ export const createOrUpdateMyVoiceRoom = async (req: any, res: Response) => {
     if (!user) return res.status(401).json({ success: false, message: 'Unauthorized' });
 
     const roomChannelId = String(user.userId || user.meethiId || user.id || user._id);
-    const { title, about, coverImage, category, seatCount, mode } = req.body || {};
+    const { title, about, coverImage, category, seatCount, mode, pin } = req.body || {};
+    const isLocked = typeof req.body?.isLocked === 'boolean'
+      ? req.body.isLocked
+      : /private\s*\(pin\)/i.test(String(mode || ''));
+    const roomPin = String(pin || '').trim();
+    if (roomPin && !/^\d{4}$/.test(roomPin)) {
+      return res.status(400).json({ success: false, message: 'Room PIN must contain exactly 4 digits.' });
+    }
 
-    let room = await Room.findOne({ ownerId: user.id || user._id });
+    let room = await Room.findOne({ ownerId: user.id || user._id }).select('+pinHash');
+    if (isLocked && !roomPin && !room?.pinHash) {
+      return res.status(400).json({ success: false, message: 'Set a 4-digit PIN before enabling room privacy.' });
+    }
 
     if (!room) {
       room = await Room.create({
@@ -311,7 +326,9 @@ export const createOrUpdateMyVoiceRoom = async (req: any, res: Response) => {
         seatCount: seatCount || 8,
         coverImage: coverImage || user.image || '',
         about: about || 'Welcome to my party! Grab a seat and chat 💕',
-        mode: mode || 'Public',
+        mode: isLocked ? 'Private (PIN)' : (mode || 'Public'),
+        isLocked,
+        ...(roomPin ? { pinHash: await bcrypt.hash(roomPin, 10) } : {}),
         isActive: true,
       });
     } else {
@@ -322,7 +339,10 @@ export const createOrUpdateMyVoiceRoom = async (req: any, res: Response) => {
       if (coverImage) (room as any).coverImage = coverImage;
       if (category) room.category = category;
       if (seatCount) (room as any).seatCount = seatCount;
-      if (mode) (room as any).mode = mode;
+      (room as any).isLocked = isLocked;
+      (room as any).mode = isLocked ? 'Private (PIN)' : (mode && !/private\s*\(pin\)/i.test(String(mode)) ? mode : 'Public');
+      if (isLocked && roomPin) (room as any).pinHash = await bcrypt.hash(roomPin, 10);
+      if (!isLocked) (room as any).pinHash = undefined;
       await room.save();
     }
 
@@ -336,6 +356,8 @@ export const createOrUpdateMyVoiceRoom = async (req: any, res: Response) => {
         if (coverImage) state.coverImage = coverImage;
         if (about) state.about = about;
         if (seatCount) state.seatCount = seatCount;
+        state.isLocked = isLocked;
+        state.mode = isLocked ? 'Private (PIN)' : (mode || 'Public');
         await redis.set(roomKey, JSON.stringify(state), 'EX', 86400);
       }
     } catch (redisErr) {
@@ -357,6 +379,8 @@ export const createOrUpdateMyVoiceRoom = async (req: any, res: Response) => {
       onlineCount: '1',
       category: room.category || 'Chat 💬',
       mode: (room as any).mode || 'Public',
+      isLocked: Boolean((room as any).isLocked || /private\s*\(pin\)/i.test(String((room as any).mode || ''))),
+      hasPin: Boolean((room as any).pinHash),
       seatCount: (room as any).seatCount || 8,
       showSeatCharm: Boolean((room as any).showSeatCharm),
       isSelfHost: true,

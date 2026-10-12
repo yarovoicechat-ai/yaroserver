@@ -378,9 +378,12 @@ export const getAllBanners = async (req: Request, res: Response, next: NextFunct
 
 export const createBanner = async (req: Request, res: Response, next: NextFunction): Promise<void> => {
     try {
-        const { title, imageUrl, linkUrl, targetType = linkUrl ? 'external' : 'none', targetScreen, priority, startDate, endDate, isActive = true } = req.body;
+        const { title, imageUrl, placement = 'home', linkUrl, targetType = linkUrl ? 'external' : 'none', targetScreen, priority, startDate, endDate, isActive = true } = req.body;
         if (!title || !imageUrl) {
             return sendResponse(res, 400, false, 'Title and imageUrl are required');
+        }
+        if (!['home', 'oneToOne', 'party'].includes(placement)) {
+            return sendResponse(res, 400, false, 'Invalid banner placement');
         }
 
         if (targetType === 'internal' && !BANNER_INTERNAL_SCREENS.has(String(targetScreen))) {
@@ -400,6 +403,7 @@ export const createBanner = async (req: Request, res: Response, next: NextFuncti
         const banner = await Banner.create({
             title,
             imageUrl,
+            placement,
             linkUrl: targetType === 'external' ? (linkUrl || '') : '',
             targetType,
             targetScreen: targetType === 'internal' ? targetScreen : '',
@@ -440,7 +444,7 @@ export const deleteBanner = async (req: Request, res: Response, next: NextFuncti
 export const updateBannerPriority = async (req: Request, res: Response, next: NextFunction): Promise<void> => {
     try {
         const { id } = req.params;
-        const { title, imageUrl, linkUrl, targetType, targetScreen, priority, startDate, endDate, isActive } = req.body;
+        const { title, imageUrl, placement, linkUrl, targetType, targetScreen, priority, startDate, endDate, isActive } = req.body;
 
         const banner = await Banner.findById(id);
         if (!banner) {
@@ -449,6 +453,10 @@ export const updateBannerPriority = async (req: Request, res: Response, next: Ne
 
         if (title !== undefined) banner.title = title;
         if (imageUrl !== undefined) banner.imageUrl = imageUrl;
+        if (placement !== undefined) {
+            if (!['home', 'oneToOne', 'party'].includes(placement)) return sendResponse(res, 400, false, 'Invalid banner placement');
+            banner.placement = placement;
+        }
         if (linkUrl !== undefined) banner.linkUrl = linkUrl;
         if (targetType !== undefined) {
             if (!['none', 'internal', 'external'].includes(targetType)) return sendResponse(res, 400, false, 'Invalid banner target type');

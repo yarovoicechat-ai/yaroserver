@@ -49,21 +49,30 @@ router.post('/forms/:type', async (req: Request, res: Response) => {
     }
 });
 
-router.get('/banners', async (_req: Request, res: Response) => {
+router.get('/banners', async (req: Request, res: Response) => {
     try {
+        res.setHeader('Cache-Control', 'no-store, no-cache, must-revalidate');
         const now = new Date();
         const startOfToday = new Date(now);
         startOfToday.setHours(0, 0, 0, 0);
         const endOfToday = new Date(now);
         endOfToday.setHours(23, 59, 59, 999);
 
-        const rawBanners = await Banner.find({
-            $and: [
+        const placement = String(req.query.placement || '').trim();
+        const filters: any[] = [
                 { $or: [{ isActive: true }, { isActive: { $exists: false } }] },
                 { $or: [{ startDate: { $exists: false } }, { startDate: null }, { startDate: { $lte: endOfToday } }] },
                 { $or: [{ endDate: { $exists: false } }, { endDate: null }, { endDate: { $gte: startOfToday } }] }
-            ]
-        }).select('_id title imageUrl linkUrl targetType targetScreen priority startDate endDate isActive').sort({ priority: -1, createdAt: -1 }).lean();
+        ];
+        if (['home', 'oneToOne', 'party'].includes(placement)) {
+            filters.push(placement === 'home'
+                ? { $or: [{ placement: 'home' }, { placement: { $exists: false } }, { placement: null }] }
+                : { placement });
+        }
+
+        const rawBanners = await Banner.find({ $and: filters })
+            .select('_id title imageUrl placement linkUrl targetType targetScreen priority startDate endDate isActive')
+            .sort({ priority: -1, createdAt: -1 }).lean();
 
         const banners = rawBanners.map(b => ({
             ...b,

@@ -13,7 +13,7 @@ export interface IEntryEffect extends Document {
   slug: string;
   tagText: string; // e.g. "👑 VIP HAS ENTERED", "🔥 KING IS HERE"
   animationType: EntryAnimationType;
-  image?: string;
+  image?: string; // Store cover only; animationUrl is played in the room.
   icon?: string;
   animationUrl?: string;
   sound?: string;

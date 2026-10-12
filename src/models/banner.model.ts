@@ -3,6 +3,7 @@ import mongoose, { Schema, Document } from 'mongoose';
 export interface IBanner extends Document {
     title: string;
     imageUrl: string;
+    placement: 'home' | 'oneToOne' | 'party';
     linkUrl: string;
     targetType: 'none' | 'internal' | 'external';
     targetScreen: string;
@@ -17,6 +18,7 @@ export interface IBanner extends Document {
 const BannerSchema = new Schema<IBanner>({
     title: { type: String, required: true },
     imageUrl: { type: String, required: true },
+    placement: { type: String, enum: ['home', 'oneToOne', 'party'], default: 'home', index: true },
     linkUrl: { type: String, default: '' },
     targetType: { type: String, enum: ['none', 'internal', 'external'], default: 'none' },
     targetScreen: { type: String, default: '', trim: true },

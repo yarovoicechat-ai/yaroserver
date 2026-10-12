@@ -12,6 +12,7 @@ export interface IRoom extends Document {
     about?: string;
     seatCount?: number;
     mode?: string;
+    pinHash?: string;
     isActive: boolean;
     isPinned?: boolean;
     pinnedOrder?: number;
@@ -37,6 +38,7 @@ const RoomSchema = new Schema<IRoom>({
     about: { type: String, default: '' },
     seatCount: { type: Number, default: 8 },
     mode: { type: String, default: 'Public' },
+    pinHash: { type: String, select: false },
     isActive: { type: Boolean, default: true },
     isPinned: { type: Boolean, default: false },
     pinnedOrder: { type: Number, default: 0 },

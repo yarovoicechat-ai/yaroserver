@@ -39,6 +39,9 @@ export interface VoiceRoomState {
   showSeatCharm?: boolean;
   coverImage?: string;
   about?: string;
+  isLocked?: boolean;
+  mode?: string;
+  hasPin?: boolean;
   pendingLiveRequests?: Record<string, any>;
   updatedAt: number;
 }
@@ -180,14 +183,19 @@ export const getVoiceRoomState = async (roomId: string, defaultSeatsCount = 8, h
             isLocked: false,
           });
         }
-        if (!parsed.coverImage || !parsed.about) {
+        if (!parsed.coverImage || !parsed.about || parsed.isLocked === undefined || !parsed.mode || parsed.hasPin === undefined) {
           try {
             const mRoom: any = await Room.findOne({
               $or: [{ channelName: canonicalId }, { channelName: String(roomId) }],
-            }).select("coverImage about title").lean();
+            }).select("coverImage about title isLocked mode +pinHash").lean();
             if (mRoom?.coverImage && !parsed.coverImage) parsed.coverImage = mRoom.coverImage;
             if (mRoom?.about && !parsed.about) parsed.about = mRoom.about;
             if (mRoom?.title && !parsed.title) parsed.title = mRoom.title;
+            if (mRoom) {
+              parsed.isLocked = Boolean(mRoom.isLocked || /private\s*\(pin\)/i.test(String(mRoom.mode || '')));
+              parsed.mode = mRoom.mode || (parsed.isLocked ? 'Private (PIN)' : 'Public');
+              parsed.hasPin = Boolean(mRoom.pinHash);
+            }
           } catch (_) {}
         }
         parsed.coverImage = parsed.coverImage || "";
@@ -204,7 +212,7 @@ export const getVoiceRoomState = async (roomId: string, defaultSeatsCount = 8, h
     persistedRoom = await Room.findOne({
       $or: [{ channelName: canonicalId }, { channelName: String(roomId) }],
     })
-      .select("title channelName coverImage about themeId themeAsset seatSkinId seatSkinAsset showSeatCharm")
+      .select("title channelName coverImage about themeId themeAsset seatSkinId seatSkinAsset showSeatCharm isLocked mode +pinHash")
       .lean();
   } catch (err) {
     console.warn(`[VoiceRoom] Mongo room read warning for ${canonicalId}:`, err);
@@ -224,6 +232,9 @@ export const getVoiceRoomState = async (roomId: string, defaultSeatsCount = 8, h
     showSeatCharm: persistedRoom?.showSeatCharm || false,
     coverImage: persistedRoom?.coverImage || '',
     about: persistedRoom?.about || '',
+    isLocked: Boolean(persistedRoom?.isLocked || /private\s*\(pin\)/i.test(String(persistedRoom?.mode || ''))),
+    mode: persistedRoom?.mode || 'Public',
+    hasPin: Boolean(persistedRoom?.pinHash),
     pendingLiveRequests: {},
     updatedAt: Date.now(),
   };
@@ -395,9 +406,11 @@ export const registerVoiceRoomHandlers = (io: Server, socket: AuthenticatedSocke
         seatSkinId: state.seatSkinId || null,
         seatSkinAsset: state.seatSkinAsset || null,
         showSeatCharm: Boolean(state.showSeatCharm),
+        mode: state.mode || 'Public',
+        hasPin: Boolean(state.hasPin),
         isHost: authorizedHost,
         isOwner: authorizedHost,
-        isLocked: Boolean(roomDocument?.isLocked),
+        isLocked: Boolean(state.isLocked || roomDocument?.isLocked),
       });
 
       // Broadcast user join to all sockets in the channel
@@ -1554,7 +1567,7 @@ export const registerVoiceRoomHandlers = (io: Server, socket: AuthenticatedSocke
   });
 
   // 17. Update Room Details (DP / Title / About) (Owner Only)
-  socket.on("voice_room:update_details", async (data: { roomId: string; coverImage?: string; title?: string; about?: string; seatCount?: number }) => {
+  socket.on("voice_room:update_details", async (data: { roomId: string; coverImage?: string; title?: string; about?: string; seatCount?: number; isLocked?: boolean; mode?: string; hasPin?: boolean }) => {
     try {
       const rawRoomId = String(data?.roomId || (socket as any).voiceRawRoomId || (socket as any).voiceRoomId || "").trim();
       if (!rawRoomId) return;
@@ -1625,6 +1638,15 @@ export const registerVoiceRoomHandlers = (io: Server, socket: AuthenticatedSocke
         state.seatCount = data.seatCount;
         if (roomDocument) (roomDocument as any).seatCount = data.seatCount;
       }
+      if (typeof data.isLocked === "boolean") {
+        state.isLocked = data.isLocked;
+        if (roomDocument) (roomDocument as any).isLocked = data.isLocked;
+      }
+      if (data.mode) {
+        state.mode = data.mode;
+        if (roomDocument) (roomDocument as any).mode = data.mode;
+      }
+      if (typeof data.hasPin === "boolean") state.hasPin = data.hasPin;
 
       await saveVoiceRoomState(state);
       if (roomDocument) await roomDocument.save();
@@ -1636,6 +1658,9 @@ export const registerVoiceRoomHandlers = (io: Server, socket: AuthenticatedSocke
         title: state.title,
         about: state.about,
         seatCount: state.seatCount,
+        isLocked: Boolean(state.isLocked),
+        mode: state.mode || (state.isLocked ? "Private (PIN)" : "Public"),
+        hasPin: Boolean(state.hasPin),
         updatedBy: authUserDbId,
       };
 

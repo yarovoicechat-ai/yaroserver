@@ -42,7 +42,7 @@ export interface IStoreItem extends Document {
   previewColor?: string;
   bgColors?: string[];
   icon?: string;
-  imageUrl?: string;
+  imageUrl?: string; // Store cover for Frames/Entry; animationUrl is the playable asset.
   animationUrl?: string; // SVGA / Lottie / MP4 / GIF
   desc?: string;
   isActive: boolean;
