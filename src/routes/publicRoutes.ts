@@ -65,17 +65,27 @@ router.get('/banners', async (req: Request, res: Response) => {
                 { $or: [{ endDate: { $exists: false } }, { endDate: null }, { endDate: { $gte: startOfToday } }] }
         ];
         if (['home', 'oneToOne', 'party'].includes(placement)) {
-            filters.push(placement === 'home'
-                ? { $or: [{ placement: 'home' }, { placement: { $exists: false } }, { placement: null }] }
-                : { placement });
+            const placementMatch: any[] = [{ placements: placement }, { placement }];
+            if (placement === 'home') {
+                placementMatch.push({
+                    $and: [
+                        { placements: { $exists: false } },
+                        { $or: [{ placement: 'home' }, { placement: { $exists: false } }, { placement: null }] },
+                    ],
+                });
+            }
+            filters.push({ $or: placementMatch });
         }
 
         const rawBanners = await Banner.find({ $and: filters })
-            .select('_id title imageUrl placement linkUrl targetType targetScreen priority startDate endDate isActive')
+            .select('_id title imageUrl placements placement linkUrl targetType targetScreen priority startDate endDate isActive')
             .sort({ priority: -1, createdAt: -1 }).lean();
 
         const banners = rawBanners.map(b => ({
             ...b,
+            placements: Array.isArray((b as any).placements) && (b as any).placements.length
+                ? (b as any).placements
+                : [(b as any).placement || 'home'],
             image: b.imageUrl || (b as any).image || ''
         }));
 

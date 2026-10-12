@@ -121,3 +121,19 @@ export const uploadDirectFile = async (req: AuthRequest, res: Response) => {
     return sendResponse(res, 500, false, error.message || "Failed to upload file");
   }
 };
+
+export const uploadRoomCover = async (req: AuthRequest, res: Response) => {
+  try {
+    const file = req.file;
+    if (!file) return sendResponse(res, 400, false, "No room DP selected");
+
+    const forwardedHost = String(req.headers["x-forwarded-host"] || "").split(",")[0].trim();
+    const host = forwardedHost || req.get("host") || "api.yaroapp.in";
+    const forwardedProto = String(req.headers["x-forwarded-proto"] || "").split(",")[0].trim();
+    const protocol = req.protocol === "https" || forwardedProto === "https" ? "https" : "http";
+    const url = `${protocol}://${host}/uploads/rooms/${file.filename}`;
+    return sendResponse(res, 200, true, "Room DP uploaded successfully", { url, filename: file.filename });
+  } catch (error: any) {
+    return sendResponse(res, 500, false, error.message || "Failed to upload room DP");
+  }
+};

@@ -3,6 +3,7 @@ import mongoose, { Schema, Document } from 'mongoose';
 export interface IBanner extends Document {
     title: string;
     imageUrl: string;
+    placements?: Array<'home' | 'oneToOne' | 'party'>;
     placement: 'home' | 'oneToOne' | 'party';
     linkUrl: string;
     targetType: 'none' | 'internal' | 'external';
@@ -18,6 +19,7 @@ export interface IBanner extends Document {
 const BannerSchema = new Schema<IBanner>({
     title: { type: String, required: true },
     imageUrl: { type: String, required: true },
+    placements: { type: [{ type: String, enum: ['home', 'oneToOne', 'party'] }], default: undefined },
     placement: { type: String, enum: ['home', 'oneToOne', 'party'], default: 'home', index: true },
     linkUrl: { type: String, default: '' },
     targetType: { type: String, enum: ['none', 'internal', 'external'], default: 'none' },
@@ -29,5 +31,6 @@ const BannerSchema = new Schema<IBanner>({
 }, { timestamps: true });
 
 BannerSchema.index({ isActive: 1, priority: -1, createdAt: -1 });
+BannerSchema.index({ placements: 1, isActive: 1, priority: -1, createdAt: -1 });
 
 export const Banner = mongoose.model<IBanner>('Banner', BannerSchema);

@@ -694,15 +694,16 @@ export class GiftService {
    */
   static async getSentGifts(userId: string | Types.ObjectId, page = 1, limit = 20) {
     const skip = (Math.max(1, page) - 1) * limit;
+    const successfulStatuses = ['SUCCESS', 'COMPLETED'];
     const [transactions, total] = await Promise.all([
-      GiftTransaction.find({ senderId: userId, status: 'COMPLETED' })
+      GiftTransaction.find({ senderId: userId, status: { $in: successfulStatuses } })
         .populate('giftId')
         .populate('receiverId', 'name image avatar userId')
         .sort({ createdAt: -1 })
         .skip(skip)
         .limit(limit)
         .lean(),
-      GiftTransaction.countDocuments({ senderId: userId, status: 'COMPLETED' }),
+      GiftTransaction.countDocuments({ senderId: userId, status: { $in: successfulStatuses } }),
     ]);
 
     return {
@@ -723,7 +724,7 @@ export class GiftService {
     const skip = (Math.max(1, page) - 1) * limit;
     const query = {
       $or: [{ receiverId: userId }, { receiverIds: userId }],
-      status: 'COMPLETED',
+      status: { $in: ['SUCCESS', 'COMPLETED'] },
     };
 
     const [transactions, total] = await Promise.all([

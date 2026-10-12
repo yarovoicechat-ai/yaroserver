@@ -378,11 +378,14 @@ export const getAllBanners = async (req: Request, res: Response, next: NextFunct
 
 export const createBanner = async (req: Request, res: Response, next: NextFunction): Promise<void> => {
     try {
-        const { title, imageUrl, placement = 'home', linkUrl, targetType = linkUrl ? 'external' : 'none', targetScreen, priority, startDate, endDate, isActive = true } = req.body;
+        const { title, imageUrl, placements: requestedPlacements, placement = 'home', linkUrl, targetType = linkUrl ? 'external' : 'none', targetScreen, priority, startDate, endDate, isActive = true } = req.body;
+        const placements = Array.isArray(requestedPlacements)
+            ? [...new Set(requestedPlacements)]
+            : [placement];
         if (!title || !imageUrl) {
             return sendResponse(res, 400, false, 'Title and imageUrl are required');
         }
-        if (!['home', 'oneToOne', 'party'].includes(placement)) {
+        if (!placements.length || placements.some((item) => !['home', 'oneToOne', 'party'].includes(item))) {
             return sendResponse(res, 400, false, 'Invalid banner placement');
         }
 
@@ -403,7 +406,8 @@ export const createBanner = async (req: Request, res: Response, next: NextFuncti
         const banner = await Banner.create({
             title,
             imageUrl,
-            placement,
+            placements,
+            placement: placements[0],
             linkUrl: targetType === 'external' ? (linkUrl || '') : '',
             targetType,
             targetScreen: targetType === 'internal' ? targetScreen : '',
@@ -444,7 +448,7 @@ export const deleteBanner = async (req: Request, res: Response, next: NextFuncti
 export const updateBannerPriority = async (req: Request, res: Response, next: NextFunction): Promise<void> => {
     try {
         const { id } = req.params;
-        const { title, imageUrl, placement, linkUrl, targetType, targetScreen, priority, startDate, endDate, isActive } = req.body;
+        const { title, imageUrl, placements: requestedPlacements, placement, linkUrl, targetType, targetScreen, priority, startDate, endDate, isActive } = req.body;
 
         const banner = await Banner.findById(id);
         if (!banner) {
@@ -453,9 +457,15 @@ export const updateBannerPriority = async (req: Request, res: Response, next: Ne
 
         if (title !== undefined) banner.title = title;
         if (imageUrl !== undefined) banner.imageUrl = imageUrl;
-        if (placement !== undefined) {
-            if (!['home', 'oneToOne', 'party'].includes(placement)) return sendResponse(res, 400, false, 'Invalid banner placement');
-            banner.placement = placement;
+        if (requestedPlacements !== undefined || placement !== undefined) {
+            const updatedPlacements = Array.isArray(requestedPlacements)
+                ? [...new Set(requestedPlacements)]
+                : [placement];
+            if (!updatedPlacements.length || updatedPlacements.some((item: string) => !['home', 'oneToOne', 'party'].includes(item))) {
+                return sendResponse(res, 400, false, 'Invalid banner placement');
+            }
+            banner.placements = updatedPlacements as any;
+            banner.placement = updatedPlacements[0];
         }
         if (linkUrl !== undefined) banner.linkUrl = linkUrl;
         if (targetType !== undefined) {
