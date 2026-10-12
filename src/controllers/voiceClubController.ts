@@ -326,6 +326,22 @@ export const createOrUpdateMyVoiceRoom = async (req: any, res: Response) => {
       await room.save();
     }
 
+    // Sync to Redis state for active room
+    try {
+      const roomKey = `voice_room:${normalizeRoomId(room.channelName)}`;
+      const rawState = await redis.get(roomKey);
+      if (rawState) {
+        const state = JSON.parse(rawState);
+        if (title) state.title = title;
+        if (coverImage) state.coverImage = coverImage;
+        if (about) state.about = about;
+        if (seatCount) state.seatCount = seatCount;
+        await redis.set(roomKey, JSON.stringify(state), 'EX', 86400);
+      }
+    } catch (redisErr) {
+      console.warn('[createOrUpdateMyVoiceRoom] Redis sync warning:', redisErr);
+    }
+
     const hostId = String(user.userId || user.meethiId || user.id || user._id);
     const formatted = {
       id: room.channelName,

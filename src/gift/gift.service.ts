@@ -6,6 +6,7 @@ import { TransactionType } from '../constants/user';
 import { getCachedSettings } from '../controllers/settingsController';
 import { broadcastGiftSuccess } from './gift.socket';
 import { LevelService } from '../services/level.service';
+import { RoomTaskService } from '../services/roomTask.service';
 import {
   CreateCategoryDTO,
   CreateGiftDTO,
@@ -616,6 +617,20 @@ export class GiftService {
       }
     } catch (levelErr: any) {
       console.warn('[GiftService] Level EXP award error:', levelErr?.message);
+    }
+
+    // Record Room Tasks & Room Support Progress
+    if (roomId) {
+      try {
+        await RoomTaskService.recordGiftActivity(
+          String(roomId),
+          String(sender._id),
+          receivers.map((r) => String(r._id)),
+          totalDiamonds
+        );
+      } catch (taskErr: any) {
+        console.warn('[GiftService] Room task activity recording error:', taskErr?.message);
+      }
     }
 
     // 10. Real-time Socket Broadcast

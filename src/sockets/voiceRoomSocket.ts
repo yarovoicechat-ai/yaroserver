@@ -7,6 +7,7 @@ import { EntryEffectService } from "../services/entryEffect.service";
 import { Room } from "../models/room.model";
 import { User } from "../models/user.model";
 import { StoreItem } from "../models/storeItem.model";
+import { RoomTaskService } from "../services/roomTask.service";
 
 export interface VoiceRoomSeat {
   seatIndex: number;
@@ -36,8 +37,16 @@ export interface VoiceRoomState {
   seatSkinId?: string | null;
   seatSkinAsset?: any;
   showSeatCharm?: boolean;
+  coverImage?: string;
+  about?: string;
+  pendingLiveRequests?: Record<string, any>;
   updatedAt: number;
 }
+
+// Track background/screen-off temporary socket disconnects to prevent mic/seat drops
+// Key: `${roomId}:${userId}`
+const disconnectGraceTimers = new Map<string, NodeJS.Timeout>();
+const GRACE_PERIOD_MS = 15 * 60 * 1000; // 15 minutes grace period for temporary socket drops (screen-off / app minimize)
 
 const buildInitialSeats = (count: number, hostUser: any = null): VoiceRoomSeat[] => {
   const seats: VoiceRoomSeat[] = [];
@@ -171,6 +180,18 @@ export const getVoiceRoomState = async (roomId: string, defaultSeatsCount = 8, h
             isLocked: false,
           });
         }
+        if (!parsed.coverImage || !parsed.about) {
+          try {
+            const mRoom: any = await Room.findOne({
+              $or: [{ channelName: canonicalId }, { channelName: String(roomId) }],
+            }).select("coverImage about title").lean();
+            if (mRoom?.coverImage && !parsed.coverImage) parsed.coverImage = mRoom.coverImage;
+            if (mRoom?.about && !parsed.about) parsed.about = mRoom.about;
+            if (mRoom?.title && !parsed.title) parsed.title = mRoom.title;
+          } catch (_) {}
+        }
+        parsed.coverImage = parsed.coverImage || "";
+        parsed.about = parsed.about || "";
         return parsed;
       }
     }
@@ -183,7 +204,7 @@ export const getVoiceRoomState = async (roomId: string, defaultSeatsCount = 8, h
     persistedRoom = await Room.findOne({
       $or: [{ channelName: canonicalId }, { channelName: String(roomId) }],
     })
-      .select("title channelName themeId themeAsset seatSkinId seatSkinAsset showSeatCharm")
+      .select("title channelName coverImage about themeId themeAsset seatSkinId seatSkinAsset showSeatCharm")
       .lean();
   } catch (err) {
     console.warn(`[VoiceRoom] Mongo room read warning for ${canonicalId}:`, err);
@@ -201,6 +222,9 @@ export const getVoiceRoomState = async (roomId: string, defaultSeatsCount = 8, h
     seatSkinId: persistedRoom?.seatSkinId || null,
     seatSkinAsset: persistedRoom?.seatSkinAsset || null,
     showSeatCharm: persistedRoom?.showSeatCharm || false,
+    coverImage: persistedRoom?.coverImage || '',
+    about: persistedRoom?.about || '',
+    pendingLiveRequests: {},
     updatedAt: Date.now(),
   };
 
@@ -233,13 +257,34 @@ export const registerVoiceRoomHandlers = (io: Server, socket: AuthenticatedSocke
       if (!rawRoomId) return;
       const roomId = normalizeRoomId(rawRoomId);
       const roomDocument: any = await Room.findOne({
-        $or: [{ channelName: roomId }, { channelName: rawRoomId }],
+        $or: [
+          { channelName: roomId },
+          { channelName: rawRoomId },
+          { channelName: String(roomId) },
+          { channelName: String(rawRoomId) },
+        ],
       })
-        .select("ownerId")
+        .select("ownerId channelName isLocked")
         .lean();
+
+      const authUserDbId = String((user as any)?.id || (user as any)?._id || "").trim();
+      const authUserNumId = String(user?.userId || "").trim();
+      const isSuperAdminOrOwnerRole = (user as any)?.role === "superAdmin" || (user as any)?.role === "owner";
+
       const authorizedHost = Boolean(
-        roomDocument?.ownerId &&
-          String(roomDocument.ownerId) === String((user as any)?.id),
+        isSuperAdminOrOwnerRole ||
+        (roomDocument?.ownerId && (
+          String(roomDocument.ownerId) === authUserDbId ||
+          (authUserNumId && String(roomDocument.ownerId) === authUserNumId)
+        )) ||
+        (roomDocument?.channelName && (
+          normalizeRoomId(String(roomDocument.channelName)) === normalizeRoomId(authUserNumId) ||
+          String(roomDocument.channelName) === authUserNumId
+        )) ||
+        (authUserNumId && (
+          normalizeRoomId(roomId) === normalizeRoomId(authUserNumId) ||
+          normalizeRoomId(rawRoomId) === normalizeRoomId(authUserNumId)
+        ))
       );
       const userData = await getCanonicalRoomUser(user, data?.user);
 
@@ -272,11 +317,39 @@ export const registerVoiceRoomHandlers = (io: Server, socket: AuthenticatedSocke
       (socket as any).voiceRawRoomId = rawRoomId;
       (socket as any).voiceUser = userData;
 
+      const timerKey = `${roomId}:${userData.userId}`;
+      if (disconnectGraceTimers.has(timerKey)) {
+        clearTimeout(disconnectGraceTimers.get(timerKey)!);
+        disconnectGraceTimers.delete(timerKey);
+        console.log(`[VoiceRoom] Reconnected user ${userData.userId} in room ${roomId}. Grace timer cleared.`);
+      }
+
       const state = await getVoiceRoomState(roomId, data.customSeats || 8, authorizedHost ? userData : null);
 
       if (data.roomTitle) state.title = data.roomTitle;
+      let ownerSeatUpdated = false;
       if (authorizedHost) {
         state.hostUser = userData;
+        // BUG #1: Ensure Room Owner automatically occupies mic seat 0
+        state.seats[0] = {
+          ...state.seats[0],
+          seatIndex: 0,
+          isHost: true,
+          user: userData,
+          isMuted: false,
+          isLocked: false,
+        };
+        // Vacate owner from any other seat in this room to prevent duplicates
+        for (let i = 1; i < state.seats.length; i++) {
+          if (state.seats[i].user && String(state.seats[i].user?.userId) === String(userData.userId)) {
+            state.seats[i] = {
+              ...state.seats[i],
+              user: null,
+              isMuted: true,
+            };
+          }
+        }
+        ownerSeatUpdated = true;
       }
 
       if (!state.onlineUsers) state.onlineUsers = {};
@@ -288,6 +361,24 @@ export const registerVoiceRoomHandlers = (io: Server, socket: AuthenticatedSocke
 
       await saveVoiceRoomState(state);
 
+      if (!wasOnline && userData.userId) {
+        RoomTaskService.recordVisitor(roomId, String(userData.userId)).catch((err) => {
+          console.warn("[VoiceRoom] Record visitor warning:", err);
+        });
+      }
+
+      if (ownerSeatUpdated) {
+        const updatePayload = {
+          seatIndex: 0,
+          user: userData,
+          seats: state.seats,
+        };
+        io.to(socketRoomChannel).emit("voice_room:seat_updated", updatePayload);
+        if (rawRoomId !== roomId) {
+          io.to(`voice_room_channel:${rawRoomId}`).emit("voice_room:seat_updated", updatePayload);
+        }
+      }
+
       // Send initial state to the joiner
       socket.emit("voice_room:state", {
         success: true,
@@ -297,11 +388,16 @@ export const registerVoiceRoomHandlers = (io: Server, socket: AuthenticatedSocke
         onlineCount: Object.keys(state.onlineUsers).length,
         onlineUsers: Object.values(state.onlineUsers),
         hostUser: state.hostUser,
+        coverImage: state.coverImage || '',
+        about: state.about || '',
         themeId: state.themeId || null,
         themeAsset: state.themeAsset || null,
         seatSkinId: state.seatSkinId || null,
         seatSkinAsset: state.seatSkinAsset || null,
         showSeatCharm: Boolean(state.showSeatCharm),
+        isHost: authorizedHost,
+        isOwner: authorizedHost,
+        isLocked: Boolean(roomDocument?.isLocked),
       });
 
       // Broadcast user join to all sockets in the channel
@@ -487,13 +583,46 @@ export const registerVoiceRoomHandlers = (io: Server, socket: AuthenticatedSocke
     }
   });
 
-  // 5. Lock / Unlock Seat
+  // 5. Lock / Unlock Seat (Owner / Admin Only)
   socket.on("voice_room:lock_seat", async (data: { roomId: string; seatIndex: number; isLocked: boolean }) => {
     try {
       const rawRoomId = String(data?.roomId || (socket as any).voiceRawRoomId || (socket as any).voiceRoomId || "").trim();
       const seatIndex = Number(data?.seatIndex);
       if (!rawRoomId || isNaN(seatIndex) || seatIndex === 0) return;
       const roomId = normalizeRoomId(rawRoomId);
+
+      const roomDocument: any = await Room.findOne({
+        $or: [{ channelName: roomId }, { channelName: rawRoomId }],
+      }).select("ownerId channelName").lean();
+
+      const authUserDbId = String((user as any)?.id || (user as any)?._id || "").trim();
+      const authUserNumId = String(user?.userId || "").trim();
+      const isSuperAdminOrOwnerRole = (user as any)?.role === "superAdmin" || (user as any)?.role === "owner";
+      const isAdminRole = (user as any)?.role === "admin";
+
+      const isOwner = Boolean(
+        isSuperAdminOrOwnerRole ||
+        (roomDocument?.ownerId && (
+          String(roomDocument.ownerId) === authUserDbId ||
+          (authUserNumId && String(roomDocument.ownerId) === authUserNumId)
+        )) ||
+        (roomDocument?.channelName && (
+          normalizeRoomId(String(roomDocument.channelName)) === normalizeRoomId(authUserNumId) ||
+          String(roomDocument.channelName) === authUserNumId
+        )) ||
+        (authUserNumId && (
+          normalizeRoomId(roomId) === normalizeRoomId(authUserNumId) ||
+          normalizeRoomId(rawRoomId) === normalizeRoomId(authUserNumId)
+        ))
+      );
+
+      if (!isOwner && !isAdminRole) {
+        socket.emit("voice_room:error", {
+          message: "Only the room owner is authorized to lock/unlock seats",
+          code: "UNAUTHORIZED_LOCK",
+        });
+        return;
+      }
 
       const socketRoomChannel = `voice_room_channel:${roomId}`;
       const state = await getVoiceRoomState(roomId);
@@ -503,6 +632,7 @@ export const registerVoiceRoomHandlers = (io: Server, socket: AuthenticatedSocke
         state.seats[seatIndex].isLocked = isLocked;
         if (isLocked) {
           state.seats[seatIndex].user = null;
+          state.seats[seatIndex].isMuted = true;
         }
         await saveVoiceRoomState(state);
 
@@ -519,6 +649,262 @@ export const registerVoiceRoomHandlers = (io: Server, socket: AuthenticatedSocke
       }
     } catch (err: any) {
       console.error("[VoiceRoom] Lock seat error:", err);
+    }
+  });
+
+  // 5.1 Lock / Unlock All Guest Seats (Owner / Admin Only)
+  socket.on("voice_room:lock_all_seats", async (data: { roomId: string; isLocked: boolean }) => {
+    try {
+      const rawRoomId = String(data?.roomId || (socket as any).voiceRawRoomId || (socket as any).voiceRoomId || "").trim();
+      if (!rawRoomId) return;
+      const roomId = normalizeRoomId(rawRoomId);
+
+      const authUserDbId = String((user as any)?.id || (user as any)?._id || "").trim();
+      const authUserNumId = String(user?.userId || "").trim();
+      const isSuperAdminOrOwnerRole = (user as any)?.role === "superAdmin" || (user as any)?.role === "owner";
+      const isAdminRole = (user as any)?.role === "admin";
+
+      const roomDocument: any = await Room.findOne({
+        $or: [{ channelName: roomId }, { channelName: rawRoomId }],
+      }).select("ownerId channelName").lean();
+
+      const isOwner = Boolean(
+        isSuperAdminOrOwnerRole ||
+        (roomDocument?.ownerId && (
+          String(roomDocument.ownerId) === authUserDbId ||
+          (authUserNumId && String(roomDocument.ownerId) === authUserNumId)
+        )) ||
+        (roomDocument?.channelName && (
+          normalizeRoomId(String(roomDocument.channelName)) === normalizeRoomId(authUserNumId) ||
+          String(roomDocument.channelName) === authUserNumId
+        )) ||
+        (authUserNumId && (
+          normalizeRoomId(roomId) === normalizeRoomId(authUserNumId) ||
+          normalizeRoomId(rawRoomId) === normalizeRoomId(authUserNumId)
+        ))
+      );
+
+      if (!isOwner && !isAdminRole) {
+        socket.emit("voice_room:error", {
+          message: "Only the room owner is authorized to lock/unlock all seats",
+          code: "UNAUTHORIZED_LOCK",
+        });
+        return;
+      }
+
+      const isLocked = Boolean(data.isLocked);
+      const socketRoomChannel = `voice_room_channel:${roomId}`;
+      const state = await getVoiceRoomState(roomId);
+
+      state.seats = state.seats.map((s) => {
+        if (s.seatIndex === 0) return s; // Seat 0 is host seat
+        return {
+          ...s,
+          isLocked,
+          user: isLocked ? null : s.user,
+          isMuted: isLocked ? true : s.isMuted,
+        };
+      });
+
+      await saveVoiceRoomState(state);
+      await Room.findOneAndUpdate(
+        { $or: [{ channelName: roomId }, { channelName: rawRoomId }] },
+        { isLocked }
+      ).catch(() => {});
+
+      const allLockPayload = {
+        roomId,
+        isLocked,
+        seats: state.seats,
+      };
+
+      io.to(socketRoomChannel).emit("voice_room:all_seats_locked", allLockPayload);
+      if (rawRoomId !== roomId) {
+        io.to(`voice_room_channel:${rawRoomId}`).emit("voice_room:all_seats_locked", allLockPayload);
+      }
+      console.log(`[VoiceRoom] Room ${roomId} all seats locked=${isLocked} by ${authUserNumId || authUserDbId}`);
+    } catch (err: any) {
+      console.error("[VoiceRoom] Lock all seats error:", err);
+    }
+  });
+
+  // 5.2 Co-Host / Live Seat Apply (Requester -> Server -> Owner)
+  socket.on("voice_room:apply_live_seat", async (data: { roomId: string; seatIndex?: number; user?: any }) => {
+    try {
+      const rawRoomId = String(data?.roomId || (socket as any).voiceRawRoomId || (socket as any).voiceRoomId || "").trim();
+      if (!rawRoomId) return;
+      const roomId = normalizeRoomId(rawRoomId);
+      const requestedSeatIndex = data?.seatIndex !== undefined ? Number(data.seatIndex) : 1;
+
+      const userData =
+        (socket as any).voiceUser ||
+        (await getCanonicalRoomUser(user, data?.user));
+
+      const state = await getVoiceRoomState(roomId);
+      if (requestedSeatIndex >= state.seats.length) {
+        socket.emit("voice_room:error", { message: "Invalid seat number" });
+        return;
+      }
+
+      const targetSeat = state.seats[requestedSeatIndex];
+      if (targetSeat.isLocked) {
+        socket.emit("voice_room:error", { message: "This seat is locked by host" });
+        return;
+      }
+      if (targetSeat.user && String(targetSeat.user.userId) !== String(userData.userId)) {
+        socket.emit("voice_room:error", { message: "Seat is already occupied" });
+        return;
+      }
+
+      const requestId = `req_${roomId}_${userData.userId}_${Date.now()}`;
+      const requestPayload = {
+        requestId,
+        roomId,
+        seatIndex: requestedSeatIndex,
+        requester: userData,
+        createdAt: Date.now(),
+      };
+
+      if (!state.pendingLiveRequests) state.pendingLiveRequests = {};
+      state.pendingLiveRequests[requestId] = requestPayload;
+      await saveVoiceRoomState(state);
+
+      const socketRoomChannel = `voice_room_channel:${roomId}`;
+      io.to(socketRoomChannel).emit("voice_room:live_seat_request", requestPayload);
+      if (rawRoomId !== roomId) {
+        io.to(`voice_room_channel:${rawRoomId}`).emit("voice_room:live_seat_request", requestPayload);
+      }
+
+      socket.emit("voice_room:live_request_submitted", {
+        success: true,
+        requestId,
+        message: "Application sent to Host! Waiting for approval.",
+      });
+
+      console.log(`[VoiceRoom] ${userData.name} applied for live seat #${requestedSeatIndex + 1} in room ${roomId}`);
+    } catch (err: any) {
+      console.error("[VoiceRoom] Apply live seat error:", err);
+    }
+  });
+
+  // 5.3 Owner Decision on Live Request (Accept / Reject)
+  socket.on("voice_room:respond_live_request", async (data: { roomId: string; requestId: string; approved: boolean; targetUserId: string; seatIndex: number }) => {
+    try {
+      const rawRoomId = String(data?.roomId || (socket as any).voiceRawRoomId || (socket as any).voiceRoomId || "").trim();
+      if (!rawRoomId || !data?.requestId) return;
+      const roomId = normalizeRoomId(rawRoomId);
+
+      const authUserDbId = String((user as any)?.id || (user as any)?._id || "").trim();
+      const authUserNumId = String(user?.userId || "").trim();
+      const isSuperAdminOrOwnerRole = (user as any)?.role === "superAdmin" || (user as any)?.role === "owner";
+      const isAdminRole = (user as any)?.role === "admin";
+
+      const roomDocument: any = await Room.findOne({
+        $or: [{ channelName: roomId }, { channelName: rawRoomId }],
+      }).select("ownerId channelName").lean();
+
+      const isOwner = Boolean(
+        isSuperAdminOrOwnerRole ||
+        (roomDocument?.ownerId && (
+          String(roomDocument.ownerId) === authUserDbId ||
+          (authUserNumId && String(roomDocument.ownerId) === authUserNumId)
+        )) ||
+        (roomDocument?.channelName && (
+          normalizeRoomId(String(roomDocument.channelName)) === normalizeRoomId(authUserNumId) ||
+          String(roomDocument.channelName) === authUserNumId
+        )) ||
+        (authUserNumId && (
+          normalizeRoomId(roomId) === normalizeRoomId(authUserNumId) ||
+          normalizeRoomId(rawRoomId) === normalizeRoomId(authUserNumId)
+        ))
+      );
+
+      if (!isOwner && !isAdminRole) {
+        socket.emit("voice_room:error", {
+          message: "Only the room owner is authorized to accept or reject live requests",
+          code: "UNAUTHORIZED_DECISION",
+        });
+        return;
+      }
+
+      const state = await getVoiceRoomState(roomId);
+      const request = state.pendingLiveRequests?.[data.requestId];
+
+      const requesterData = request?.requester || (await getCanonicalRoomUser({ userId: data.targetUserId }, null));
+      const seatIndex = data.seatIndex !== undefined ? Number(data.seatIndex) : (request?.seatIndex || 1);
+      const socketRoomChannel = `voice_room_channel:${roomId}`;
+
+      if (data.approved) {
+        const targetSeat = state.seats[seatIndex];
+        if (targetSeat && targetSeat.user && String(targetSeat.user.userId) !== String(requesterData.userId)) {
+          socket.emit("voice_room:error", { message: "Seat already taken by another user" });
+          return;
+        }
+
+        // Vacate requester from any other seat in this room
+        state.seats = state.seats.map((s) => {
+          if (s.user && String(s.user.userId) === String(requesterData.userId)) {
+            return { ...s, user: null, isMuted: true };
+          }
+          return s;
+        });
+
+        // Assign approved seat
+        state.seats[seatIndex] = {
+          ...state.seats[seatIndex],
+          user: requesterData,
+          isMuted: false,
+          isLocked: false,
+        };
+
+        if (state.pendingLiveRequests) {
+          delete state.pendingLiveRequests[data.requestId];
+        }
+        await saveVoiceRoomState(state);
+
+        const updatePayload = {
+          seatIndex,
+          user: requesterData,
+          seats: state.seats,
+        };
+
+        io.to(socketRoomChannel).emit("voice_room:seat_updated", updatePayload);
+        if (rawRoomId !== roomId) {
+          io.to(`voice_room_channel:${rawRoomId}`).emit("voice_room:seat_updated", updatePayload);
+        }
+
+        io.to(socketRoomChannel).emit("voice_room:live_request_approved", {
+          requestId: data.requestId,
+          roomId,
+          seatIndex,
+          targetUserId: requesterData.userId,
+        });
+
+        io.to(socketRoomChannel).emit("voice_room:chat_message", {
+          id: "sys-" + Date.now(),
+          type: "system",
+          text: `🎉 ${requesterData.name} was approved for Live seat #${seatIndex + 1}!`,
+          timestamp: Date.now(),
+        });
+
+        console.log(`[VoiceRoom] Owner approved ${requesterData.name} for seat #${seatIndex + 1} in room ${roomId}`);
+      } else {
+        if (state.pendingLiveRequests) {
+          delete state.pendingLiveRequests[data.requestId];
+        }
+        await saveVoiceRoomState(state);
+
+        io.to(socketRoomChannel).emit("voice_room:live_request_rejected", {
+          requestId: data.requestId,
+          roomId,
+          targetUserId: requesterData.userId,
+          message: "Your application was declined by the room host.",
+        });
+
+        console.log(`[VoiceRoom] Owner rejected live request for ${requesterData.name} in room ${roomId}`);
+      }
+    } catch (err: any) {
+      console.error("[VoiceRoom] Respond live request error:", err);
     }
   });
 
@@ -637,6 +1023,68 @@ export const registerVoiceRoomHandlers = (io: Server, socket: AuthenticatedSocke
         }
         return false;
       };
+
+      const userSeat = state.seats.find((s) => isMatchingSeatUser(s.user));
+
+      if (!isExplicitLeave && userSeat) {
+        // BUG #2 & BUG #4: App background / screen lock / momentary network drop grace period
+        // Keep the user in their seat! Do NOT drop mic/seat immediately!
+        console.log(`[VoiceRoom] User ${targetName} (${targetUserId}) disconnected unexpectedly while on seat #${userSeat.seatIndex + 1}. Starting 45s grace timer...`);
+        const timerKey = `${roomId}:${targetUserId}`;
+        if (disconnectGraceTimers.has(timerKey)) {
+          clearTimeout(disconnectGraceTimers.get(timerKey)!);
+        }
+        const timer = setTimeout(async () => {
+          disconnectGraceTimers.delete(timerKey);
+          console.log(`[VoiceRoom] Grace period expired for ${targetName} (${targetUserId}) in room ${roomId}. Vacating seat.`);
+          try {
+            const currentState = await getVoiceRoomState(roomId);
+            const vacated: number[] = [];
+            currentState.seats = currentState.seats.map((s) => {
+              if (isMatchingSeatUser(s.user)) {
+                vacated.push(s.seatIndex);
+                return { ...s, user: null, isMuted: true };
+              }
+              return s;
+            });
+            if (vacated.length > 0) {
+              await saveVoiceRoomState(currentState);
+              vacated.forEach((freedIdx) => {
+                const seatPayload = {
+                  seatIndex: freedIdx,
+                  user: null,
+                  seats: currentState.seats,
+                };
+                io.to(socketRoomChannel).emit("voice_room:seat_updated", seatPayload);
+                if (rawRoomId !== roomId) {
+                  io.to(`voice_room_channel:${rawRoomId}`).emit("voice_room:seat_updated", seatPayload);
+                }
+              });
+              const uPayload = {
+                user: { userId: targetUserId, name: targetName },
+                onlineCount: Object.keys(currentState.onlineUsers || {}).length,
+                freedSeatIndices: vacated,
+                seats: currentState.seats,
+              };
+              io.to(socketRoomChannel).emit("voice_room:user_left", uPayload);
+              if (rawRoomId !== roomId) {
+                io.to(`voice_room_channel:${rawRoomId}`).emit("voice_room:user_left", uPayload);
+              }
+            }
+          } catch (err) {
+            console.error("[VoiceRoom] Grace timer expiration error:", err);
+          }
+        }, GRACE_PERIOD_MS);
+        disconnectGraceTimers.set(timerKey, timer);
+        return;
+      }
+
+      // Explicit leave (or unseated user) -> clear grace timer and vacate immediately
+      const timerKey = `${roomId}:${targetUserId}`;
+      if (disconnectGraceTimers.has(timerKey)) {
+        clearTimeout(disconnectGraceTimers.get(timerKey)!);
+        disconnectGraceTimers.delete(timerKey);
+      }
 
       const isOwnerLeaving = Boolean(
         (targetUserId && normalizeRoomId(targetUserId) === roomId) ||
@@ -1029,7 +1477,12 @@ export const registerVoiceRoomHandlers = (io: Server, socket: AuthenticatedSocke
         (item.metadata?.isFree === true ||
           Number(item.price || 0) === 0 ||
           ["ROOM_TOOL", "BOTH"].includes(
-            String(item.metadata?.themeLocation || "").toUpperCase()
+            String(
+              item.metadata?.seatSkinLocation ||
+              item.metadata?.themeLocation ||
+              item.metadata?.location ||
+              ""
+            ).toUpperCase()
           ));
 
       if (!owned && !isPreset && !isFreeRoomToolSeatSkin) {
@@ -1097,6 +1550,148 @@ export const registerVoiceRoomHandlers = (io: Server, socket: AuthenticatedSocke
     } catch (err: any) {
       console.error("[VoiceRoom] Update seat charm error:", err);
       socket.emit("voice_room:error", { message: err?.message || "Failed to update seat charm" });
+    }
+  });
+
+  // 17. Update Room Details (DP / Title / About) (Owner Only)
+  socket.on("voice_room:update_details", async (data: { roomId: string; coverImage?: string; title?: string; about?: string; seatCount?: number }) => {
+    try {
+      const rawRoomId = String(data?.roomId || (socket as any).voiceRawRoomId || (socket as any).voiceRoomId || "").trim();
+      if (!rawRoomId) return;
+      const roomId = normalizeRoomId(rawRoomId);
+
+      let roomDocument: any = await Room.findOne({
+        $or: [{ channelName: roomId }, { channelName: rawRoomId }],
+      });
+
+      const authUserDbId = String((user as any)?.id || (user as any)?._id || "").trim();
+      const authUserNumId = String(user?.userId || "").trim();
+      const isSuperAdminOrOwnerRole = (user as any)?.role === "superAdmin" || (user as any)?.role === "owner" || (user as any)?.role === "admin";
+
+      const isOwner = Boolean(
+        isSuperAdminOrOwnerRole ||
+        (roomDocument?.ownerId && (
+          String(roomDocument.ownerId) === authUserDbId ||
+          (authUserNumId && String(roomDocument.ownerId) === authUserNumId)
+        )) ||
+        (roomDocument?.channelName && (
+          normalizeRoomId(String(roomDocument.channelName)) === normalizeRoomId(authUserNumId) ||
+          String(roomDocument.channelName) === authUserNumId
+        )) ||
+        (authUserNumId && (
+          normalizeRoomId(roomId) === normalizeRoomId(authUserNumId) ||
+          normalizeRoomId(rawRoomId) === normalizeRoomId(authUserNumId)
+        ))
+      );
+
+      if (!isOwner) {
+        socket.emit("voice_room:error", {
+          message: "Only the room owner is authorized to update room details",
+          code: "NOT_ROOM_OWNER",
+        });
+        return;
+      }
+
+      if (!roomDocument) {
+        try {
+          roomDocument = await Room.create({
+            title: data.title || `Voice Room #${roomId}`,
+            channelName: roomId,
+            ownerId: (user as any)?.id || (user as any)?._id,
+            coverImage: data.coverImage || "",
+            about: data.about || "",
+            seatCount: data.seatCount || 8,
+            isActive: true,
+          });
+        } catch (createErr) {
+          console.warn("[VoiceRoom] Auto-create roomDocument warning:", createErr);
+        }
+      }
+
+      const state = await getVoiceRoomState(roomId);
+      if (data.coverImage) {
+        state.coverImage = data.coverImage;
+        if (roomDocument) roomDocument.coverImage = data.coverImage;
+      }
+      if (data.title) {
+        state.title = data.title;
+        if (roomDocument) roomDocument.title = data.title;
+      }
+      if (data.about) {
+        state.about = data.about;
+        if (roomDocument) (roomDocument as any).about = data.about;
+      }
+      if (data.seatCount) {
+        state.seatCount = data.seatCount;
+        if (roomDocument) (roomDocument as any).seatCount = data.seatCount;
+      }
+
+      await saveVoiceRoomState(state);
+      if (roomDocument) await roomDocument.save();
+
+      const socketRoomChannel = `voice_room_channel:${roomId}`;
+      const payload = {
+        roomId,
+        coverImage: state.coverImage,
+        title: state.title,
+        about: state.about,
+        seatCount: state.seatCount,
+        updatedBy: authUserDbId,
+      };
+
+      io.to(socketRoomChannel).emit("voice_room:details_updated", payload);
+      if (rawRoomId !== roomId) {
+        io.to(`voice_room_channel:${rawRoomId}`).emit("voice_room:details_updated", payload);
+      }
+
+      console.log(`[VoiceRoom] Room ${roomId} details updated (coverImage=${Boolean(data.coverImage)}) by owner ${authUserDbId}`);
+    } catch (err: any) {
+      console.error("[VoiceRoom] Update room details error:", err);
+      socket.emit("voice_room:error", { message: err?.message || "Failed to update room details" });
+    }
+  });
+
+  // 18. Mic Heartbeat for On-Mic Tasks
+  socket.on("voice_room:mic_heartbeat", async (data: { roomId: string; minutes?: number }) => {
+    try {
+      const rawRoomId = String(data?.roomId || (socket as any).voiceRawRoomId || (socket as any).voiceRoomId || "").trim();
+      if (!rawRoomId) return;
+      const roomId = normalizeRoomId(rawRoomId);
+      const authUserId = String((user as any)?.id || (user as any)?._id || (socket as any).userId || "").trim();
+      if (!authUserId) return;
+
+      const mins = Math.max(1, Math.min(60, Number(data?.minutes) || 1));
+      await RoomTaskService.recordMicDuration(roomId, authUserId, mins);
+    } catch (err) {
+      console.warn("[VoiceRoom] Mic heartbeat error:", err);
+    }
+  });
+
+  // 19. Task Claim Socket Handler
+  socket.on("voice_room:task_claim", async (data: { roomId: string; taskId: string }, callback?: (res: any) => void) => {
+    try {
+      const rawRoomId = String(data?.roomId || (socket as any).voiceRawRoomId || (socket as any).voiceRoomId || "").trim();
+      const taskId = String(data?.taskId || "").trim();
+      const authUserId = String((user as any)?.id || (user as any)?._id || (socket as any).userId || "").trim();
+
+      if (!rawRoomId || !taskId || !authUserId) {
+        if (typeof callback === "function") callback({ success: false, message: "Missing required parameters" });
+        return;
+      }
+
+      const roomId = normalizeRoomId(rawRoomId);
+      const result = await RoomTaskService.claimTaskReward(roomId, authUserId, taskId);
+
+      socket.emit("voice_room:task_claimed", {
+        roomId,
+        ...result,
+      });
+
+      if (typeof callback === "function") callback({ success: true, data: result });
+    } catch (err: any) {
+      console.error("[VoiceRoom] Task claim error:", err);
+      if (typeof callback === "function") callback({ success: false, message: err?.message || "Failed to claim task reward" });
+      socket.emit("voice_room:error", { message: err?.message || "Failed to claim task reward" });
     }
   });
 };
