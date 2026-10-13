@@ -49,10 +49,10 @@ export interface VoiceRoomState {
   updatedAt: number;
 }
 
-// Track background/screen-off temporary socket disconnects to prevent mic/seat drops
+// Allow a short reconnect window for temporary socket drops before releasing a seat.
 // Key: `${roomId}:${userId}`
 const disconnectGraceTimers = new Map<string, NodeJS.Timeout>();
-const GRACE_PERIOD_MS = 15 * 60 * 1000; // 15 minutes grace period for temporary socket drops (screen-off / app minimize)
+const GRACE_PERIOD_MS = 45 * 1000;
 
 const buildInitialSeats = (count: number, hostUser: any = null): VoiceRoomSeat[] => {
   const seats: VoiceRoomSeat[] = [];
@@ -1292,7 +1292,7 @@ export const registerVoiceRoomHandlers = (io: Server, socket: AuthenticatedSocke
           if (seatUser.id && String(seatUser.id) === targetUserId) return true;
           if (normalizeRoomId(String(seatUser.userId)) === normalizeRoomId(targetUserId)) return true;
         }
-        if (targetName && targetName !== "User" && targetName !== "Guest") {
+        if (!targetUserId && targetName && targetName !== "User" && targetName !== "Guest") {
           if (seatUser.name && String(seatUser.name).trim().toLowerCase() === targetName.trim().toLowerCase()) return true;
         }
         return false;
