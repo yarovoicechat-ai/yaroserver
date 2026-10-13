@@ -176,9 +176,6 @@ export const getAllActiveVoiceRooms = async (req: Request, res: Response) => {
           if (parsed?.onlineUsers && typeof parsed.onlineUsers === 'object') {
             onlineCount = Object.keys(parsed.onlineUsers).length;
           }
-          if (onlineCount === 0 && Array.isArray(parsed?.seats)) {
-            onlineCount = parsed.seats.filter((s: any) => Boolean(s.user)).length;
-          }
         } catch (_) {}
       }
 
@@ -205,7 +202,7 @@ export const getAllActiveVoiceRooms = async (req: Request, res: Response) => {
         flag: owner.country?.flag || (r as any).flag || '🇮🇳',
         ownerId: owner._id,
         coverImage: r.coverImage || owner.image || owner.avatar || '',
-        onlineCount: String(onlineCount > 0 ? onlineCount : (isPinned ? 0 : 1)),
+        onlineCount: String(onlineCount),
         category: r.category || 'Chat 💬',
         mode: r.mode || 'Public',
         isLocked: Boolean((r as any).isLocked || /private\s*\(pin\)/i.test(String((r as any).mode || ''))),
@@ -281,7 +278,7 @@ export const getMyVoiceRoom = async (req: any, res: Response) => {
           coverImage: (room as any).coverImage || owner.image || user.image || '',
           hostEquippedFrame: owner.equippedFrameAsset || owner.equippedFrame || null,
           hostEquippedFrameAsset: owner.equippedFrameAsset || null,
-          onlineCount: '1',
+          onlineCount: '0',
           category: room.category || 'Chat 💬',
           mode: (room as any).mode || 'Public',
           isLocked: Boolean((room as any).isLocked || /private\s*\(pin\)/i.test(String((room as any).mode || ''))),
@@ -325,7 +322,7 @@ export const createOrUpdateMyVoiceRoom = async (req: any, res: Response) => {
         category: category || 'Chat 💬',
         seatCount: seatCount || 8,
         coverImage: coverImage || user.image || '',
-        about: about || 'Welcome to my party! Grab a seat and chat 💕',
+        about: typeof about === 'string' ? about : '',
         mode: isLocked ? 'Private (PIN)' : (mode || 'Public'),
         isLocked,
         ...(roomPin ? { pinHash: await bcrypt.hash(roomPin, 10) } : {}),
@@ -335,7 +332,7 @@ export const createOrUpdateMyVoiceRoom = async (req: any, res: Response) => {
       room.isActive = true;
       room.channelName = roomChannelId; // Ensure roomId == userId
       if (title) room.title = title;
-      if (about) (room as any).about = about;
+      if (typeof about === 'string') (room as any).about = about;
       if (coverImage) (room as any).coverImage = coverImage;
       if (category) room.category = category;
       if (seatCount) (room as any).seatCount = seatCount;
@@ -376,7 +373,7 @@ export const createOrUpdateMyVoiceRoom = async (req: any, res: Response) => {
       coverImage: (room as any).coverImage || user.image || '',
       hostEquippedFrame: user.equippedFrameAsset || user.equippedFrame || null,
       hostEquippedFrameAsset: user.equippedFrameAsset || null,
-      onlineCount: '1',
+      onlineCount: '0',
       category: room.category || 'Chat 💬',
       mode: (room as any).mode || 'Public',
       isLocked: Boolean((room as any).isLocked || /private\s*\(pin\)/i.test(String((room as any).mode || ''))),
