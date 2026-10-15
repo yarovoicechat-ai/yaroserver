@@ -168,6 +168,12 @@ import {
     getDeletionRequests,
     processDeletionRequest
 } from '../controllers/managementController';
+import {
+    getActiveRoomsAdmin,
+    emergencyCloseRoom,
+    togglePinRoomAdmin,
+    updatePinnedOrderAdmin
+} from '../controllers/liveRoomAdminController';
 
 // Rooms Management
 router.get('/rooms', verifyToken, getAllRooms);
@@ -489,12 +495,6 @@ import {
     getCallDiagnostics,
     recordCallTelemetry
 } from '../controllers/callTelemetryController';
-import {
-    getActiveRoomsAdmin,
-    emergencyCloseRoom,
-    togglePinRoomAdmin,
-    updatePinnedOrderAdmin
-} from '../controllers/liveRoomAdminController';
 import {
     getAllFeatureFlags,
     getFeatureFlagByKey,
