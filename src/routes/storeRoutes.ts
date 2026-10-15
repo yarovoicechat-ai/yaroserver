@@ -14,6 +14,11 @@ import {
   resetStoreCatalog,
   buyStoreItem,
   equipStoreItem,
+  grantAssetToUser,
+  getAssetCatalogAdmin,
+  getUserLookupAdmin,
+  getAssetGrantHistoryAdmin,
+  revokeGrantedAssetAdmin,
 } from '../controllers/storeController';
 import { requireRoles, verifyToken } from '../middlewares/authorize.middleware';
 
@@ -38,5 +43,12 @@ router.get('/king-members', verifyToken, storeManagers, getKingMembers);
 router.post('/king-members/grant', verifyToken, storeManagers, grantKingMembership);
 router.delete('/king-members/:userId', verifyToken, storeManagers, revokeKingMembership);
 router.post('/reset-catalog', verifyToken, storeManagers, resetStoreCatalog);
+
+// Direct Asset Distribution & Reward Grants
+router.post('/grant-asset', verifyToken, storeManagers, grantAssetToUser);
+router.get('/asset-catalog', verifyToken, storeManagers, getAssetCatalogAdmin);
+router.get('/user-lookup', verifyToken, storeManagers, getUserLookupAdmin);
+router.get('/grant-history', verifyToken, storeManagers, getAssetGrantHistoryAdmin);
+router.delete('/revoke-grant/:userId/:inventoryItemId', verifyToken, storeManagers, revokeGrantedAssetAdmin);
 
 export default router;

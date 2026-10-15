@@ -1,3 +1,4 @@
+import mongoose from 'mongoose';
 import { Request, Response } from 'express';
 import { StoreItem, IStoreItem, StoreCategory } from '../models/storeItem.model';
 import { User } from '../models/user.model';
@@ -6,6 +7,9 @@ import HostLevel from '../models/hostLevel.model';
 import Level from '../models/level.model';
 import { EntryEffect } from '../models/entryEffect.model';
 import { VipId } from '../models/vipId.model';
+import { AuditLog } from '../models/auditLog.model';
+import { AuthRequest } from '../middlewares/authorize.middleware';
+import { createNotification } from './notificationController';
 import { recalculateAndUpdateHostLevel } from '../services/user.service';
 import { LevelService } from '../services/level.service';
 import {
@@ -37,12 +41,53 @@ const normalizePriceOptions = (value: any, fallbackPrice: number) => {
   });
 };
 
+export const generateNextAssetUniqueId = async (): Promise<string> => {
+  const items = await StoreItem.find({ uniqueId: { $exists: true, $ne: '' } })
+    .select('uniqueId')
+    .lean();
+  let maxId = 500;
+  for (const it of items) {
+    const num = parseInt(String(it.uniqueId), 10);
+    if (!isNaN(num) && num > maxId) {
+      maxId = num;
+    }
+  }
+  return String(maxId + 1);
+};
+
+export const backfillStoreItemUniqueIds = async (): Promise<void> => {
+  try {
+    const itemsWithoutId = await StoreItem.find({
+      $or: [{ uniqueId: { $exists: false } }, { uniqueId: '' }, { uniqueId: null }]
+    }).sort({ createdAt: 1 });
+
+    if (itemsWithoutId.length === 0) return;
+
+    let nextId = 1001;
+    const existingWithId = await StoreItem.find({ uniqueId: { $exists: true, $ne: '' } }).select('uniqueId').lean();
+    for (const it of existingWithId) {
+      const num = parseInt(String(it.uniqueId), 10);
+      if (!isNaN(num) && num >= nextId) nextId = num + 1;
+    }
+
+    for (const item of itemsWithoutId) {
+      item.uniqueId = String(nextId++);
+      await item.save();
+    }
+  } catch (err: any) {
+    console.warn('backfillStoreItemUniqueIds warning:', err.message);
+  }
+};
+
 const serializeStoreItem = (item: any) => {
   const plain = typeof item?.toObject === 'function' ? item.toObject() : item;
   const metadata = plain?.metadata || {};
   return {
     ...plain,
     id: String(plain?._id || plain?.id || ''),
+    uniqueId: plain?.uniqueId || metadata.uniqueId || String(plain?._id || '').slice(-6).toUpperCase(),
+    audience: plain?.audience || 'general',
+    isStaffOnly: Boolean(plain?.isStaffOnly || plain?.audience === 'employee'),
     priceOptions: normalizePriceOptions(plain?.priceOptions, plain?.price),
     number: metadata.number,
     digits: metadata.digits,
@@ -961,6 +1006,9 @@ export const getStoreLevels = async (req: Request, res: Response) => {
 export const createStoreItem = async (req: Request, res: Response) => {
   try {
     let {
+      uniqueId,
+      audience = 'general',
+      isStaffOnly = false,
       name,
       category,
       price,
@@ -982,6 +1030,23 @@ export const createStoreItem = async (req: Request, res: Response) => {
       return sendResponse(res, 400, false, 'Name, category, and price are required');
     }
 
+    // Process unique ID: if provided, validate uniqueness; else auto-generate
+    let finalUniqueId = String(uniqueId || '').trim();
+    if (finalUniqueId) {
+      const existing = await StoreItem.findOne({ uniqueId: finalUniqueId });
+      if (existing) {
+        return sendResponse(res, 400, false, `Unique Asset ID "${finalUniqueId}" is already assigned to "${existing.name}". Please choose another ID.`);
+      }
+    } else {
+      finalUniqueId = await generateNextAssetUniqueId();
+    }
+
+    // Set employee/staff flag
+    if (audience === 'employee' || isStaffOnly === true) {
+      audience = 'employee';
+      isStaffOnly = true;
+    }
+
     // Normalize category
     if (category === 'Frame') category = 'Frames';
     if (category === 'Entry Effect' || category === 'Entry Effects') category = 'Entry';
@@ -990,6 +1055,9 @@ export const createStoreItem = async (req: Request, res: Response) => {
     const thirtyDayPrice = normalizedPrices.find((option) => option.days === 30)?.diamonds || Number(price) || 0;
 
     const newItem = await StoreItem.create({
+      uniqueId: finalUniqueId,
+      audience,
+      isStaffOnly,
       name: String(name).trim(),
       category,
       price: thirtyDayPrice,
@@ -1051,7 +1119,7 @@ export const createStoreItem = async (req: Request, res: Response) => {
       await syncStoreVipPackage(newItem);
     }
 
-    return sendResponse(res, 201, true, 'Store item created successfully', newItem);
+    return sendResponse(res, 201, true, 'Store item created successfully', serializeStoreItem(newItem));
   } catch (error: any) {
     console.error('createStoreItem error:', error);
     return sendResponse(res, 500, false, error.message || 'Failed to create store item');
@@ -1074,6 +1142,19 @@ export const updateStoreItem = async (req: Request, res: Response) => {
       updateData.sortOrder = Number(updateData.sortOrder);
     }
 
+    if (updateData.uniqueId) {
+      updateData.uniqueId = String(updateData.uniqueId).trim();
+      const existing = await StoreItem.findOne({ uniqueId: updateData.uniqueId, _id: { $ne: id } });
+      if (existing) {
+        return sendResponse(res, 400, false, `Unique ID "${updateData.uniqueId}" is already used by another item.`);
+      }
+    }
+
+    if (updateData.audience === 'employee' || updateData.isStaffOnly === true) {
+      updateData.audience = 'employee';
+      updateData.isStaffOnly = true;
+    }
+
     const updated = await StoreItem.findByIdAndUpdate(id, updateData, { new: true, runValidators: true });
     if (!updated) {
       return sendResponse(res, 404, false, 'Store item not found');
@@ -1083,7 +1164,7 @@ export const updateStoreItem = async (req: Request, res: Response) => {
       await syncStoreVipPackage(updated);
     }
 
-    return sendResponse(res, 200, true, 'Store item updated successfully', updated);
+    return sendResponse(res, 200, true, 'Store item updated successfully', serializeStoreItem(updated));
   } catch (error: any) {
     console.error('updateStoreItem error:', error);
     return sendResponse(res, 500, false, error.message || 'Failed to update store item');
@@ -1247,6 +1328,324 @@ export const resetStoreCatalog = async (req: Request, res: Response) => {
     return sendResponse(res, 200, true, 'Store catalog reset and re-seeded successfully', { count: inserted.length });
   } catch (error: any) {
     return sendResponse(res, 500, false, error.message || 'Failed to reset store catalog');
+  }
+};
+
+// ==================== ADMIN ASSET DISTRIBUTION & DIRECT GRANT ====================
+
+export const getAssetCatalogAdmin = async (req: Request, res: Response) => {
+  try {
+    await backfillStoreItemUniqueIds();
+    const { category, audience, search } = req.query;
+    const filter: any = {};
+    if (category && category !== 'All') {
+      filter.category = category;
+    }
+    if (audience && audience !== 'All') {
+      filter.audience = audience;
+    }
+    if (search) {
+      filter.$or = [
+        { name: { $regex: search, $options: 'i' } },
+        { uniqueId: { $regex: search, $options: 'i' } },
+        { category: { $regex: search, $options: 'i' } },
+      ];
+    }
+
+    const items = await StoreItem.find(filter).sort({ sortOrder: 1, createdAt: -1 }).lean();
+    return sendResponse(res, 200, true, 'Asset catalog fetched', {
+      assets: items.map(serializeStoreItem),
+      total: items.length,
+    });
+  } catch (error: any) {
+    return sendResponse(res, 500, false, error.message || 'Failed to fetch asset catalog');
+  }
+};
+
+export const getUserLookupAdmin = async (req: Request, res: Response) => {
+  try {
+    const { query } = req.query;
+    const q = String(query || '').trim();
+    if (!q) {
+      return sendResponse(res, 200, true, 'User lookup', { users: [] });
+    }
+
+    const num = Number(q);
+    const conditions: any[] = [
+      { name: { $regex: q, $options: 'i' } },
+      { phoneNumber: { $regex: q, $options: 'i' } },
+      { meethiId: q },
+      { specialCode: q },
+    ];
+    if (!isNaN(num)) {
+      conditions.unshift({ userId: num });
+    }
+    if (mongoose.Types.ObjectId.isValid(q)) {
+      conditions.push({ _id: q });
+    }
+
+    const users = await User.find({ $or: conditions })
+      .select('_id userId name phoneNumber email image role diamonds coins isBlocked status')
+      .limit(10)
+      .lean();
+
+    return sendResponse(res, 200, true, 'User lookup', { users });
+  } catch (error: any) {
+    return sendResponse(res, 500, false, error.message || 'Failed to lookup user');
+  }
+};
+
+export const grantAssetToUser = async (req: AuthRequest, res: Response) => {
+  try {
+    const adminUser = req.user;
+    const {
+      userQuery,
+      assetQuery,
+      durationDays = 30,
+      message = '',
+      autoEquip = true,
+      audience = 'general',
+    } = req.body;
+
+    if (!userQuery) {
+      return sendResponse(res, 400, false, 'User identifier (User ID / Phone / Email) is required');
+    }
+    if (!assetQuery) {
+      return sendResponse(res, 400, false, 'Asset identifier (Unique ID / Asset Name) is required');
+    }
+
+    // 1. Find target user
+    const numericUserId = Number(userQuery);
+    const userSearchConditions: any[] = [];
+    if (!isNaN(numericUserId)) {
+      userSearchConditions.push({ userId: numericUserId });
+    }
+    userSearchConditions.push(
+      { meethiId: String(userQuery).trim() },
+      { specialCode: String(userQuery).trim() },
+      { phoneNumber: String(userQuery).trim() },
+      { email: String(userQuery).trim().toLowerCase() }
+    );
+    if (mongoose.Types.ObjectId.isValid(String(userQuery))) {
+      userSearchConditions.push({ _id: userQuery });
+    }
+
+    const targetUser: any = await User.findOne({ $or: userSearchConditions });
+    if (!targetUser) {
+      return sendResponse(res, 404, false, `User "${userQuery}" not found`);
+    }
+
+    // 2. Find asset in StoreItem (by uniqueId, _id, or exact/fuzzy name)
+    const assetSearchConditions: any[] = [
+      { uniqueId: String(assetQuery).trim() },
+      { name: new RegExp(`^${String(assetQuery).trim()}$`, 'i') },
+    ];
+    if (mongoose.Types.ObjectId.isValid(String(assetQuery))) {
+      assetSearchConditions.push({ _id: assetQuery });
+    }
+
+    let asset: any = await StoreItem.findOne({ $or: assetSearchConditions });
+
+    if (!asset) {
+      // Check VipId or EntryEffect
+      const vipAsset: any = await VipId.findOne({
+        $or: [
+          { slug: String(assetQuery).trim().toLowerCase() },
+          { name: new RegExp(`^${String(assetQuery).trim()}$`, 'i') },
+        ]
+      });
+      if (vipAsset) {
+        asset = await StoreItem.findOne({ name: vipAsset.name });
+      }
+    }
+
+    if (!asset) {
+      return sendResponse(res, 404, false, `Asset "${assetQuery}" not found in Store or Assets catalog`);
+    }
+
+    const days = Math.max(0, Number(durationDays) || 0);
+    const purchasedAt = new Date();
+    // Expiration date is strictly bound from grant time regardless of whether equipped or not!
+    const expiresAt = days > 0 ? new Date(purchasedAt.getTime() + days * 24 * 60 * 60 * 1000) : null;
+
+    targetUser.storeInventory = Array.isArray(targetUser.storeInventory) ? targetUser.storeInventory : [];
+
+    const inventoryEntry: any = {
+      itemId: asset._id,
+      name: asset.name,
+      category: asset.category,
+      durationDays: days,
+      purchasedAt,
+      expiresAt,
+      imageUrl: asset.imageUrl || asset.image || '',
+      animationUrl: asset.animationUrl || '',
+      source: 'admin_grant',
+      grantKey: `admin-grant:${Date.now()}:${adminUser?.id || 'admin'}`,
+      uniqueId: asset.uniqueId || '',
+      message: message || '',
+      grantedBy: adminUser?.id && mongoose.Types.ObjectId.isValid(adminUser.id) ? new mongoose.Types.ObjectId(adminUser.id) : undefined,
+    };
+
+    targetUser.storeInventory.push(inventoryEntry);
+
+    // If VIP / SVIP / King of Kings
+    if (asset.category === 'VIP' || asset.category === 'King of Kings') {
+      const vipPackage = await syncStoreVipPackage(asset);
+      if (vipPackage) {
+        targetUser.equippedVipId = vipPackage.slug;
+        targetUser.equippedVipExpiresAt = expiresAt;
+        targetUser.ownedVipIds = Array.isArray(targetUser.ownedVipIds) ? targetUser.ownedVipIds : [];
+        if (!targetUser.ownedVipIds.includes(vipPackage.slug)) {
+          targetUser.ownedVipIds.push(vipPackage.slug);
+        }
+      }
+    }
+
+    // Auto-equip if requested
+    if (autoEquip) {
+      const cat = normalizeStoreCategory(asset.category);
+      if (cat === 'Frames') {
+        targetUser.equippedFrame = asset.name;
+        targetUser.equippedFrameAsset = {
+          name: asset.name,
+          imageUrl: asset.imageUrl || asset.image || '',
+          animationUrl: asset.animationUrl || '',
+          previewColor: asset.previewColor || '#8B5CF6',
+          expiresAt,
+        };
+      } else if (cat === 'Entry' || cat === 'Entrance') {
+        targetUser.equippedEntry = asset.name;
+        targetUser.equippedEntryAsset = {
+          name: asset.name,
+          imageUrl: asset.imageUrl || asset.image || '',
+          animationUrl: asset.animationUrl || '',
+          expiresAt,
+        };
+      } else if (cat === 'Chat Bubble') {
+        targetUser.equippedChatBubble = asset.name;
+        targetUser.equippedChatBubbleAsset = {
+          name: asset.name,
+          textColor: asset.metadata?.textColor || '#FEF3C7',
+          borderColor: asset.metadata?.borderColor || asset.previewColor || '#F59E0B',
+          bgColors: asset.bgColors || ['#78350F', '#B45309', '#D97706'],
+          previewColor: asset.previewColor || '#F59E0B',
+          imageUrl: asset.imageUrl || asset.image || '',
+          expiresAt,
+        };
+      } else if (cat === 'Badge' || cat === 'Tag') {
+        targetUser.equippedBadge = asset.name;
+        targetUser.equippedEntryTag = asset.badgeText || asset.name;
+      } else if (cat === 'Mic Wave') {
+        targetUser.equippedMicWave = asset.name;
+      } else if (cat === 'Tassel') {
+        targetUser.equippedTassel = asset.name;
+        targetUser.equippedTasselAsset = {
+          name: asset.name,
+          imageUrl: asset.imageUrl || asset.image || '',
+          animationUrl: asset.animationUrl || '',
+          expiresAt,
+        };
+      } else if (cat === 'Theme') {
+        targetUser.equippedRoomTheme = asset.name;
+      }
+    }
+
+    await targetUser.save();
+
+    // Send System Message / Notification
+    const validityText = days > 0 ? `${days} Days` : 'Permanent Lifetime';
+    const notifMessage = message?.trim()
+      ? message.trim()
+      : `🎁 Congratulations! You have received ${asset.name} (${validityText}) from Admin. Tap View to equip in My Items.`;
+
+    await createNotification(
+      String(targetUser._id),
+      `🎁 New ${asset.category} Received: ${asset.name}`,
+      notifMessage,
+      'system',
+      {
+        action: 'MyItems',
+        screen: 'MyItems',
+        category: asset.category,
+        uniqueId: asset.uniqueId || '',
+        assetName: asset.name,
+        assetImage: asset.imageUrl || asset.image || '',
+        durationDays: days,
+        expiresAt,
+      }
+    );
+
+    // Audit Log
+    if (adminUser?.id && mongoose.Types.ObjectId.isValid(adminUser.id)) {
+      await AuditLog.create({
+        adminId: adminUser.id,
+        action: 'GRANT_ASSET',
+        target: String(targetUser._id),
+        details: `Granted asset "${asset.name}" (Unique ID: ${asset.uniqueId || 'N/A'}, Category: ${asset.category}, Days: ${days}) to user "${targetUser.name}" (${targetUser.userId}). Message: ${message || 'N/A'}`,
+        newValue: {
+          assetId: asset._id,
+          uniqueId: asset.uniqueId,
+          assetName: asset.name,
+          category: asset.category,
+          userId: targetUser._id,
+          userNumericId: targetUser.userId,
+          userName: targetUser.name,
+          durationDays: days,
+          expiresAt,
+          message: notifMessage,
+        },
+        ipAddress: req.ip || '127.0.0.1',
+      }).catch((err) => console.warn('AuditLog creation notice:', err.message));
+    }
+
+    return sendResponse(res, 200, true, `Successfully granted "${asset.name}" to ${targetUser.name}!`, {
+      user: {
+        _id: targetUser._id,
+        userId: targetUser.userId,
+        name: targetUser.name,
+        image: targetUser.image,
+      },
+      asset: serializeStoreItem(asset),
+      durationDays: days,
+      expiresAt,
+      message: notifMessage,
+    });
+  } catch (error: any) {
+    console.error('grantAssetToUser error:', error);
+    return sendResponse(res, 500, false, error.message || 'Failed to grant asset');
+  }
+};
+
+export const getAssetGrantHistoryAdmin = async (req: Request, res: Response) => {
+  try {
+    const logs = await AuditLog.find({ action: 'GRANT_ASSET' })
+      .populate('adminId', 'name email userId')
+      .sort({ createdAt: -1 })
+      .limit(50)
+      .lean();
+
+    return sendResponse(res, 200, true, 'Grant history fetched', { history: logs });
+  } catch (error: any) {
+    return sendResponse(res, 500, false, error.message || 'Failed to fetch grant history');
+  }
+};
+
+export const revokeGrantedAssetAdmin = async (req: Request, res: Response) => {
+  try {
+    const { userId, inventoryItemId } = req.params;
+    const user: any = await User.findById(userId);
+    if (!user) {
+      return sendResponse(res, 404, false, 'User not found');
+    }
+
+    user.storeInventory = (user.storeInventory || []).filter(
+      (entry: any) => String(entry._id) !== inventoryItemId && String(entry.itemId) !== inventoryItemId
+    );
+    await user.save();
+
+    return sendResponse(res, 200, true, 'Asset grant revoked successfully');
+  } catch (error: any) {
+    return sendResponse(res, 500, false, error.message || 'Failed to revoke granted asset');
   }
 };
 

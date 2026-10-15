@@ -44,6 +44,9 @@ export interface IStoreItem extends Document {
   icon?: string;
   imageUrl?: string; // Store cover for Frames/Entry; animationUrl is the playable asset.
   animationUrl?: string; // SVGA / Lottie / MP4 / GIF
+  uniqueId?: string; // Numeric or short unique ID like '555', '1001'
+  audience?: 'general' | 'employee' | 'vip' | 'event';
+  isStaffOnly?: boolean;
   desc?: string;
   isActive: boolean;
   sortOrder: number;
@@ -55,6 +58,14 @@ export interface IStoreItem extends Document {
 
 const StoreItemSchema = new Schema<IStoreItem>(
   {
+    uniqueId: { type: String, unique: true, sparse: true, trim: true, index: true },
+    audience: {
+      type: String,
+      enum: ['general', 'employee', 'vip', 'event'],
+      default: 'general',
+      index: true,
+    },
+    isStaffOnly: { type: Boolean, default: false, index: true },
     name: { type: String, required: true, trim: true },
     category: {
       type: String,

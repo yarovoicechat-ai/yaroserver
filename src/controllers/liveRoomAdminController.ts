@@ -69,9 +69,9 @@ export const togglePinRoomAdmin = async (req: AuthRequest, res: Response) => {
             return sendResponse(res, 404, false, 'Room not found');
         }
 
-        // Must be active to pin
+        // If pinning, ensure room is active so it displays at the top of the app
         if (isPinned && !room.isActive) {
-            return sendResponse(res, 400, false, 'Only active voice rooms can be pinned. Room must be live.');
+            room.isActive = true;
         }
 
         room.isPinned = Boolean(isPinned);

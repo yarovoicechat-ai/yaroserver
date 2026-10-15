@@ -55,7 +55,7 @@ export const getAllRooms = async (req: Request, res: Response, next: NextFunctio
             .populate('ownerId', 'name email userId image gender')
             .skip((pageNum - 1) * limitNum)
             .limit(limitNum)
-            .sort({ createdAt: -1 });
+            .sort({ isPinned: -1, pinnedOrder: 1, createdAt: -1 });
 
         const total = await Room.countDocuments(query);
 

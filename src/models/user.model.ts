@@ -23,8 +23,11 @@ const StoreInventoryItemSchema = new Schema(
     expiresAt: { type: Date },
     imageUrl: { type: String, default: '' },
     animationUrl: { type: String, default: '' },
-    source: { type: String, enum: ['store', 'level'], default: 'store' },
+    source: { type: String, enum: ['store', 'level', 'admin_grant'], default: 'store' },
     grantKey: { type: String, default: '' },
+    uniqueId: { type: String, default: '' },
+    message: { type: String, default: '' },
+    grantedBy: { type: Schema.Types.ObjectId, ref: 'User' },
   },
   { _id: true }
 );

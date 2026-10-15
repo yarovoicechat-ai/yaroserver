@@ -174,6 +174,8 @@ router.get('/rooms', verifyToken, getAllRooms);
 router.post('/rooms', verifyToken, createRoom);
 router.delete('/rooms/:id', verifyToken, deleteRoom);
 router.patch('/rooms/:id/lock', verifyToken, toggleLockRoom);
+router.patch('/rooms/:id/pin', verifyToken, togglePinRoomAdmin);
+router.post('/rooms/:id/pin', verifyToken, togglePinRoomAdmin);
 router.post('/rooms/:id/kick', verifyToken, kickUserFromRoom);
 router.post('/rooms/:id/mute', verifyToken, muteUserInRoom);
 
