@@ -129,14 +129,15 @@ const chatSocket = (io: Server) => {
         io.emit("userOnline", { userId: userIdStr });
 
         // ------------------ Chat & Lists ------------------
-        socket.on("requestHostsList", async (data: { tab?: string, language?: string } = {}) => {
+        socket.on("requestHostsList", async (data: { tab?: string, language?: string, type?: string } = {}) => {
             const hostsData = await getAllHostsService({
                 role: "host", // Everyone sees hosts
                 page: 1,
                 limit: 50,
                 userId: String(socket.user?.id),
                 tab: data?.tab,
-                language: data?.language
+                language: data?.language,
+                type: data?.type || 'voice'
             });
             socket.emit("hostsList", hostsData);
         });

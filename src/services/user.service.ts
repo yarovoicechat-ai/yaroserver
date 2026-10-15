@@ -282,6 +282,7 @@ interface GetAllHostsOptions {
   page: number;
   limit: number;
   tab?: string;
+  type?: string;
   language?: string; // Explicit language filter
   search?: string;
 }
@@ -292,11 +293,12 @@ export const getAllHostsService = async ({
   limit,
   userId, // <-- pass the logged-in user's ID here
   tab = 'All',
+  type,
   language,
   search,
 }: GetAllHostsOptions & { userId?: string }) => {
   // Create cache key based on parameters
-  const cacheKey = `hosts:${role}:${page}:${limit}:${userId || 'none'}:${tab}:${search || ''}`;
+  const cacheKey = `hosts:${role}:${page}:${limit}:${userId || 'none'}:${tab}:${type || 'all'}:${language || 'all'}:${search || ''}`;
 
   // Try to get from cache first (only when not searching)
   if (!search) {
@@ -347,7 +349,7 @@ export const getAllHostsService = async ({
   }
 
   let fields =
-    "userId name image isOnline audio audioPrice videoPrice language languages hobbies isActive bio country role isVerified faceVerificationStatus kycVerificationStatus";
+    "userId name image isOnline audio audioPrice videoPrice language languages hobbies isActive bio country role isVerified faceVerificationStatus kycVerificationStatus hostTypes canVoiceCall canVideoCall canRoomHost";
 
   // Role-based access
   switch (role) {

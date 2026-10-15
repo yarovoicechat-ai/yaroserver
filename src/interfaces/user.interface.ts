@@ -69,6 +69,10 @@ export interface UserInterface extends Document {
   userName?: string;
   isActive?: boolean;
   isBusy?: boolean;
+  hostTypes?: string[];
+  canVoiceCall?: boolean;
+  canVideoCall?: boolean;
+  canRoomHost?: boolean;
   meethiId?: string;
   blockedUsers?: Types.ObjectId[];
   level?: number;

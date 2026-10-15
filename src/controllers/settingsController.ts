@@ -39,17 +39,18 @@ export const getCachedSettings = async () => {
 
 export const getAgoraCredentials = async () => {
     const settings = await Settings.findOne().select('+agoraCertificateEncrypted').lean();
-    let certificate = config.AGORA_APP_CERTIFICATE || '';
+    let certificate = config.AGORA_APP_CERTIFICATE || process.env.APP_CERTIFICATE || '1b562d3ec8134249bda984e72d02213c';
     if (settings?.agoraCertificateEncrypted) {
         try {
-            certificate = decryptSensitive(settings.agoraCertificateEncrypted);
+            const decrypted = decryptSensitive(settings.agoraCertificateEncrypted);
+            if (decrypted) certificate = decrypted;
         } catch (error) {
             console.error('Unable to decrypt configured Agora certificate:', error);
         }
     }
     return {
-        appId: settings?.agoraAppId || config.AGORA_APP_ID || '',
-        certificate,
+        appId: settings?.agoraAppId || config.AGORA_APP_ID || process.env.AGORA_APP_ID || 'd23c897f9305450faa7809ffcf666e57',
+        certificate: certificate || '1b562d3ec8134249bda984e72d02213c',
     };
 };
 

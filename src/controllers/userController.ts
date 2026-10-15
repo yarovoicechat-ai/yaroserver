@@ -396,7 +396,7 @@ export const getUserById = async (req: AuthRequest, res: Response) => {
 // update user by userID with role based update 
 export const updateUser = async (req: AuthRequest, res: Response) => {
   try {
-    const { name, phoneNumber, bio, role, coins, diamonds, language, gender, phoneVerified, image, profilePic, country, age, password, level } = req.body;
+    const { name, phoneNumber, bio, role, coins, diamonds, language, gender, phoneVerified, image, profilePic, country, age, password, level, hostTypes, hostingTypes, canVoiceCall, canVideoCall, canRoomHost, isActive } = req.body;
     const { role: requesterRole, userId: requesterId } = req.user || {};
 
     let targetUserId: string;

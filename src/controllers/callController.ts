@@ -21,6 +21,7 @@ import { notifyHostCallState } from '../services/callStateNotification.service';
 import { recalculateAndUpdateHostLevel } from '../services/user.service';
 import { CALL_DIAMONDS_PER_MINUTE } from '../configs/monetization';
 import redis from '../configs/redisConfig';
+import { config } from '../configs/envConfig';
 
 
 // export const startCall = async (req: AuthRequest, res: Response) => {
@@ -401,8 +402,8 @@ export const startCall = async (req: AuthRequest, res: Response) => {
 
     const [runtimeSettings, agoraCredentials] = await Promise.all([getCachedSettings(), getAgoraCredentials()]);
     const CALL_RATE_PER_MINUTE = Math.max(1, Number(runtimeSettings.callRatePerMinute || CALL_DIAMONDS_PER_MINUTE));
-    const APP_ID = agoraCredentials.appId;
-    const APP_CERTIFICATE = agoraCredentials.certificate;
+    const APP_ID = agoraCredentials.appId || config.AGORA_APP_ID || process.env.AGORA_APP_ID || 'd23c897f9305450faa7809ffcf666e57';
+    const APP_CERTIFICATE = agoraCredentials.certificate || config.AGORA_APP_CERTIFICATE || process.env.APP_CERTIFICATE || '1b562d3ec8134249bda984e72d02213c';
     if (!APP_ID || !APP_CERTIFICATE) {
       return sendResponse(res, 503, false, 'Calling service is not configured');
     }
@@ -455,7 +456,18 @@ export const startCall = async (req: AuthRequest, res: Response) => {
     let host: any = null;
     if (randomMatch) {
       const candidates = await User.aggregate([
-        { $match: { _id: { $ne: new Types.ObjectId(userId) }, role: 'host', isDeleted: { $ne: true }, isActive: true, isBusy: false } },
+        { $match: {
+          _id: { $ne: new Types.ObjectId(userId) },
+          role: 'host',
+          isDeleted: { $ne: true },
+          isActive: true,
+          isBusy: false,
+          ...(isVideo ? {
+            $or: [{ hostTypes: 'video' }, { canVideoCall: true }, { hostTypes: { $exists: false } }, { hostTypes: { $size: 0 } }]
+          } : {
+            $or: [{ hostTypes: 'voice' }, { canVoiceCall: true }, { hostTypes: { $exists: false } }, { hostTypes: { $size: 0 } }]
+          })
+        } },
         { $sample: { size: 12 } },
         { $project: { _id: 1 } },
       ]);
@@ -487,9 +499,24 @@ export const startCall = async (req: AuthRequest, res: Response) => {
       });
     }
 
+
     if (!host) {
       return sendResponse(res, 404, false, "Host user not found");
     }
+
+    // Verify host calling capability
+    if (!isVideo) {
+      const canVoice = host.canVoiceCall !== false && (!host.hostTypes || host.hostTypes.length === 0 || host.hostTypes.includes('voice'));
+      if (!canVoice) {
+        return sendResponse(res, 400, false, "This host does not accept voice calls.");
+      }
+    } else {
+      const canVideo = host.canVideoCall !== false && (!host.hostTypes || host.hostTypes.length === 0 || host.hostTypes.includes('video'));
+      if (!canVideo) {
+        return sendResponse(res, 400, false, "This host does not accept video calls.");
+      }
+    }
+
 
     // Enforce UGC user block settings bidirectionally
     const callerIdStr = liveCaller._id.toString();
@@ -1430,7 +1457,7 @@ export const getCallStatus = async (req: AuthRequest, res: Response) => {
         callerAgoraUid: meta?.callerAgoraUid,
         hostToken: meta?.hostToken,
         hostAgoraUid: meta?.hostAgoraUid,
-        appId: meta?.appId || fallbackAgora?.appId || ''
+        appId: meta?.appId || fallbackAgora?.appId || config.AGORA_APP_ID || 'd23c897f9305450faa7809ffcf666e57'
       },
     });
   } catch (error: any) {

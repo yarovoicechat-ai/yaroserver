@@ -6,6 +6,7 @@ interface ITempHost extends Document {
   query?: string;
   isVerified: boolean;
   audioURL?: string;
+  hostTypes?: string[];
   createdAt: Date;
 }
 
@@ -16,6 +17,7 @@ const TempHostSchema = new Schema<ITempHost>(
     query: { type: String, default: "" },
     isVerified: { type: Boolean, default: false },
     audioURL: { type: String },
+    hostTypes: { type: [String], default: ['voice'] },
     createdAt: { type: Date, default: Date.now },
   },
   { timestamps: true }

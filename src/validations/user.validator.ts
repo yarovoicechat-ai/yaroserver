@@ -40,6 +40,41 @@ export const validationUpdateUserLimited = [
     .isInt({ min: 18, max: 120 })
     .withMessage("Age must be a valid integer between 18 and 120"),
 
+  
+  body("role")
+    .optional()
+    .isString()
+    .withMessage("Role must be a string"),
+
+  body("hostTypes")
+    .optional()
+    .isArray()
+    .withMessage("hostTypes must be an array"),
+
+  body("hostingTypes")
+    .optional()
+    .isArray()
+    .withMessage("hostingTypes must be an array"),
+
+  body("canVoiceCall")
+    .optional()
+    .isBoolean()
+    .withMessage("canVoiceCall must be a boolean"),
+
+  body("canVideoCall")
+    .optional()
+    .isBoolean()
+    .withMessage("canVideoCall must be a boolean"),
+
+  body("canRoomHost")
+    .optional()
+    .isBoolean()
+    .withMessage("canRoomHost must be a boolean"),
+
+  body("isActive")
+    .optional()
+    .isBoolean()
+    .withMessage("isActive must be a boolean"),
   body("country")
     .optional()
     .isObject()

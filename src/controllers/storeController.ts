@@ -694,11 +694,7 @@ export const getStoreItems = async (req: Request, res: Response) => {
   try {
     const { category, search, activeOnly } = req.query;
 
-    // Check count and auto-seed if collection is completely empty
-    const count = await StoreItem.countDocuments();
-    if (count === 0) {
-      await StoreItem.insertMany(DEFAULT_SEED_ITEMS);
-    }
+    // Auto-seeding disabled: Only display items actively managed/uploaded via Admin Panel
 
     // Auto-sync any existing frames from Level collection (e.g., 'new frame' uploaded via Admin) into StoreItem
     try {
@@ -738,19 +734,7 @@ export const getStoreItems = async (req: Request, res: Response) => {
       console.warn('[StoreItem] Frame sync notice:', syncErr.message);
     }
 
-    // Auto-sync seat skins to ensure 6 HD seat skins exist in StoreItem collection
-    try {
-      const HD_SEAT_SKINS = DEFAULT_SEED_ITEMS.filter((item) => item.category === 'Seat Skin');
-      for (const skin of HD_SEAT_SKINS) {
-        await StoreItem.findOneAndUpdate(
-          { category: 'Seat Skin', $or: [{ name: skin.name }, { 'metadata.seatSkinType': skin.metadata?.seatSkinType }] },
-          { $set: skin },
-          { upsert: true, new: true, setDefaultsOnInsert: true }
-        );
-      }
-    } catch (seatSyncErr: any) {
-      console.warn('[StoreItem] Seat skin sync notice:', seatSyncErr.message);
-    }
+    // Seat skin auto-sync disabled: only admin items used
 
     const filter: any = {};
     if (category && category !== 'All') {
@@ -774,6 +758,40 @@ export const getStoreItems = async (req: Request, res: Response) => {
         { 'metadata.number': { $regex: search.trim(), $options: 'i' } },
       ];
     }
+
+    
+    // Exclude dummy seed assets - only real items uploaded/created from panel are served
+    const DUMMY_NAMES = [
+      '88888 (Fortune Gold)',
+      '99999 (Crown Emperor)',
+      '77777 (Jackpot Lucky)',
+      '1314520 (Forever Romance)',
+      '666666 (Smooth Victory)',
+      'Golden Royal Bubble',
+      'Cyberpunk Glow Bubble',
+      'Sakura Romance Bubble',
+      'Galaxy Nebula Bubble',
+      'Golden Pulse Wave',
+      'Cyber Neon Wave',
+      'Heartbeat Crimson Wave',
+      'Solar Flare Wave',
+      'Royal Phantom Rolls',
+      'Golden Dragon Descent',
+      'Cyber Hypercar',
+      'Golden Orb VIP Seat',
+      'Imperial Gold Throne',
+      'Cyber Neon Pod',
+      'Emerald Lotus Throne',
+      'Phoenix Dragon Throne',
+      'Mermaid Pearl Seashell',
+      'Golden Peacock Tassel',
+      'Imperial Jade Tassel',
+      'VIP Bronze (30 Days)',
+      'VIP Silver (30 Days)',
+      'SVIP Sovereign (90 Days)'
+    ];
+    filter.name = { $nin: DUMMY_NAMES };
+    filter.imageUrl = { $not: /^\/uploads\/seats\// };
 
     const items = await StoreItem.find(filter).sort({ category: 1, sortOrder: 1, createdAt: -1 }).lean();
     const serializedItems = items.map(serializeStoreItem);

@@ -12,6 +12,7 @@ export interface IHost extends Document {
   addressProof?: string;
   profilePhoto?: string;
   termsAccepted: boolean;
+  hostTypes?: string[];
   isDeleted?: boolean;
   isApproved?: boolean;
   createdAt?: Date;
@@ -31,6 +32,7 @@ const HostSchema = new Schema<IHost>(
     addressProof: { type: String },
     profilePhoto: { type: String },
     termsAccepted: { type: Boolean, required: true, default: false },
+    hostTypes: { type: [String], default: ['voice', 'video', 'room'] },
     isDeleted: { type: Boolean, default: false },
     isApproved: { type: Boolean, default: false },
   },

@@ -14,6 +14,7 @@ import { createNotification } from "./notificationController";
 import { Agency } from "../models/agency.model";
 import { Request as RequestModel, RequestStatus } from "../models/request.model";
 import { HierarchyScopeService } from "../utils/hierarchyScope";
+import { invalidateHostCache } from "../services/user.service";
 import { isPlayableVoiceUrl } from "../utils/voiceMedia";
 
 export const applyHost = async (req: AuthRequest, res: Response, next: NextFunction) => {
@@ -40,12 +41,25 @@ export const applyHost = async (req: AuthRequest, res: Response, next: NextFunct
             userObj = await User.findOne({ $or: findConditions });
         }
 
+        
+        const rawHostTypes = req.body.hostTypes || req.body.hostingTypes;
+        let parsedHostTypes: string[] = ['voice'];
+        if (Array.isArray(rawHostTypes) && rawHostTypes.length > 0) {
+            const valid = rawHostTypes
+                .map((t: string) => String(t).toLowerCase().trim())
+                .filter((t: string) => ['voice', 'video', 'room', 'voice_call', 'video_call', 'room_hosting'].includes(t))
+                .map((t: string) => t === 'voice_call' ? 'voice' : t === 'video_call' ? 'video' : t === 'room_hosting' ? 'room' : t);
+            parsedHostTypes = Array.from(new Set(valid));
+        }
+        if (parsedHostTypes.length === 0) parsedHostTypes = ['voice'];
+
         const numericUserId = userObj?.userId || (isNum ? Number(rawUserId) : await generateUniqueId());
         const hostId = await generateUniqueId();
 
         let host = await TempHostModel.findOne({ userId: numericUserId });
         if (host) {
             host.audioURL = audioUrl;
+            (host as any).hostTypes = parsedHostTypes;
             await host.save();
         } else {
             host = new TempHostModel({
@@ -54,6 +68,7 @@ export const applyHost = async (req: AuthRequest, res: Response, next: NextFunct
                 userId: numericUserId,
                 audioURL: audioUrl,
                 isVerified: false,
+                hostTypes: parsedHostTypes,
             });
             await host.save();
         }
@@ -101,6 +116,11 @@ export const applyHost = async (req: AuthRequest, res: Response, next: NextFunct
                     meethiChatId: userObj?.meethiId || userObj?.userId || numericUserId,
                     userId: numericUserId,
                     invitedBy: req.body.referralCode ? `Referral: ${req.body.referralCode}` : 'Direct Mobile App Application',
+                    hostTypes: parsedHostTypes,
+                    hostingTypes: parsedHostTypes,
+                    canVoiceCall: parsedHostTypes.includes('voice'),
+                    canVideoCall: parsedHostTypes.includes('video'),
+                    canRoomHost: parsedHostTypes.includes('room'),
                     ...req.body
                 },
                 status: RequestStatus.UNDER_REVIEW,
@@ -359,12 +379,20 @@ export const approveHost = async (req: AuthRequest, res: Response) => {
         user.phoneVerified = true;
         if (!user.faceVerificationStatus) user.faceVerificationStatus = "NOT_SUBMITTED";
         if (!user.kycVerificationStatus) user.kycVerificationStatus = "NOT_SUBMITTED";
+        const hostTypes = (host as any).hostTypes || ['voice', 'video', 'room'];
+        user.hostTypes = hostTypes;
+        user.canVoiceCall = hostTypes.includes('voice');
+        user.canVideoCall = hostTypes.includes('video');
+        user.canRoomHost = hostTypes.includes('room');
+        user.lastActiveAt = new Date();
+
         if ((host as any).audioURL || host.introAudio) user.audio = (host as any).audioURL || host.introAudio;
         await user.save();
 
         // Approve the host only after verification requirements pass.
         host.isApproved = true;
         await host.save();
+        invalidateHostCache();
 
         // Trigger Notification
         await createNotification(
@@ -613,6 +641,10 @@ export const getMyHostStatus = async (req: AuthRequest, res: Response) => {
                 meethiId: user.meethiId || hostRecord?.meethiId || user.userId,
                 hostingCreatedAt: hostRecord?.createdAt || user.createdAt,
                 agencyDetails,
+                hostTypes: user.hostTypes || ['voice', 'video', 'room'],
+                canVoiceCall: user.canVoiceCall !== false,
+                canVideoCall: user.canVideoCall !== false,
+                canRoomHost: user.canRoomHost !== false,
             });
         }
 
@@ -644,6 +676,10 @@ export const getMyHostStatus = async (req: AuthRequest, res: Response) => {
                 meethiId: user.meethiId || user.userId,
                 hostingCreatedAt: approvedRequest.createdAt || user.createdAt,
                 agencyDetails,
+                hostTypes: user.hostTypes || ['voice', 'video', 'room'],
+                canVoiceCall: user.canVoiceCall !== false,
+                canVideoCall: user.canVideoCall !== false,
+                canRoomHost: user.canRoomHost !== false,
             });
         }
 
