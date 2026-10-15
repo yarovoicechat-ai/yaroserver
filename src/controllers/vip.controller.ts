@@ -194,3 +194,125 @@ export const deleteSvipTier = async (req: Request, res: Response) => {
     return sendResponse(res, 500, false, error.message || 'Failed to delete SVIP tier');
   }
 };
+
+export const getAllAdminVip = async (_req: Request, res: Response) => {
+  try {
+    await VipService.seedInitialCatalog();
+    const packages = await VipId.find().sort({ sortOrder: 1, vipLevel: 1 }).lean();
+    return sendResponse(res, 200, true, 'All VIP packages fetched', { packages });
+  } catch (error: any) {
+    return sendResponse(res, 500, false, error.message || 'Failed to fetch VIP packages');
+  }
+};
+
+export const getAllAdminSvip = async (_req: Request, res: Response) => {
+  try {
+    await VipService.seedInitialCatalog();
+    const tiers = await SvipTier.find().sort({ sortOrder: 1, level: 1 }).lean();
+    return sendResponse(res, 200, true, 'All SVIP tiers fetched', { tiers });
+  } catch (error: any) {
+    return sendResponse(res, 500, false, error.message || 'Failed to fetch SVIP tiers');
+  }
+};
+
+export const toggleVipStatus = async (req: Request, res: Response) => {
+  try {
+    const { id } = req.params;
+    const item = await VipId.findById(id);
+    if (!item) return sendResponse(res, 404, false, 'VIP package not found');
+    item.isActive = !item.isActive;
+    await item.save();
+    return sendResponse(res, 200, true, `VIP package ${item.isActive ? 'activated' : 'deactivated'}`, item);
+  } catch (error: any) {
+    return sendResponse(res, 500, false, error.message || 'Failed to toggle VIP status');
+  }
+};
+
+export const toggleSvipStatus = async (req: Request, res: Response) => {
+  try {
+    const { id } = req.params;
+    const item = await SvipTier.findById(id);
+    if (!item) return sendResponse(res, 404, false, 'SVIP tier not found');
+    item.isActive = !item.isActive;
+    await item.save();
+    return sendResponse(res, 200, true, `SVIP tier ${item.isActive ? 'activated' : 'deactivated'}`, item);
+  } catch (error: any) {
+    return sendResponse(res, 500, false, error.message || 'Failed to toggle SVIP status');
+  }
+};
+
+export const grantVipToUser = async (req: Request, res: Response) => {
+  try {
+    const { userIdentifier, planType, planId, durationDays = 30 } = req.body;
+    if (!userIdentifier || !planId) {
+      return sendResponse(res, 400, false, 'User identifier and planId are required');
+    }
+
+    const query: any = { isDeleted: false };
+    if (userIdentifier.match(/^[0-9a-fA-F]{24}$/)) {
+      query.$or = [{ _id: userIdentifier }, { userId: userIdentifier }, { username: userIdentifier }];
+    } else {
+      query.$or = [{ userId: userIdentifier }, { username: userIdentifier }];
+    }
+
+    const targetUser = await User.findOne(query);
+    if (!targetUser) {
+      return sendResponse(res, 404, false, 'User not found with the provided ID or username');
+    }
+
+    const days = Math.max(1, Number(durationDays) || 30);
+    const expiresAt = new Date();
+    expiresAt.setDate(expiresAt.getDate() + days);
+
+    if (planType === 'svip') {
+      const svip = await SvipTier.findOne({
+        $or: [
+          ...(planId.match(/^[0-9a-fA-F]{24}$/) ? [{ _id: planId }] : []),
+          { slug: planId }
+        ]
+      });
+      if (!svip) return sendResponse(res, 404, false, 'SVIP tier not found');
+
+      const userAny = targetUser as any;
+      userAny.equippedSvipId = svip.slug;
+      if (!userAny.ownedSvipIds) userAny.ownedSvipIds = [];
+      if (!userAny.ownedSvipIds.includes(svip.slug)) {
+        userAny.ownedSvipIds.push(svip.slug);
+      }
+      userAny.equippedVipExpiresAt = expiresAt;
+      await targetUser.save();
+
+      return sendResponse(res, 200, true, `Granted ${svip.name} (SVIP) to ${targetUser.name || targetUser.userId} for ${days} days!`, {
+        user: { id: targetUser._id, userId: targetUser.userId, name: targetUser.name },
+        tier: svip.name,
+        expiresAt,
+      });
+    } else {
+      const vip = await VipId.findOne({
+        $or: [
+          ...(planId.match(/^[0-9a-fA-F]{24}$/) ? [{ _id: planId }] : []),
+          { slug: planId }
+        ]
+      });
+      if (!vip) return sendResponse(res, 404, false, 'VIP package not found');
+
+      const userAny = targetUser as any;
+      userAny.equippedVipId = vip.slug;
+      if (!userAny.ownedVipIds) userAny.ownedVipIds = [];
+      if (!userAny.ownedVipIds.includes(vip.slug)) {
+        userAny.ownedVipIds.push(vip.slug);
+      }
+      userAny.equippedVipExpiresAt = expiresAt;
+      await targetUser.save();
+
+      return sendResponse(res, 200, true, `Granted ${vip.name} (VIP) to ${targetUser.name || targetUser.userId} for ${days} days!`, {
+        user: { id: targetUser._id, userId: targetUser.userId, name: targetUser.name },
+        plan: vip.name,
+        expiresAt,
+      });
+    }
+  } catch (error: any) {
+    return sendResponse(res, 500, false, error.message || 'Failed to grant VIP');
+  }
+};
+

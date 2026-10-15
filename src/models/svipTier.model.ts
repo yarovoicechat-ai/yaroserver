@@ -16,21 +16,72 @@ export interface ISvipFeatures {
   enableInvisibleVisit?: boolean;
 }
 
+export interface ISvipPrivilegeConfig {
+  key: string;
+  title: string;
+  description: string;
+  icon: string;
+  animationUrl?: string;
+  isEnabled: boolean;
+  isVisible: boolean;
+  implementationStatus: 'supported' | 'partially_supported' | 'coming_soon';
+  value?: string | number;
+  sortOrder: number;
+}
+
 export interface ISvipTier extends Document {
-  name: string; // e.g. "Knight", "Count", "Duke", "SVIP King", "SVIP King of Kings"
+  name: string; // e.g. "SVIP 1 Knight", "SVIP 2 Count", "SVIP 9 King of Kings"
+  planCode: string; // unique internal code, e.g. "SVIP_1", "SVIP_2"
   slug: string;
   level: number;
   description: string;
   badge: string;
   icon: string;
   crown: string;
+
+  // Hero visuals & branding
+  heroBadgeUrl?: string;
+  heroAnimationUrl?: string;
+  bgGradient?: string[];
+  bgImageUrl?: string;
+
+  // Pricing & Validity
   price: number; // in Diamonds
+  originalPrice?: number;
+  discountPercent?: number;
   currency: 'DIAMONDS';
   durationDays: number;
-  
-  // Granular feature enable/disable toggles
+  validityType: 'days' | 'months' | 'custom';
+  rechargeThreshold?: number; // Wealth/refill threshold to unlock or progress
+
+  // SVIP Tag & Bubble
+  svipTagConfig?: {
+    text: string;
+    bgGradient: string[];
+    iconUrl?: string;
+    enabled: boolean;
+  };
+  svipBubbleConfig?: {
+    bubbleName: string;
+    previewUrl?: string;
+    bgGradient: string[];
+    textColor: string;
+    borderColor: string;
+    enabled: boolean;
+  };
+  profileBadgeConfig?: {
+    badgeName: string;
+    iconUrl?: string;
+    animationType?: string;
+    enabled: boolean;
+  };
+
+  // Dynamic Privilege List (from screenshots)
+  privileges: ISvipPrivilegeConfig[];
+
+  // Granular feature enable/disable toggles (backward-compatible)
   features: ISvipFeatures;
-  
+
   // Custom bundle overrides
   entryAnimationUrl?: string;
   entryTagText?: string;
@@ -57,26 +108,83 @@ export interface ISvipTier extends Document {
   };
   entrySound?: string;
   particles?: string;
-  
+
+  status: 'active' | 'inactive' | 'draft' | 'archived';
   isActive: boolean;
   sortOrder: number;
+  availableFrom?: Date;
+  availableTo?: Date;
   metadata?: Record<string, any>;
   createdAt: Date;
   updatedAt: Date;
 }
 
+const PrivilegeSchema = new Schema<ISvipPrivilegeConfig>(
+  {
+    key: { type: String, required: true },
+    title: { type: String, required: true },
+    description: { type: String, default: '' },
+    icon: { type: String, default: 'crown' },
+    animationUrl: { type: String, default: '' },
+    isEnabled: { type: Boolean, default: true },
+    isVisible: { type: Boolean, default: true },
+    implementationStatus: {
+      type: String,
+      enum: ['supported', 'partially_supported', 'coming_soon'],
+      default: 'supported',
+    },
+    value: { type: Schema.Types.Mixed, default: '' },
+    sortOrder: { type: Number, default: 0 },
+  },
+  { _id: false }
+);
+
 const SvipTierSchema = new Schema<ISvipTier>(
   {
     name: { type: String, required: true, trim: true },
+    planCode: { type: String, trim: true, default: '' },
     slug: { type: String, required: true, unique: true, lowercase: true, trim: true },
     level: { type: Number, required: true, unique: true },
     description: { type: String, default: '' },
     badge: { type: String, default: '👑 SVIP' },
     icon: { type: String, default: 'diamond' },
     crown: { type: String, default: '👑' },
+
+    heroBadgeUrl: { type: String, default: '' },
+    heroAnimationUrl: { type: String, default: '' },
+    bgGradient: { type: [String], default: ['#1E140D', '#2A1C13', '#160E09'] },
+    bgImageUrl: { type: String, default: '' },
+
     price: { type: Number, required: true, min: 0 },
+    originalPrice: { type: Number, default: 0 },
+    discountPercent: { type: Number, default: 0 },
     currency: { type: String, default: 'DIAMONDS', enum: ['DIAMONDS'] },
     durationDays: { type: Number, default: 30 },
+    validityType: { type: String, enum: ['days', 'months', 'custom'], default: 'days' },
+    rechargeThreshold: { type: Number, default: 0 },
+
+    svipTagConfig: {
+      text: { type: String, default: 'SVIP' },
+      bgGradient: { type: [String], default: ['#F59E0B', '#D97706'] },
+      iconUrl: { type: String, default: '' },
+      enabled: { type: Boolean, default: true },
+    },
+    svipBubbleConfig: {
+      bubbleName: { type: String, default: 'SVIP Royal Bubble' },
+      previewUrl: { type: String, default: '' },
+      bgGradient: { type: [String], default: ['#3B0764', '#581C87'] },
+      textColor: { type: String, default: '#FFFFFF' },
+      borderColor: { type: String, default: '#C084FC' },
+      enabled: { type: Boolean, default: true },
+    },
+    profileBadgeConfig: {
+      badgeName: { type: String, default: 'SVIP Crest' },
+      iconUrl: { type: String, default: '' },
+      animationType: { type: String, default: 'pulse' },
+      enabled: { type: Boolean, default: true },
+    },
+
+    privileges: { type: [PrivilegeSchema], default: [] },
 
     features: {
       enableEntryEffect: { type: Boolean, default: true },
@@ -120,8 +228,16 @@ const SvipTierSchema = new Schema<ISvipTier>(
     entrySound: { type: String, default: '' },
     particles: { type: String, default: 'purple_sparkles' },
 
+    status: {
+      type: String,
+      enum: ['active', 'inactive', 'draft', 'archived'],
+      default: 'active',
+      index: true,
+    },
     isActive: { type: Boolean, default: true, index: true },
     sortOrder: { type: Number, default: 0, index: true },
+    availableFrom: { type: Date },
+    availableTo: { type: Date },
     metadata: { type: Schema.Types.Mixed, default: {} },
   },
   { timestamps: true }

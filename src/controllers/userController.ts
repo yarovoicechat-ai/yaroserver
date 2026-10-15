@@ -10,6 +10,7 @@ import { DefaultBio } from '../models/defaultBio.model';
 import { Agency } from "../models/agency.model";
 import { CoinsTransaction } from "../models/spentCoinModel";
 import HostLevel from "../models/hostLevel.model";
+import { BeansPlan } from "../models/beansPlan.model";
 import mongoose from "mongoose";
 
 // import { deleteFromS3, uploadToS3 } from "../utils/uploadS3";
@@ -1378,7 +1379,11 @@ export const exchangeCoinsToDiamonds = async (req: AuthRequest, res: Response) =
       return sendResponse(res, 400, false, "Invalid coins amount");
     }
 
-    const diamondYield = EXCHANGE_PACKAGES[coinsNum];
+    let diamondYield = EXCHANGE_PACKAGES[coinsNum];
+    const dbPlan = await BeansPlan.findOne({ beans: coinsNum, isActive: true });
+    if (dbPlan) {
+      diamondYield = dbPlan.diamonds + (dbPlan.bonusDiamonds || 0);
+    }
     if (!diamondYield) {
       return sendResponse(res, 400, false, "Invalid exchange package");
     }

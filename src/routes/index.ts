@@ -25,5 +25,7 @@ import storeRoutes from "./storeRoutes";
 import familyRoutes from "./familyRoutes";
 import coupleRoutes from "./coupleRoutes";
 import systemConfigRoutes from "./systemConfigRoutes";
+import beansPlanRoutes from "./beansPlanRoutes";
 
-export { AuthRoutes, UserRoutes, hostRoutes, coinsPriceRoutes, callRoutes, chatRoutes, avatarRoute, frameRoute, adminRoutes, paymentRoutes, kycRoutes, withdrawalRoutes, giftRoutes, helpRoutes, UploadRoutes, notificationRoutes, upiRoutes, publicRoutes, emsRoutes, recruitmentRoutes, sellerRoutes, voiceClubRoutes, storeRoutes, familyRoutes, coupleRoutes, systemConfigRoutes };
+
+export { AuthRoutes, UserRoutes, hostRoutes, coinsPriceRoutes, beansPlanRoutes, callRoutes, chatRoutes, avatarRoute, frameRoute, adminRoutes, paymentRoutes, kycRoutes, withdrawalRoutes, giftRoutes, helpRoutes, UploadRoutes, notificationRoutes, upiRoutes, publicRoutes, emsRoutes, recruitmentRoutes, sellerRoutes, voiceClubRoutes, storeRoutes, familyRoutes, coupleRoutes, systemConfigRoutes };
