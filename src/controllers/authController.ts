@@ -194,7 +194,9 @@ export const userRegister = async (req: AuthRequest, res: Response) => {
     const userId = requestedUserId ? Number(requestedUserId) : await generateUniqueId();
     const customMeethiId = req.body?.meethiId || req.body?.customId || String(userId);
 
-    const name = await generateRandomName();
+    const name = (req.body?.name && String(req.body.name).trim())
+      ? String(req.body.name).trim().slice(0, 20)
+      : await generateRandomName();
     const hashedPassword = await generateSecureHash(password);
     let image = "";
     switch (gender) {
@@ -210,6 +212,9 @@ export const userRegister = async (req: AuthRequest, res: Response) => {
         image = "";
       }
     }
+    const finalImage = (req.body?.avatar || req.body?.image)
+      ? String(req.body.avatar || req.body.image)
+      : image;
 
     const countryObj = (typeof country === 'object' && country !== null)
       ? country
@@ -223,11 +228,13 @@ export const userRegister = async (req: AuthRequest, res: Response) => {
       meethiId: customMeethiId,
       phoneVerified: true,
       name,
-      image,
+      image: finalImage,
       language,
       country: countryObj,
       authType: "phone",
       age: userAge,
+      profileCompleted: true,
+      welcomeRewardClaimed: true,
       diamonds: (process.env.ENABLE_TEST_DIAMONDS === 'true' && process.env.NODE_ENV !== 'production') ? 1000000 : 0,
       device: {
         createdDeviceId: deviceId || "",
@@ -519,18 +526,24 @@ export const userGoogleAuth = async (req: Request, res: Response) => {
     }
 
     const userId = await generateUniqueId();
+    const finalGoogleImage = (req.body?.avatar || req.body?.image)
+      ? String(req.body.avatar || req.body.image)
+      : image;
+
     const newUser = new User({
       userId,
       name: googleUserInfo.name,
       email: googleUserInfo.email,
       googleId: googleUserInfo.googleId,
       gender,
-      image,
+      image: finalGoogleImage,
       authType: "google",
       emailVerified: payload.email_verified || false,
       language,
       country: userCountry,
       age: userAge,
+      profileCompleted: true,
+      welcomeRewardClaimed: true,
       diamonds: (process.env.ENABLE_TEST_DIAMONDS === 'true' && process.env.NODE_ENV !== 'production') ? 1000000 : 0,
       device: userFrom === "app" ? { createdDeviceId: deviceId || "", currentDeviceId: deviceId || "", loggedInDeviceIds: deviceId ? [deviceId] : [] } : {},
     });
