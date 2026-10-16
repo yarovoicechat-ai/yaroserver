@@ -1,6 +1,7 @@
 // level.service.ts - Server-Side Level Progression, EXP Awarding, Claims & Equips
 import mongoose, { Types } from 'mongoose';
 import { User } from '../models/user.model';
+import { StoreItem } from '../models/storeItem.model';
 import { LevelExpLog } from '../models/levelLog.model';
 import {
   calculateWealthLevel,
@@ -163,6 +164,26 @@ export class LevelService {
 
     const claimedRewards = Array.isArray(user.claimedLevelRewards) ? user.claimedLevelRewards : [];
     const levelRanges = generateWealthLevelRanges(wealthProgress.level);
+    const levelUniqueItems: any[] = await StoreItem.find({
+      category: 'Unique ID',
+      isActive: true,
+      'metadata.location': 'level',
+    }).lean();
+    const toLevelReward = (item: any) => ({
+      id: String(item._id),
+      name: String(item.metadata?.number || item.metadata?.uniqueDisplayId || item.name),
+      type: 'custom_id' as const,
+      categoryName: 'Unique ID',
+      requiredLevel: Math.max(1, Number(item.metadata?.requiredLevel) || 1),
+      durationDays: Number(item.metadata?.activationDurationDays) || 30,
+      imageUrl: item.imageUrl || '',
+      animationUrl: item.animationUrl || '',
+      description: item.desc || 'Claim this Unique ID into My Items, then activate it when ready.',
+      uniqueIdInventoryOnly: true,
+      uniqueDisplayId: String(item.metadata?.number || item.metadata?.uniqueDisplayId || ''),
+    });
+    const wealthUniqueIdRewards = levelUniqueItems.filter((item) => item.metadata?.progressionType === 'wealth').map(toLevelReward);
+    const charmUniqueIdRewards = levelUniqueItems.filter((item) => item.metadata?.progressionType === 'charm').map(toLevelReward);
 
     return {
       user: {
@@ -174,11 +195,13 @@ export class LevelService {
       wealth: {
         ...wealthProgress,
         levelRanges,
+        uniqueIdRewards: wealthUniqueIdRewards,
         claimedRewards: claimedRewards.filter((c) => c.startsWith('w_') || c.startsWith('wealth:')),
       },
       charm: {
         ...charmProgress,
         milestones: CHARM_MILESTONES,
+        uniqueIdRewards: charmUniqueIdRewards,
         claimedRewards: claimedRewards.filter((c) => c.startsWith('c_') || c.startsWith('charm:')),
       },
       equipped: {
@@ -215,6 +238,7 @@ export class LevelService {
     }
 
     let rewardItem: LevelRewardItem | undefined;
+    let uniqueStoreItem: any = null;
     let currentLevel = 1;
 
     if (journeyType === 'wealth') {
@@ -232,7 +256,29 @@ export class LevelService {
     }
 
     if (!rewardItem) {
-      throw new Error('Invalid reward item');
+      uniqueStoreItem = await StoreItem.findOne({
+        _id: rewardId,
+        category: 'Unique ID',
+        isActive: true,
+        'metadata.location': 'level',
+        'metadata.progressionType': journeyType,
+      }).lean();
+      if (uniqueStoreItem) {
+        rewardItem = {
+          id: String(uniqueStoreItem._id),
+          name: String(uniqueStoreItem.metadata?.number || uniqueStoreItem.name),
+          type: 'custom_id',
+          categoryName: 'Unique ID',
+          requiredLevel: Math.max(1, Number(uniqueStoreItem.metadata?.requiredLevel) || 1),
+          durationDays: Number(uniqueStoreItem.metadata?.activationDurationDays) || 30,
+          imageUrl: uniqueStoreItem.imageUrl || '',
+          animationUrl: uniqueStoreItem.animationUrl || '',
+          uniqueIdInventoryOnly: true,
+          uniqueDisplayId: String(uniqueStoreItem.metadata?.number || ''),
+        } as LevelRewardItem;
+      } else {
+        throw new Error('Invalid reward item');
+      }
     }
 
     if (currentLevel < rewardItem.requiredLevel) {
@@ -262,15 +308,16 @@ export class LevelService {
     else if (rewardItem.type === 'party_set' || rewardItem.type === 'room_skin') category = 'Room Skin';
 
     const inventoryEntry: any = {
+      ...(uniqueStoreItem ? { itemId: uniqueStoreItem._id, uniqueId: uniqueStoreItem.uniqueId, metadata: uniqueStoreItem.metadata || {} } : {}),
       name: rewardItem.name,
-      category,
+      category: uniqueStoreItem ? 'Unique ID' : category,
       source: 'level',
       grantKey,
       durationDays,
       purchasedAt: now,
-      expiresAt,
-      imageUrl: rewardItem.imageUrl || '',
-      animationUrl: rewardItem.animationUrl || '',
+      expiresAt: uniqueStoreItem ? undefined : expiresAt,
+      imageUrl: uniqueStoreItem?.imageUrl || rewardItem.imageUrl || '',
+      animationUrl: uniqueStoreItem?.animationUrl || rewardItem.animationUrl || '',
     };
 
     const updatedUser = await User.findByIdAndUpdate(

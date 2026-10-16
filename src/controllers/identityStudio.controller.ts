@@ -357,6 +357,290 @@ export const listOfficialIds = async (req: Request, res: Response) => {
 };
 
 /* =========================================================================
+   ADMIN UNIQUE / VANITY ID MANAGEMENT
+========================================================================= */
+
+export const listUniqueIds = async (req: Request, res: Response) => {
+  try {
+    const { search = '' } = req.query as any;
+    const query: any = { type: 'custom_display_id' };
+    if (search) {
+      query.$or = [
+        { 'config.displayId': { $regex: String(search), $options: 'i' } },
+        { userId: !isNaN(Number(search)) ? Number(search) : -1 },
+      ];
+    }
+
+    const [ids, badges] = await Promise.all([
+      IdentityEntitlement.find(query)
+        .sort({ createdAt: -1 })
+        .limit(100)
+        .populate('userObjectId', 'name userName image userId')
+        .lean(),
+      IdentityEntitlement.find({ type: 'unique_id_badge' }).sort({ createdAt: -1 }).lean(),
+    ]);
+    const latestBadgeByUser = new Map<number, any>();
+    badges.forEach((badge: any) => {
+      if (!latestBadgeByUser.has(badge.userId)) latestBadgeByUser.set(badge.userId, badge);
+    });
+
+    return sendResponse(res, 200, true, 'Unique IDs fetched', {
+      total: ids.length,
+      entitlements: ids.map((id: any) => ({ ...id, badgeEntitlement: latestBadgeByUser.get(id.userId) || null })),
+    });
+  } catch (error: any) {
+    return sendResponse(res, 500, false, error.message || 'Failed to list unique IDs');
+  }
+};
+
+export const listUniqueIdLevels = async (_req: Request, res: Response) => {
+  try {
+    const levels = await IdentityEffect.find({ category: 'unique_badge' }).sort({ sortOrder: 1, createdAt: 1 }).lean();
+    return sendResponse(res, 200, true, 'Unique ID levels fetched', { levels });
+  } catch (error: any) {
+    return sendResponse(res, 500, false, error.message || 'Failed to list unique ID levels');
+  }
+};
+
+export const createUniqueIdLevel = async (req: AuthRequest, res: Response) => {
+  try {
+    const { name, levelNumber, badgeName = 'VIP ID', badgeIconUrl, animationType = 'svga', description = '' } = req.body || {};
+    const level = Number(levelNumber);
+    if (!String(name || '').trim() || !Number.isInteger(level) || level < 1 || !String(badgeIconUrl || '').trim()) {
+      return sendResponse(res, 400, false, 'Level name, positive level number, and uploaded badge asset are required');
+    }
+    const slug = String(name).trim().toLowerCase().replace(/[^a-z0-9]+/g, '-').replace(/^-|-$/g, '') || `unique-id-level-${level}`;
+    const duplicateLevel = await IdentityEffect.findOne({ category: 'unique_badge', $or: [{ slug }, { sortOrder: level }] }).lean();
+    if (duplicateLevel) return sendResponse(res, 409, false, 'A VIP ID level with this name or level number already exists');
+    if (!['svga', 'gif', 'webp', 'pulse', 'shimmer', 'glow', 'static'].includes(String(animationType))) {
+      return sendResponse(res, 400, false, 'Unsupported badge animation type');
+    }
+    const created = await IdentityEffect.create({
+      name: String(name).trim(),
+      slug,
+      category: 'unique_badge',
+      description: String(description).trim(),
+      config: { levelNumber: level, vipLevel: level, badgeName: String(badgeName).trim() || 'VIP ID', badgeIconUrl: String(badgeIconUrl).trim(), animationType },
+      previewBg: 'dark',
+      eligibleTiers: ['all'],
+      isPurchasable: false,
+      priceDiamonds: 0,
+      validityDays: 0,
+      status: 'active',
+      sortOrder: level,
+    });
+    await IdentityAuditLog.create({
+      action: 'create_effect',
+      details: { category: 'unique_badge', levelNumber: level, slug, badgeIconUrl },
+      performedBy: {
+        adminId: (req.user as any)?._id || req.user?.id,
+        adminName: req.user?.name || (req.user as any)?.userName || 'Admin',
+        role: req.user?.role || 'admin',
+      },
+    });
+    return sendResponse(res, 201, true, 'Unique ID level created', { level: created });
+  } catch (error: any) {
+    return sendResponse(res, 500, false, error.message || 'Failed to create unique ID level');
+  }
+};
+
+export const updateUniqueIdLevel = async (req: AuthRequest, res: Response) => {
+  try {
+    const levelDoc = await IdentityEffect.findOne({ _id: req.params.id, category: 'unique_badge' });
+    if (!levelDoc) return sendResponse(res, 404, false, 'Unique ID level not found');
+    const { name, levelNumber, badgeName, badgeIconUrl, animationType, description, status } = req.body || {};
+    const nextName = name === undefined ? levelDoc.name : String(name).trim();
+    if (!nextName) return sendResponse(res, 400, false, 'Level name is required');
+    const nextLevelNumber = levelNumber === undefined
+      ? Number(levelDoc.config?.levelNumber || levelDoc.config?.vipLevel || levelDoc.sortOrder || 1)
+      : Number(levelNumber);
+    if (!Number.isInteger(nextLevelNumber) || nextLevelNumber < 1) return sendResponse(res, 400, false, 'Level number must be a positive integer');
+    const nextSlug = nextName.toLowerCase().replace(/[^a-z0-9]+/g, '-').replace(/^-|-$/g, '') || levelDoc.slug;
+    const duplicateLevel = await IdentityEffect.findOne({
+      _id: { $ne: levelDoc._id },
+      category: 'unique_badge',
+      $or: [{ slug: nextSlug }, { sortOrder: nextLevelNumber }],
+    }).lean();
+    if (duplicateLevel) return sendResponse(res, 409, false, 'A VIP ID level with this name or level number already exists');
+    if (animationType !== undefined && !['svga', 'gif', 'webp', 'pulse', 'shimmer', 'glow', 'static'].includes(String(animationType))) {
+      return sendResponse(res, 400, false, 'Unsupported badge animation type');
+    }
+    if (name !== undefined) {
+      levelDoc.name = nextName;
+      levelDoc.slug = nextSlug;
+    }
+    if (levelNumber !== undefined) {
+      levelDoc.sortOrder = nextLevelNumber;
+      levelDoc.config.levelNumber = nextLevelNumber;
+      levelDoc.config.vipLevel = nextLevelNumber;
+    }
+    if (badgeName !== undefined) levelDoc.config.badgeName = String(badgeName).trim();
+    if (badgeIconUrl !== undefined) levelDoc.config.badgeIconUrl = String(badgeIconUrl).trim();
+    if (animationType !== undefined) levelDoc.config.animationType = String(animationType) as any;
+    if (description !== undefined) levelDoc.description = String(description).trim();
+    if (status === 'active' || status === 'inactive') levelDoc.status = status;
+    await levelDoc.save();
+    return sendResponse(res, 200, true, 'Unique ID level updated', { level: levelDoc });
+  } catch (error: any) {
+    return sendResponse(res, 500, false, error.message || 'Failed to update unique ID level');
+  }
+};
+
+export const deleteUniqueIdLevel = async (req: AuthRequest, res: Response) => {
+  try {
+    const removed = await IdentityEffect.findOneAndDelete({ _id: req.params.id, category: 'unique_badge' });
+    if (!removed) return sendResponse(res, 404, false, 'Unique ID level not found');
+    return sendResponse(res, 200, true, 'Unique ID level removed; existing grants retain their uploaded badge');
+  } catch (error: any) {
+    return sendResponse(res, 500, false, error.message || 'Failed to remove unique ID level');
+  }
+};
+
+export const grantUniqueId = async (req: AuthRequest, res: Response) => {
+  try {
+    const {
+      userIdentifier,
+      displayId,
+      uniqueLevelId,
+      durationDays = 30,
+      reason = 'Unique ID granted by admin',
+      notes = '',
+    } = req.body || {};
+
+    if (!userIdentifier || !displayId || !uniqueLevelId) {
+      return sendResponse(res, 400, false, 'User, unique ID, and a configured level are required');
+    }
+    const uniqueLevel: any = await IdentityEffect.findOne({ _id: uniqueLevelId, category: 'unique_badge', status: 'active' }).lean();
+    if (!uniqueLevel?.config?.badgeIconUrl) return sendResponse(res, 404, false, 'Configured unique ID level or badge asset not found');
+    const badgeName = uniqueLevel.config.badgeName || uniqueLevel.name || 'VIP ID';
+    const badgeUrl = uniqueLevel.config.badgeIconUrl;
+    const animationType = uniqueLevel.config.animationType || 'svga';
+    const vipLevel = Number(uniqueLevel.config.levelNumber || uniqueLevel.config.vipLevel || 1);
+    const cleanDisplayId = String(displayId).trim();
+    if (!/^[a-zA-Z0-9_-]{3,24}$/.test(cleanDisplayId)) {
+      return sendResponse(res, 400, false, 'Unique ID must be 3–24 characters and use letters, numbers, hyphen, or underscore');
+    }
+    if (/^\d+$/.test(cleanDisplayId) && await User.exists({ userId: Number(cleanDisplayId) })) {
+      return sendResponse(res, 409, false, `Unique ID ${cleanDisplayId} conflicts with a permanent user ID`);
+    }
+
+    const identifier = String(userIdentifier).trim();
+    let targetUser: any = null;
+    if (!isNaN(Number(identifier))) {
+      targetUser = await User.findOne({ userId: Number(identifier), isDeleted: false });
+    }
+    if (!targetUser && mongoose.Types.ObjectId.isValid(identifier)) {
+      targetUser = await User.findOne({ _id: identifier, isDeleted: false });
+    }
+    if (!targetUser) targetUser = await User.findOne({ userName: identifier, isDeleted: false });
+    if (!targetUser) return sendResponse(res, 404, false, 'Target user not found');
+
+    const permanentNumericId = Number(targetUser.userId);
+    const startsAt = new Date();
+    const days = Math.max(1, Math.min(730, Number(durationDays) || 30));
+    const expiresAt = new Date(startsAt.getTime() + days * 24 * 60 * 60 * 1000);
+    const collision = await IdentityEntitlement.findOne({
+      type: { $in: ['official_id', 'custom_display_id'] },
+      'config.displayId': { $regex: `^${cleanDisplayId}$`, $options: 'i' },
+      status: 'active',
+      startsAt: { $lte: startsAt },
+      expiresAt: { $gt: startsAt },
+      userId: { $ne: permanentNumericId },
+    }).lean();
+    if (collision) {
+      return sendResponse(res, 409, false, `ID ${cleanDisplayId} is already assigned to another user`);
+    }
+
+    await IdentityEntitlement.updateMany(
+      { userId: permanentNumericId, type: { $in: ['custom_display_id', 'unique_id_badge'] }, status: 'active' },
+      { $set: { status: 'expired' } },
+    );
+
+    const grantInfo = {
+      adminId: (req.user as any)?._id || req.user?.id,
+      adminName: req.user?.name || (req.user as any)?.userName || 'Admin',
+      role: req.user?.role || 'admin',
+    };
+    const entitlementData = {
+      userId: permanentNumericId,
+      userObjectId: targetUser._id,
+      status: 'active',
+      startsAt,
+      expiresAt,
+      grantedBy: grantInfo,
+      grantSource: 'admin_grant',
+      grantReason: String(reason).trim(),
+      notes: String(notes).trim(),
+    };
+    const [idEntitlement, badgeEntitlement] = await Promise.all([
+      IdentityEntitlement.create({
+        ...entitlementData,
+        type: 'custom_display_id',
+        config: { displayId: cleanDisplayId, vipLevel: Math.max(1, Number(vipLevel) || 1) },
+      }),
+      IdentityEntitlement.create({
+        ...entitlementData,
+        type: 'unique_id_badge',
+        config: {
+          displayId: cleanDisplayId,
+          badgeName: String(badgeName).trim() || 'VIP ID',
+          badgeIconUrl: String(badgeUrl).trim(),
+          animationType: String(animationType || 'svga'),
+          vipLevel: Math.max(1, vipLevel),
+          levelId: String(uniqueLevel._id),
+        },
+      }),
+    ]);
+
+    await IdentityAuditLog.create({
+      action: 'grant_entitlement',
+      targetUserId: permanentNumericId,
+      targetUserObjectId: targetUser._id,
+      targetUserName: targetUser.userName || targetUser.name,
+      entitlementType: 'custom_display_id',
+      details: { displayId: cleanDisplayId, vipLevel: Number(vipLevel) || 1, durationDays: days, expiresAt, badgeUrl },
+      performedBy: grantInfo,
+    });
+
+    const resolvedIdentity = await IdentityResolverService.resolveEffectiveIdentity(permanentNumericId);
+    return sendResponse(res, 201, true, `Unique ID ${cleanDisplayId} granted for ${days} days`, {
+      entitlement: idEntitlement,
+      badgeEntitlement,
+      resolvedIdentity,
+    });
+  } catch (error: any) {
+    await Logger('grantUniqueId', error);
+    return sendResponse(res, 500, false, error.message || 'Failed to grant unique ID');
+  }
+};
+
+export const revokeUniqueId = async (req: AuthRequest, res: Response) => {
+  try {
+    const numericUserId = Number(req.params.userId);
+    if (!Number.isFinite(numericUserId)) return sendResponse(res, 400, false, 'Valid user ID is required');
+    await IdentityEntitlement.updateMany(
+      { userId: numericUserId, type: { $in: ['custom_display_id', 'unique_id_badge'] }, status: 'active' },
+      { $set: { status: 'revoked' } },
+    );
+    await IdentityAuditLog.create({
+      action: 'revoke_entitlement',
+      targetUserId: numericUserId,
+      entitlementType: 'custom_display_id',
+      details: { reason: req.body?.reason || 'Unique ID revoked by admin' },
+      performedBy: {
+        adminId: (req.user as any)?._id || req.user?.id,
+        adminName: req.user?.name || (req.user as any)?.userName || 'Admin',
+        role: req.user?.role || 'admin',
+      },
+    });
+    const resolvedIdentity = await IdentityResolverService.resolveEffectiveIdentity(numericUserId);
+    return sendResponse(res, 200, true, `Unique ID revoked; permanent ID ${numericUserId} is active again`, resolvedIdentity);
+  } catch (error: any) {
+    return sendResponse(res, 500, false, error.message || 'Failed to revoke unique ID');
+  }
+};
+
+/* =========================================================================
    ANIMATED NAMES & NAME COLORS STUDIO
 ========================================================================= */
 

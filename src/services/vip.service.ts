@@ -13,6 +13,8 @@ export interface EffectiveVipExperience {
   vipLevel: number;
   svipLevel: number;
   badge: string;
+  badgeUrl: string;
+  badgeAnimationUrl: string;
   crown: string;
   icon: string;
   
@@ -183,6 +185,8 @@ export class VipService {
       vipLevel: vip?.vipLevel || (isSvip ? 5 : 0),
       svipLevel: svip?.level || 0,
       badge: svip?.badge || vip?.badge || (isVip ? '👑 VIP' : ''),
+      badgeUrl: svip?.heroBadgeUrl || vip?.badgeUrl || '',
+      badgeAnimationUrl: svip?.heroAnimationUrl || vip?.badgeAnimationUrl || '',
       crown: svip?.crown || vip?.crown || (isVip ? '👑' : ''),
       icon: svip?.icon || vip?.icon || 'sparkles',
       entryTag,
@@ -234,6 +238,8 @@ export class VipService {
       vipLevel: 0,
       svipLevel: 0,
       badge: '',
+      badgeUrl: '',
+      badgeAnimationUrl: '',
       crown: '',
       icon: '',
       entryTag: '',

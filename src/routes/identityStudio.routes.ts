@@ -7,6 +7,13 @@ import {
   grantOfficialId,
   revokeOfficialId,
   listOfficialIds,
+  listUniqueIds,
+  listUniqueIdLevels,
+  createUniqueIdLevel,
+  updateUniqueIdLevel,
+  deleteUniqueIdLevel,
+  grantUniqueId,
+  revokeUniqueId,
   listNameEffects,
   createNameEffect,
   updateNameEffect,
@@ -49,6 +56,14 @@ router.get('/catalog', getIdentityCatalog);
 router.get('/admin/official-ids', verifyToken, adminRoles, listOfficialIds);
 router.post('/admin/official-ids/grant', verifyToken, adminRoles, grantOfficialId);
 router.post('/admin/official-ids/:userId/revoke', verifyToken, adminRoles, revokeOfficialId);
+router.get('/admin/unique-ids', verifyToken, adminRoles, listUniqueIds);
+router.get('/admin/unique-id-levels', verifyToken, adminRoles, listUniqueIdLevels);
+router.post('/admin/unique-id-levels', verifyToken, adminRoles, createUniqueIdLevel);
+router.put('/admin/unique-id-levels/:id', verifyToken, adminRoles, updateUniqueIdLevel);
+router.patch('/admin/unique-id-levels/:id', verifyToken, adminRoles, updateUniqueIdLevel);
+router.delete('/admin/unique-id-levels/:id', verifyToken, adminRoles, deleteUniqueIdLevel);
+router.post('/admin/unique-ids/grant', verifyToken, adminRoles, grantUniqueId);
+router.post('/admin/unique-ids/:userId/revoke', verifyToken, adminRoles, revokeUniqueId);
 
 /* =========================================================================
    ADMIN ANIMATED NAME & COLOR EFFECTS

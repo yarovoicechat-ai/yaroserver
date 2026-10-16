@@ -26,6 +26,7 @@ const StoreInventoryItemSchema = new Schema(
     source: { type: String, enum: ['store', 'level', 'admin_grant'], default: 'store' },
     grantKey: { type: String, default: '' },
     uniqueId: { type: String, default: '' },
+    metadata: { type: Schema.Types.Mixed, default: {} },
     message: { type: String, default: '' },
     grantedBy: { type: Schema.Types.ObjectId, ref: 'User' },
   },
@@ -181,6 +182,8 @@ const userSchema = new Schema<UserInterface>(
       type: String, enum: ['NOT_SUBMITTED', 'PENDING', 'APPROVED', 'REJECTED'],
       default: 'NOT_SUBMITTED', index: true,
     },
+    isProfileVerified: { type: Boolean, default: false, index: true },
+    verifiedTitle: { type: String, default: '', trim: true, maxlength: 60 },
     kycVerificationStatus: {
       type: String, enum: ['NOT_SUBMITTED', 'PENDING', 'APPROVED', 'REJECTED'],
       default: 'NOT_SUBMITTED', index: true,

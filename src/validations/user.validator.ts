@@ -75,6 +75,16 @@ export const validationUpdateUserLimited = [
     .optional()
     .isBoolean()
     .withMessage("isActive must be a boolean"),
+  body("isProfileVerified")
+    .optional()
+    .isBoolean()
+    .withMessage("isProfileVerified must be a boolean"),
+  body("verifiedTitle")
+    .optional()
+    .isString()
+    .trim()
+    .isLength({ max: 60 })
+    .withMessage("Verified title cannot exceed 60 characters"),
   body("country")
     .optional()
     .isObject()

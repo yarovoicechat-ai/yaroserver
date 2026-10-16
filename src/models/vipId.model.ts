@@ -45,6 +45,8 @@ export interface IVipId extends Document {
   price: number; // In Diamonds
   currency: 'DIAMONDS';
   badge: string;
+  badgeUrl?: string;
+  badgeAnimationUrl?: string;
   crown: string;
   icon: string;
   
@@ -92,6 +94,8 @@ const VipIdSchema = new Schema<IVipId>(
     price: { type: Number, required: true, min: 0 },
     currency: { type: String, default: 'DIAMONDS', enum: ['DIAMONDS'] },
     badge: { type: String, default: '👑 VIP' },
+    badgeUrl: { type: String, default: '' },
+    badgeAnimationUrl: { type: String, default: '' },
     crown: { type: String, default: '👑' },
     icon: { type: String, default: 'sparkles' },
 

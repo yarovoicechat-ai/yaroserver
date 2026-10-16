@@ -7,6 +7,8 @@ import HostLevel from '../models/hostLevel.model';
 import Level from '../models/level.model';
 import { EntryEffect } from '../models/entryEffect.model';
 import { VipId } from '../models/vipId.model';
+import { IdentityEntitlement } from '../models/identityEntitlement.model';
+import { IdentityEffect } from '../models/identityEffect.model';
 import { AuditLog } from '../models/auditLog.model';
 import { AuthRequest } from '../middlewares/authorize.middleware';
 import { createNotification } from './notificationController';
@@ -804,6 +806,12 @@ export const getStoreItems = async (req: Request, res: Response) => {
       ];
     }
 
+    if (String(category || '') === 'Unique ID') {
+      filter.$and = [...(filter.$and || []), { $or: [{ 'metadata.location': 'store' }, { 'metadata.location': { $exists: false } }] }];
+    } else if (!category || category === 'All') {
+      filter.$and = [...(filter.$and || []), { $or: [{ category: { $ne: 'Unique ID' } }, { category: 'Unique ID', 'metadata.location': 'store' }, { category: 'Unique ID', 'metadata.location': { $exists: false } }] }];
+    }
+
     
     // Exclude dummy seed assets - only real items uploaded/created from panel are served
     const DUMMY_NAMES = [
@@ -873,6 +881,16 @@ export const getStoreItems = async (req: Request, res: Response) => {
   }
 };
 
+export const getUniqueIdItemsAdmin = async (_req: Request, res: Response) => {
+  try {
+    const records = await StoreItem.find({ category: 'Unique ID' }).sort({ createdAt: -1 }).lean();
+    const items = records.map((item: any) => serializeStoreItem(item));
+    return sendResponse(res, 200, true, 'Unique ID catalog retrieved successfully', { items, total: items.length });
+  } catch (error: any) {
+    return sendResponse(res, 500, false, error.message || 'Failed to fetch Unique ID catalog');
+  }
+};
+
 export const getStoreItemById = async (req: Request, res: Response) => {
   try {
     const { id } = req.params;
@@ -893,9 +911,16 @@ export const getStoreInventory = async (req: any, res: Response) => {
     if (account.role === 'host') {
       await recalculateAndUpdateHostLevel(req.user.id);
     }
-    const user = await User.findById(req.user?.id).select('storeInventory');
+    const user = await User.findById(req.user?.id).select('userId storeInventory');
     if (!user) return sendResponse(res, 404, false, 'User not found');
     const now = Date.now();
+    const activeUniqueId = await IdentityEntitlement.findOne({
+      userId: user.userId,
+      type: 'custom_display_id',
+      status: 'active',
+      startsAt: { $lte: new Date(now) },
+      expiresAt: { $gt: new Date(now) },
+    }).lean();
     const activeInventory: any[] = (user.storeInventory || [])
       .filter((item) => !item.expiresAt || new Date(item.expiresAt).getTime() > now)
       .sort((a, b) => new Date(b.purchasedAt).getTime() - new Date(a.purchasedAt).getTime());
@@ -924,9 +949,13 @@ export const getStoreInventory = async (req: any, res: Response) => {
               previewColor: catalogItem.previewColor,
               bgColors: catalogItem.bgColors,
               icon: catalogItem.icon,
-              metadata: catalogItem.metadata || {},
+              metadata: catalogItem.metadata || plain.metadata || {},
             }
-          : {}),
+          : { metadata: plain.metadata || {} }),
+        isEquippedUniqueId: Boolean(
+          activeUniqueId &&
+          (plain.metadata?.uniqueDisplayId || plain.metadata?.number) === activeUniqueId.config?.displayId,
+        ),
       };
     });
     return sendResponse(res, 200, true, 'Active items fetched', { items });
@@ -1051,6 +1080,45 @@ export const createStoreItem = async (req: Request, res: Response) => {
     if (category === 'Frame') category = 'Frames';
     if (category === 'Entry Effect' || category === 'Entry Effects') category = 'Entry';
 
+    if (category === 'Unique ID') {
+      const uniqueMetadata = metadata && typeof metadata === 'object' ? metadata : {};
+      const displayId = String(uniqueMetadata.uniqueDisplayId || uniqueMetadata.displayId || uniqueMetadata.number || '').trim();
+      const digitCount = Number(uniqueMetadata.digitCount || uniqueMetadata.digits || displayId.length);
+      const location = String(uniqueMetadata.location || 'store');
+      if (!/^\d+$/.test(displayId) || !Number.isInteger(digitCount) || digitCount < 3 || digitCount > 12 || displayId.length !== digitCount) {
+        return sendResponse(res, 400, false, 'Unique ID must contain exactly the configured number of digits (3-12)');
+      }
+      if (!['store', 'level', 'event'].includes(location)) return sendResponse(res, 400, false, 'Unique ID location must be Store, Level, or Event');
+      if (location === 'event' && !uniqueMetadata.eventId) return sendResponse(res, 400, false, 'Choose an event for this Unique ID');
+      if (location === 'level' && (!['wealth', 'charm'].includes(String(uniqueMetadata.progressionType)) || !Number.isInteger(Number(uniqueMetadata.requiredLevel)) || Number(uniqueMetadata.requiredLevel) < 1)) {
+        return sendResponse(res, 400, false, 'Choose Wealth or Charm and a valid reward level');
+      }
+      const duplicate = await StoreItem.findOne({ category: 'Unique ID', 'metadata.number': displayId }).lean();
+      if (duplicate) return sendResponse(res, 409, false, `Unique ID ${displayId} has already been created`);
+      if (await User.exists({ userId: Number(displayId) })) {
+        return sendResponse(res, 409, false, `Unique ID ${displayId} conflicts with a permanent user ID`);
+      }
+      const uniqueLevel = await IdentityEffect.findOne({ _id: uniqueMetadata.uniqueIdLevelId, category: 'unique_badge', status: 'active' }).lean();
+      if (!uniqueLevel?.config?.badgeIconUrl) return sendResponse(res, 400, false, 'Choose an active Unique ID level with a badge');
+      metadata = {
+        ...uniqueMetadata,
+        number: displayId,
+        displayId,
+        uniqueDisplayId: displayId,
+        digitCount,
+        digits: digitCount,
+        uniqueIdLevelId: String(uniqueLevel._id),
+        levelNumber: Number(uniqueLevel.config.levelNumber || uniqueLevel.config.vipLevel || 1),
+        levelName: uniqueLevel.name,
+        badgeName: uniqueLevel.config.badgeName || 'VIP ID',
+        badgeIconUrl: uniqueLevel.config.badgeIconUrl,
+        badgeAnimationType: uniqueLevel.config.animationType || 'svga',
+      };
+      imageUrl = uniqueLevel.config.badgeIconUrl;
+      animationUrl = uniqueLevel.config.badgeIconUrl;
+      if (location !== 'store') price = 0;
+    }
+
     const normalizedPrices = normalizePriceOptions(priceOptions, Number(price) || 0);
     const thirtyDayPrice = normalizedPrices.find((option) => option.days === 30)?.diamonds || Number(price) || 0;
 
@@ -1130,6 +1198,8 @@ export const updateStoreItem = async (req: Request, res: Response) => {
   try {
     const { id } = req.params;
     const updateData = { ...req.body };
+    const existingItem: any = await StoreItem.findById(id).lean();
+    if (!existingItem) return sendResponse(res, 404, false, 'Store item not found');
     if (updateData.price !== undefined) {
       updateData.price = Number(updateData.price);
     }
@@ -1148,6 +1218,46 @@ export const updateStoreItem = async (req: Request, res: Response) => {
       if (existing) {
         return sendResponse(res, 400, false, `Unique ID "${updateData.uniqueId}" is already used by another item.`);
       }
+    }
+
+    if ((updateData.category || existingItem.category) === 'Unique ID') {
+      const uniqueMetadata = { ...(existingItem.metadata || {}), ...(updateData.metadata || {}) };
+      const displayId = String(uniqueMetadata.uniqueDisplayId || uniqueMetadata.displayId || uniqueMetadata.number || '').trim();
+      const digitCount = Number(uniqueMetadata.digitCount || uniqueMetadata.digits || displayId.length);
+      const location = String(uniqueMetadata.location || 'store');
+      if (!/^\d+$/.test(displayId) || !Number.isInteger(digitCount) || digitCount < 3 || digitCount > 12 || displayId.length !== digitCount) {
+        return sendResponse(res, 400, false, 'Unique ID must contain exactly the configured number of digits (3-12)');
+      }
+      if (!['store', 'level', 'event'].includes(location)) return sendResponse(res, 400, false, 'Unique ID location must be Store, Level, or Event');
+      if (location === 'event' && !uniqueMetadata.eventId) return sendResponse(res, 400, false, 'Choose an event for this Unique ID');
+      if (location === 'level' && (!['wealth', 'charm'].includes(String(uniqueMetadata.progressionType)) || !Number.isInteger(Number(uniqueMetadata.requiredLevel)) || Number(uniqueMetadata.requiredLevel) < 1)) {
+        return sendResponse(res, 400, false, 'Choose Wealth or Charm and a valid reward level');
+      }
+      const duplicate = await StoreItem.findOne({ category: 'Unique ID', 'metadata.number': displayId, _id: { $ne: id } }).lean();
+      if (duplicate) return sendResponse(res, 409, false, `Unique ID ${displayId} has already been created`);
+      if (await User.exists({ userId: Number(displayId) })) {
+        return sendResponse(res, 409, false, `Unique ID ${displayId} conflicts with a permanent user ID`);
+      }
+      const uniqueLevel = await IdentityEffect.findOne({ _id: uniqueMetadata.uniqueIdLevelId, category: 'unique_badge', status: 'active' }).lean();
+      if (!uniqueLevel?.config?.badgeIconUrl) return sendResponse(res, 400, false, 'Choose an active Unique ID level with a badge');
+      updateData.category = 'Unique ID';
+      updateData.metadata = {
+        ...uniqueMetadata,
+        number: displayId,
+        displayId,
+        uniqueDisplayId: displayId,
+        digitCount,
+        digits: digitCount,
+        uniqueIdLevelId: String(uniqueLevel._id),
+        levelNumber: Number(uniqueLevel.config.levelNumber || uniqueLevel.config.vipLevel || 1),
+        levelName: uniqueLevel.name,
+        badgeName: uniqueLevel.config.badgeName || 'VIP ID',
+        badgeIconUrl: uniqueLevel.config.badgeIconUrl,
+        badgeAnimationType: uniqueLevel.config.animationType || 'svga',
+      };
+      updateData.imageUrl = uniqueLevel.config.badgeIconUrl;
+      updateData.animationUrl = uniqueLevel.config.badgeIconUrl;
+      if (location !== 'store') updateData.price = 0;
     }
 
     if (updateData.audience === 'employee' || updateData.isStaffOnly === true) {
@@ -1463,10 +1573,15 @@ export const grantAssetToUser = async (req: AuthRequest, res: Response) => {
       return sendResponse(res, 404, false, `Asset "${assetQuery}" not found in Store or Assets catalog`);
     }
 
-    const days = Math.max(0, Number(durationDays) || 0);
+    const isUniqueIdGrant = asset.category === 'Unique ID';
+    const days = isUniqueIdGrant
+      ? Math.max(1, Math.min(730, Number(asset.metadata?.activationDurationDays) || Number(durationDays) || 30))
+      : Math.max(0, Number(durationDays) || 0);
     const purchasedAt = new Date();
-    // Expiration date is strictly bound from grant time regardless of whether equipped or not!
-    const expiresAt = days > 0 ? new Date(purchasedAt.getTime() + days * 24 * 60 * 60 * 1000) : null;
+    // Unique ID validity starts when the user activates it from My Items.
+    const expiresAt = !isUniqueIdGrant && days > 0
+      ? new Date(purchasedAt.getTime() + days * 24 * 60 * 60 * 1000)
+      : null;
 
     targetUser.storeInventory = Array.isArray(targetUser.storeInventory) ? targetUser.storeInventory : [];
 
@@ -1479,6 +1594,7 @@ export const grantAssetToUser = async (req: AuthRequest, res: Response) => {
       expiresAt,
       imageUrl: asset.imageUrl || asset.image || '',
       animationUrl: asset.animationUrl || '',
+      metadata: asset.metadata || {},
       source: 'admin_grant',
       grantKey: `admin-grant:${Date.now()}:${adminUser?.id || 'admin'}`,
       uniqueId: asset.uniqueId || '',
@@ -1553,7 +1669,9 @@ export const grantAssetToUser = async (req: AuthRequest, res: Response) => {
     await targetUser.save();
 
     // Send System Message / Notification
-    const validityText = days > 0 ? `${days} Days` : 'Permanent Lifetime';
+    const validityText = isUniqueIdGrant
+      ? `${days} Days after activation`
+      : days > 0 ? `${days} Days` : 'Permanent Lifetime';
     const notifMessage = message?.trim()
       ? message.trim()
       : `🎁 Congratulations! You have received ${asset.name} (${validityText}) from Admin. Tap View to equip in My Items.`;
@@ -1677,6 +1795,9 @@ export const buyStoreItem = async (req: any, res: Response) => {
     if (!item) {
       return sendResponse(res, 404, false, 'Store item is unavailable');
     }
+    if (item.category === 'Unique ID' && String(item.metadata?.location || 'store') !== 'store') {
+      return sendResponse(res, 403, false, 'This Unique ID is reserved for its Level or Event reward');
+    }
 
     const selectedOption = normalizePriceOptions(item.priceOptions, item.price)
       .find((option) => option.days === durationDays);
@@ -1688,7 +1809,9 @@ export const buyStoreItem = async (req: any, res: Response) => {
     }
 
     const purchasedAt = new Date();
+    const isUniqueIdItem = item.category === 'Unique ID';
     const isPermanent =
+      isUniqueIdItem ||
       item.metadata?.isFree === true ||
       Number(costInDiamonds || 0) === 0 ||
       String(item.validity || '').toLowerCase() === 'permanent';
@@ -1707,14 +1830,11 @@ export const buyStoreItem = async (req: any, res: Response) => {
           expiresAt,
           imageUrl: item.imageUrl || '',
           animationUrl: item.animationUrl || '',
+          metadata: item.metadata || {},
           source: 'store',
         },
       },
     };
-
-    if (item.category === 'Unique ID' && item.metadata?.number) {
-      update.$set = { ...(update.$set || {}), specialCode: item.metadata.number };
-    }
 
     if (item.category === 'Frames' || item.category === 'Frame') {
       update.$set = {
@@ -1859,6 +1979,8 @@ export const equipStoreItem = async (req: any, res: Response) => {
     }
 
     const update: any = {};
+    let uniqueIdActivation: any = null;
+    let shouldRevokeUniqueId = false;
     const clearRequested =
       equipped === false ||
       !name ||
@@ -1894,8 +2016,9 @@ export const equipStoreItem = async (req: any, res: Response) => {
       } else if (requestedCategory === 'Profile Border') {
         update.equippedProfileBorder = null;
         update.equippedProfileBorderAsset = null;
-      } else if (requestedCategory === 'Custom ID') {
+      } else if (requestedCategory === 'Custom ID' || requestedCategory === 'Unique ID') {
         update.equippedCustomId = null;
+        shouldRevokeUniqueId = true;
       }
     };
 
@@ -1903,7 +2026,7 @@ export const equipStoreItem = async (req: any, res: Response) => {
       clearCategory();
     } else {
       const account: any = await User.findById(userId)
-        .select('storeInventory')
+        .select('userId storeInventory')
         .lean();
       if (!account) return sendResponse(res, 404, false, 'User not found');
 
@@ -1947,7 +2070,53 @@ export const equipStoreItem = async (req: any, res: Response) => {
             expiresAt: ownedItem.expiresAt,
           };
 
-      if (actualCategory === 'Frames') {
+      if (actualCategory === 'Unique ID') {
+        const metadata = catalogItem?.metadata || ownedItem.metadata || {};
+        const displayId = String(metadata.uniqueDisplayId || metadata.displayId || metadata.number || '').trim();
+        const digitCount = Number(metadata.digitCount || metadata.digits || displayId.length);
+        const badgeIconUrl = String(metadata.badgeIconUrl || ownedItem.animationUrl || ownedItem.imageUrl || '').trim();
+        if (!/^\d+$/.test(displayId) || !Number.isInteger(digitCount) || displayId.length !== digitCount || !badgeIconUrl) {
+          return sendResponse(res, 409, false, 'This inventory item is missing its configured ID or badge');
+        }
+        const officialEntitlement = await IdentityEntitlement.findOne({
+          userId: account.userId,
+          type: 'official_id',
+          status: 'active',
+          startsAt: { $lte: new Date() },
+          expiresAt: { $gt: new Date() },
+        }).lean();
+        if (officialEntitlement) return sendResponse(res, 409, false, 'Deactivate your Official ID before activating a Unique ID');
+        if (await User.exists({ userId: Number(displayId) })) {
+          return sendResponse(res, 409, false, `Unique ID ${displayId} conflicts with a permanent user ID`);
+        }
+        const collision = await IdentityEntitlement.findOne({
+          userId: { $ne: account.userId },
+          type: { $in: ['official_id', 'custom_display_id'] },
+          'config.displayId': displayId,
+          status: 'active',
+          startsAt: { $lte: new Date() },
+          expiresAt: { $gt: new Date() },
+        }).lean();
+        if (collision) return sendResponse(res, 409, false, `Unique ID ${displayId} is already active on another account`);
+        const days = Math.max(1, Math.min(730, Number(ownedItem.durationDays || metadata.activationDurationDays) || 30));
+        const startsAt = new Date();
+        const expiresAt = new Date(startsAt.getTime() + days * 24 * 60 * 60 * 1000);
+        const levelNumber = Math.max(1, Number(metadata.levelNumber || 1));
+        update.equippedCustomId = displayId;
+        uniqueIdActivation = {
+          userId: Number(account.userId),
+          userObjectId: account._id,
+          displayId,
+          levelNumber,
+          levelId: String(metadata.uniqueIdLevelId || ''),
+          badgeName: String(metadata.badgeName || metadata.levelName || 'VIP ID'),
+          badgeIconUrl,
+          animationType: String(metadata.badgeAnimationType || 'svga'),
+          startsAt,
+          expiresAt,
+          grantSource: ownedItem.source === 'store' ? 'purchase' : ownedItem.source === 'level' ? 'promotional' : 'admin_grant',
+        };
+      } else if (actualCategory === 'Frames') {
         update.equippedFrame = itemName;
         update.equippedFrameAsset = asset;
       } else if (actualCategory === 'Entry') {
@@ -1989,6 +2158,50 @@ export const equipStoreItem = async (req: any, res: Response) => {
 
     if (!user) {
       return sendResponse(res, 404, false, 'User not found');
+    }
+
+    if (uniqueIdActivation) {
+      await IdentityEntitlement.updateMany(
+        { userId: uniqueIdActivation.userId, type: { $in: ['custom_display_id', 'unique_id_badge'] }, status: 'active' },
+        { $set: { status: 'revoked' } },
+      );
+      const sharedEntitlement = {
+        userId: uniqueIdActivation.userId,
+        userObjectId: uniqueIdActivation.userObjectId,
+        status: 'active',
+        startsAt: uniqueIdActivation.startsAt,
+        expiresAt: uniqueIdActivation.expiresAt,
+        grantedBy: { adminName: 'Unique ID Inventory', role: 'system' },
+        grantSource: uniqueIdActivation.grantSource,
+        grantReason: 'Activated from My Items',
+      };
+      await Promise.all([
+        IdentityEntitlement.create({
+          ...sharedEntitlement,
+          type: 'custom_display_id',
+          config: { displayId: uniqueIdActivation.displayId, vipLevel: uniqueIdActivation.levelNumber },
+        }),
+        IdentityEntitlement.create({
+          ...sharedEntitlement,
+          type: 'unique_id_badge',
+          config: {
+            displayId: uniqueIdActivation.displayId,
+            badgeName: uniqueIdActivation.badgeName,
+            badgeIconUrl: uniqueIdActivation.badgeIconUrl,
+            animationType: uniqueIdActivation.animationType,
+            vipLevel: uniqueIdActivation.levelNumber,
+            levelId: uniqueIdActivation.levelId,
+          },
+        }),
+      ]);
+    } else if (shouldRevokeUniqueId) {
+      const account: any = await User.findById(userId).select('userId').lean();
+      if (account) {
+        await IdentityEntitlement.updateMany(
+          { userId: account.userId, type: { $in: ['custom_display_id', 'unique_id_badge'] }, status: 'active' },
+          { $set: { status: 'revoked' } },
+        );
+      }
     }
 
     return sendResponse(res, 200, true, 'Item equipped successfully', user);

@@ -13,6 +13,8 @@ export interface LevelRewardItem {
   previewColor?: string;
   description?: string;
   exclusive?: boolean;
+  uniqueIdInventoryOnly?: boolean;
+  uniqueDisplayId?: string;
 }
 
 export interface LevelThreshold {

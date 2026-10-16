@@ -1,6 +1,7 @@
 import { Router } from 'express';
 import {
   getStoreItems,
+  getUniqueIdItemsAdmin,
   getStoreItemById,
   getStoreInventory,
   getStoreLevels,
@@ -29,6 +30,7 @@ const storeManagers = requireRoles('owner', 'superAdmin', 'admin', 'operator');
 router.get('/items', getStoreItems);
 router.get('/levels', getStoreLevels);
 router.get('/inventory', verifyToken, getStoreInventory);
+router.get('/admin/unique-ids', verifyToken, storeManagers, getUniqueIdItemsAdmin);
 router.get('/items/:id', getStoreItemById);
 router.post('/buy', verifyToken, buyStoreItem);
 router.post('/purchase', verifyToken, buyStoreItem);

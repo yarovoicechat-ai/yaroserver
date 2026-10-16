@@ -30,6 +30,7 @@ export interface EffectiveUserIdentity {
     glowColor?: string;
     borderGradient?: string[];
     animationType?: string;
+    vipLevel?: number;
   } | null;
 
   // VIP / SVIP Identity
@@ -38,6 +39,8 @@ export interface EffectiveUserIdentity {
   vipLevel: number;
   svipLevel: number;
   vipBadge: string;
+  vipBadgeUrl: string;
+  vipBadgeAnimationUrl: string;
   vipCrown: string;
   avatarFrame: string;
   entryTag: string;
@@ -155,9 +158,6 @@ export class IdentityResolverService {
       if (customIdEntitlement && customIdEntitlement.config?.displayId) {
         customDisplayId = String(customIdEntitlement.config.displayId);
         effectiveDisplayId = customDisplayId;
-      } else if (userDoc.equippedCustomId) {
-        customDisplayId = String(userDoc.equippedCustomId);
-        effectiveDisplayId = customDisplayId;
       }
     }
 
@@ -168,6 +168,7 @@ export class IdentityResolverService {
           glowColor: uniqueBadgeEntitlement.config?.glowColor || '#F59E0B',
           borderGradient: uniqueBadgeEntitlement.config?.borderGradient || ['#F59E0B', '#D97706'],
           animationType: uniqueBadgeEntitlement.config?.animationType || 'pulse',
+          vipLevel: Number(uniqueBadgeEntitlement.config?.vipLevel || 0),
         }
       : null;
 
@@ -278,6 +279,8 @@ export class IdentityResolverService {
       vipLevel: vipExperience.vipLevel,
       svipLevel: vipExperience.svipLevel,
       vipBadge: vipExperience.badge,
+      vipBadgeUrl: vipExperience.badgeUrl,
+      vipBadgeAnimationUrl: vipExperience.badgeAnimationUrl,
       vipCrown: vipExperience.crown,
       avatarFrame,
       entryTag: vipExperience.entryTag || (isOfficial ? '👑 OFFICIAL YARO TEAM MEMBER' : ''),

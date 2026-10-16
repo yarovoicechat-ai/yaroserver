@@ -155,6 +155,8 @@ export interface UserInterface extends Document {
   faceVerificationStatus?: 'NOT_SUBMITTED' | 'PENDING' | 'APPROVED' | 'REJECTED';
   kycVerificationStatus?: 'NOT_SUBMITTED' | 'PENDING' | 'APPROVED' | 'REJECTED';
   faceVerifiedAt?: Date;
+  isProfileVerified?: boolean;
+  verifiedTitle?: string;
   kycVerifiedAt?: Date;
   chatMuteUntil?: Date;
   chatMuteReason?: string;

@@ -516,6 +516,14 @@ export const updateUser = async (req: AuthRequest, res: Response) => {
         if (cleanImage !== undefined) updatedFields.image = cleanImage;
         if (req.body.faceVerificationStatus !== undefined) updatedFields.faceVerificationStatus = req.body.faceVerificationStatus;
         if (req.body.kycVerificationStatus !== undefined) updatedFields.kycVerificationStatus = req.body.kycVerificationStatus;
+        if (req.body.isProfileVerified !== undefined) updatedFields.isProfileVerified = Boolean(req.body.isProfileVerified);
+        if (req.body.verifiedTitle !== undefined) {
+          const verifiedTitle = String(req.body.verifiedTitle || '').trim();
+          if (verifiedTitle.length > 60) {
+            return sendResponse(res, 400, false, 'Verified title cannot exceed 60 characters');
+          }
+          updatedFields.verifiedTitle = verifiedTitle;
+        }
         if (password !== undefined && password.trim() !== "") {
           updatedFields.password = await generateSecureHash(password);
         }
@@ -1615,11 +1623,6 @@ export const getPublicUserProfile = async (req: AuthRequest, res: Response) => {
           .select('-password -refreshToken -activeToken')
           .populate('equippedEntryEffect')
           .lean();
-      } else {
-        user = await User.findOne({ equippedCustomId: id })
-          .select('-password -refreshToken -activeToken')
-          .populate('equippedEntryEffect')
-          .lean();
       }
     }
     if (!user && !isNaN(Number(id))) {
@@ -1640,6 +1643,8 @@ export const getPublicUserProfile = async (req: AuthRequest, res: Response) => {
       isOfficial: effective?.isOfficial || false,
       officialBadge: effective?.officialBadge || null,
       uniqueIdBadge: effective?.uniqueIdBadge || null,
+      vipBadgeUrl: effective?.vipBadgeUrl || '',
+      vipBadgeAnimationUrl: effective?.vipBadgeAnimationUrl || '',
       svipLevel: effective?.svipLevel || 0,
       vipBadge: effective?.vipBadge || '',
       equippedFrame: effective?.avatarFrame || user.equippedFrame || null,
