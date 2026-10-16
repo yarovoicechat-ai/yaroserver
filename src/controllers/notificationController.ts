@@ -10,7 +10,7 @@ export const createNotification = async (
     userId: string,
     title: string,
     message: string,
-    type: 'system' | 'promo' | 'transaction' | 'call' = 'system',
+    type: 'system' | 'promo' | 'transaction' | 'call' | 'event' | 'follow' = 'system',
     data: Record<string, unknown> = {}
 ) => {
     try {

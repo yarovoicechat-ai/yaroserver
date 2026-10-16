@@ -36,6 +36,13 @@ const router = express.Router();
 
 import { getActiveDefaultBios } from '../controllers/defaultBioController';
 import { completeProfile, getReferralDetails, claimReferralCode } from '../controllers/referralController';
+import {
+  followUser,
+  getFollowers,
+  getFollowing,
+  recordProfileVisit,
+  getProfileVisitors,
+} from '../controllers/followAndVisitor.controller';
 
 router.get('/default-bios', verifyToken, getActiveDefaultBios);
 
@@ -83,6 +90,13 @@ router.post("/report", verifyToken, createReport);
 // user profile routes
 router.get("/profile", verifyToken, getUserProfile);
 router.get("/profile/:id", verifyToken, getPublicUserProfile);
+
+// Follow, Following & Visitors system
+router.post("/follow/:id", verifyToken, followUser);
+router.get("/followers", verifyToken, getFollowers);
+router.get("/following", verifyToken, getFollowing);
+router.post("/visit/:id", verifyToken, recordProfileVisit);
+router.get("/visitors", verifyToken, getProfileVisitors);
 
 // get user by id
 router.get("/:userId", verifyToken, getUserById);

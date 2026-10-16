@@ -1592,6 +1592,9 @@ export const getUserProfile = async (req: AuthRequest, res: Response) => {
     const effective = await IdentityResolverService.resolveEffectiveIdentity(user);
     const enrichedUser = {
       ...user,
+      followersCount: user.followersCount ?? (Array.isArray(user.followers) ? user.followers.length : 0),
+      followingCount: user.followingCount ?? (Array.isArray(user.following) ? user.following.length : 0),
+      visitorsCount: user.visitorsCount ?? 0,
       displayId: effective?.displayId || String(user.userId),
       isOfficial: effective?.isOfficial || false,
       officialBadge: effective?.officialBadge || null,
@@ -1650,9 +1653,18 @@ export const getPublicUserProfile = async (req: AuthRequest, res: Response) => {
       return sendResponse(res, 404, false, "User not found");
     }
 
+    const requesterId = req.user?.id || (req.user as any)?._id;
+    const isFollowing = requesterId && Array.isArray(user.followers)
+      ? user.followers.map(String).includes(String(requesterId))
+      : false;
+
     const effective = await IdentityResolverService.resolveEffectiveIdentity(user);
     const enrichedUser = {
       ...user,
+      isFollowing,
+      followersCount: user.followersCount ?? (Array.isArray(user.followers) ? user.followers.length : 0),
+      followingCount: user.followingCount ?? (Array.isArray(user.following) ? user.following.length : 0),
+      visitorsCount: user.visitorsCount ?? 0,
       displayId: effective?.displayId || String(user.userId),
       isOfficial: effective?.isOfficial || false,
       officialBadge: effective?.officialBadge || null,

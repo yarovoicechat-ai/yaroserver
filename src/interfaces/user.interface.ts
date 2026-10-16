@@ -78,6 +78,11 @@ export interface UserInterface extends Document {
   canRoomHost?: boolean;
   meethiId?: string;
   blockedUsers?: Types.ObjectId[];
+  followers?: Types.ObjectId[];
+  following?: Types.ObjectId[];
+  followersCount?: number;
+  followingCount?: number;
+  visitorsCount?: number;
   level?: number;
   wealthExp?: number;
   wealthLevel?: number;
