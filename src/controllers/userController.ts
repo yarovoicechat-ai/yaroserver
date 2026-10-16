@@ -1589,7 +1589,21 @@ export const getUserProfile = async (req: AuthRequest, res: Response) => {
       }
     }
 
-    return sendResponse(res, 200, true, "Profile fetched successfully", user);
+    const effective = await IdentityResolverService.resolveEffectiveIdentity(user);
+    const enrichedUser = {
+      ...user,
+      displayId: effective?.displayId || String(user.userId),
+      isOfficial: effective?.isOfficial || false,
+      officialBadge: effective?.officialBadge || null,
+      uniqueIdBadge: effective?.uniqueIdBadge || null,
+      vipBadgeUrl: effective?.vipBadgeUrl || '',
+      vipBadgeAnimationUrl: effective?.vipBadgeAnimationUrl || '',
+      svipLevel: effective?.svipLevel || 0,
+      vipBadge: effective?.vipBadge || '',
+      equippedFrame: effective?.avatarFrame || user.equippedFrame || null,
+      effectiveIdentity: effective,
+    };
+    return sendResponse(res, 200, true, "Profile fetched successfully", enrichedUser);
   } catch (error: any) {
     return sendResponse(res, 500, false, error.message || "Failed to fetch profile");
   }
