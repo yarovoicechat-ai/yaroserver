@@ -56,6 +56,9 @@ export interface UserInterface extends Document {
   equippedVipExpiresAt?: Date | null;
   ownedVipIds?: string[];
   equippedSvipId?: string | null;
+  equippedSvipExpiresAt?: Date | null;
+  isSvip?: boolean;
+  svipLevel?: number;
   ownedSvipIds?: string[];
   equippedChatBubble?: string | null;
   equippedChatBubbleAsset?: any;

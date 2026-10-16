@@ -22,18 +22,21 @@ export interface ISvipPrivilegeConfig {
   description: string;
   icon: string;
   animationUrl?: string;
+  previewUrl?: string;
   isEnabled: boolean;
   isVisible: boolean;
   implementationStatus: 'supported' | 'partially_supported' | 'coming_soon';
   value?: string | number;
   sortOrder: number;
+  unlockLevel?: number; // Level at which this privilege becomes unlocked (0 = VIP+, 1 = SVIP1, ... 12 = SVIP12)
+  powerSummary?: string;
 }
 
 export interface ISvipTier extends Document {
-  name: string; // e.g. "SVIP 1 Knight", "SVIP 2 Count", "SVIP 9 King of Kings"
-  planCode: string; // unique internal code, e.g. "SVIP_1", "SVIP_2"
+  name: string; // e.g. "VIP+", "SVIP 1 Knight", "SVIP 12 Sovereign Lord"
+  planCode: string; // unique internal code, e.g. "VIP_PLUS", "SVIP_1", "SVIP_12"
   slug: string;
-  level: number;
+  level: number; // 0 for VIP+, 1..12 for SVIP 1..12
   description: string;
   badge: string;
   icon: string;
@@ -42,6 +45,7 @@ export interface ISvipTier extends Document {
   // Hero visuals & branding
   heroBadgeUrl?: string;
   heroAnimationUrl?: string;
+  heroBadgePreviewUrl?: string;
   bgGradient?: string[];
   bgImageUrl?: string;
 
@@ -59,11 +63,13 @@ export interface ISvipTier extends Document {
     text: string;
     bgGradient: string[];
     iconUrl?: string;
+    previewUrl?: string;
     enabled: boolean;
   };
   svipBubbleConfig?: {
     bubbleName: string;
     previewUrl?: string;
+    animationUrl?: string;
     bgGradient: string[];
     textColor: string;
     borderColor: string;
@@ -126,6 +132,7 @@ const PrivilegeSchema = new Schema<ISvipPrivilegeConfig>(
     description: { type: String, default: '' },
     icon: { type: String, default: 'crown' },
     animationUrl: { type: String, default: '' },
+    previewUrl: { type: String, default: '' },
     isEnabled: { type: Boolean, default: true },
     isVisible: { type: Boolean, default: true },
     implementationStatus: {
@@ -135,6 +142,8 @@ const PrivilegeSchema = new Schema<ISvipPrivilegeConfig>(
     },
     value: { type: Schema.Types.Mixed, default: '' },
     sortOrder: { type: Number, default: 0 },
+    unlockLevel: { type: Number, default: 0 },
+    powerSummary: { type: String, default: '' },
   },
   { _id: false }
 );
@@ -152,6 +161,7 @@ const SvipTierSchema = new Schema<ISvipTier>(
 
     heroBadgeUrl: { type: String, default: '' },
     heroAnimationUrl: { type: String, default: '' },
+    heroBadgePreviewUrl: { type: String, default: '' },
     bgGradient: { type: [String], default: ['#1E140D', '#2A1C13', '#160E09'] },
     bgImageUrl: { type: String, default: '' },
 
@@ -167,11 +177,13 @@ const SvipTierSchema = new Schema<ISvipTier>(
       text: { type: String, default: 'SVIP' },
       bgGradient: { type: [String], default: ['#F59E0B', '#D97706'] },
       iconUrl: { type: String, default: '' },
+      previewUrl: { type: String, default: '' },
       enabled: { type: Boolean, default: true },
     },
     svipBubbleConfig: {
       bubbleName: { type: String, default: 'SVIP Royal Bubble' },
       previewUrl: { type: String, default: '' },
+      animationUrl: { type: String, default: '' },
       bgGradient: { type: [String], default: ['#3B0764', '#581C87'] },
       textColor: { type: String, default: '#FFFFFF' },
       borderColor: { type: String, default: '#C084FC' },

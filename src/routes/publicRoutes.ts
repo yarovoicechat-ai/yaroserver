@@ -5,6 +5,8 @@ import { Logger } from '../utils/logger';
 import { Banner } from '../models/banner.model';
 import { createUserFromPublicForm } from '../controllers/formsController';
 import { User } from '../models/user.model';
+import { IdentityEntitlement } from '../models/identityEntitlement.model';
+import { IdentityResolverService } from '../services/identityResolver.service';
 import { generateSecureHash, } from '../utils/passwordHelper';
 import { generateUniqueId } from '../utils/generator';
 import { submitApplication } from '../controllers/recruitmentController';
@@ -179,6 +181,20 @@ router.get('/search', async (req: Request, res: Response) => {
             orConditions.push({ userId: Number(queryStr) });
         }
 
+        const now = new Date();
+        const activeVanityEntitlements = await IdentityEntitlement.find({
+            type: { $in: ['official_id', 'custom_display_id', 'unique_id_badge'] },
+            'config.displayId': regex,
+            status: 'active',
+            startsAt: { $lte: now },
+            expiresAt: { $gt: now },
+        }).select('userId').lean();
+
+        if (activeVanityEntitlements.length > 0) {
+            orConditions.push({ userId: { $in: activeVanityEntitlements.map(e => e.userId) } });
+        }
+        orConditions.push({ equippedCustomId: regex });
+
         const userFilter: any = {
             isDeleted: false,
             isBlocked: { $ne: true },
@@ -194,16 +210,24 @@ router.get('/search', async (req: Request, res: Response) => {
         const usersList: any[] = [];
         const hostsList: any[] = [];
 
-        matchingUsers.forEach((u: any) => {
+        for (const u of matchingUsers) {
+            const effective = await IdentityResolverService.resolveEffectiveIdentity(u);
             const formatted = {
                 ...u,
                 isHost: u.role === 'host',
+                displayId: effective?.displayId || String(u.userId),
+                isOfficial: effective?.isOfficial || false,
+                officialBadge: effective?.officialBadge || null,
+                uniqueIdBadge: effective?.uniqueIdBadge || null,
+                svipLevel: effective?.svipLevel || 0,
+                vipBadge: effective?.vipBadge || '',
+                equippedFrame: effective?.avatarFrame || u.equippedFrame || null,
             };
             if (u.role === 'host') {
                 hostsList.push(formatted);
             }
             usersList.push(formatted);
-        });
+        }
 
         // Search active voice rooms
         const matchingOwnerIds = matchingUsers.map(u => u._id);

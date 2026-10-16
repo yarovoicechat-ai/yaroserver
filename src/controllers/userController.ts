@@ -12,6 +12,8 @@ import { CoinsTransaction } from "../models/spentCoinModel";
 import HostLevel from "../models/hostLevel.model";
 import { BeansPlan } from "../models/beansPlan.model";
 import mongoose from "mongoose";
+import { IdentityEntitlement } from "../models/identityEntitlement.model";
+import { IdentityResolverService } from "../services/identityResolver.service";
 
 // import { deleteFromS3, uploadToS3 } from "../utils/uploadS3";
 import { generateOtp, sendCustomEmail, sendOtpForEmailVerification } from "../utils/otp";
@@ -1600,6 +1602,27 @@ export const getPublicUserProfile = async (req: AuthRequest, res: Response) => {
         .lean();
     }
     if (!user) {
+      const now = new Date();
+      const entitlement = await IdentityEntitlement.findOne({
+        type: { $in: ['official_id', 'custom_display_id', 'unique_id_badge'] },
+        'config.displayId': id,
+        status: 'active',
+        startsAt: { $lte: now },
+        expiresAt: { $gt: now },
+      }).lean();
+      if (entitlement) {
+        user = await User.findOne({ userId: entitlement.userId })
+          .select('-password -refreshToken -activeToken')
+          .populate('equippedEntryEffect')
+          .lean();
+      } else {
+        user = await User.findOne({ equippedCustomId: id })
+          .select('-password -refreshToken -activeToken')
+          .populate('equippedEntryEffect')
+          .lean();
+      }
+    }
+    if (!user && !isNaN(Number(id))) {
       user = await User.findOne({ userId: Number(id) })
         .select('-password -refreshToken -activeToken')
         .populate('equippedEntryEffect')
@@ -1610,7 +1633,19 @@ export const getPublicUserProfile = async (req: AuthRequest, res: Response) => {
       return sendResponse(res, 404, false, "User not found");
     }
 
-    return sendResponse(res, 200, true, "Public user profile fetched successfully", user);
+    const effective = await IdentityResolverService.resolveEffectiveIdentity(user);
+    const enrichedUser = {
+      ...user,
+      displayId: effective?.displayId || String(user.userId),
+      isOfficial: effective?.isOfficial || false,
+      officialBadge: effective?.officialBadge || null,
+      uniqueIdBadge: effective?.uniqueIdBadge || null,
+      svipLevel: effective?.svipLevel || 0,
+      vipBadge: effective?.vipBadge || '',
+      equippedFrame: effective?.avatarFrame || user.equippedFrame || null,
+      effectiveIdentity: effective,
+    };
+    return sendResponse(res, 200, true, "Public user profile fetched successfully", enrichedUser);
   } catch (error: any) {
     return sendResponse(res, 500, false, error.message || "Failed to fetch user profile");
   }

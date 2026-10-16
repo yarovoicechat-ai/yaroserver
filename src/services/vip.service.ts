@@ -94,7 +94,11 @@ export class VipService {
 
     // Load equipped SVIP tier if exists
     let svip: ISvipTier | null = null;
-    if (user.equippedSvipId) {
+    const svipExpiresAt = user.equippedSvipExpiresAt || user.equippedVipExpiresAt;
+    const svipExpired = Boolean(
+      svipExpiresAt && new Date(svipExpiresAt).getTime() <= Date.now()
+    );
+    if (user.equippedSvipId && !svipExpired) {
       if (mongoose.connection.readyState === 1) {
         if (mongoose.Types.ObjectId.isValid(String(user.equippedSvipId))) {
           svip = await SvipTier.findById(user.equippedSvipId).lean();

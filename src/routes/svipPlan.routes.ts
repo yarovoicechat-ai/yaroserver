@@ -9,6 +9,7 @@ import {
   adminDuplicateSvipPlan,
   adminToggleSvipPlan,
   adminDeleteSvipPlan,
+  adminReseedSvipPlans,
 } from '../controllers/svipPlan.controller';
 import { verifyToken, requireRoles } from '../middlewares/authorize.middleware';
 
@@ -30,5 +31,7 @@ router.patch('/admin/:id', verifyToken, adminRoles, adminUpdateSvipPlan);
 router.post('/admin/:id/duplicate', verifyToken, adminRoles, adminDuplicateSvipPlan);
 router.patch('/admin/:id/toggle', verifyToken, adminRoles, adminToggleSvipPlan);
 router.delete('/admin/:id', verifyToken, adminRoles, adminDeleteSvipPlan);
+router.post('/admin/reseed', verifyToken, adminRoles, adminReseedSvipPlans);
+router.post('/reseed', verifyToken, adminRoles, adminReseedSvipPlans);
 
 export const svipPlanRouter = router;
