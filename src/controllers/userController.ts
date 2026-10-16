@@ -1613,7 +1613,7 @@ export const getPublicUserProfile = async (req: AuthRequest, res: Response) => {
       const now = new Date();
       const entitlement = await IdentityEntitlement.findOne({
         type: { $in: ['official_id', 'custom_display_id', 'unique_id_badge'] },
-        'config.displayId': id,
+        $expr: { $eq: [{ $toUpper: '$config.displayId' }, String(id).toUpperCase()] },
         status: 'active',
         startsAt: { $lte: now },
         expiresAt: { $gt: now },

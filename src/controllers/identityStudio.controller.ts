@@ -516,9 +516,9 @@ export const grantUniqueId = async (req: AuthRequest, res: Response) => {
     const badgeUrl = uniqueLevel.config.badgeIconUrl;
     const animationType = uniqueLevel.config.animationType || 'svga';
     const vipLevel = Number(uniqueLevel.config.levelNumber || uniqueLevel.config.vipLevel || 1);
-    const cleanDisplayId = String(displayId).trim();
-    if (!/^[a-zA-Z0-9_-]{3,24}$/.test(cleanDisplayId)) {
-      return sendResponse(res, 400, false, 'Unique ID must be 3–24 characters and use letters, numbers, hyphen, or underscore');
+    const cleanDisplayId = String(displayId).trim().toUpperCase();
+    if (!/^[A-Z0-9]{3,12}$/.test(cleanDisplayId)) {
+      return sendResponse(res, 400, false, 'Unique ID must be 3–12 letters or numbers');
     }
     if (/^\d+$/.test(cleanDisplayId) && await User.exists({ userId: Number(cleanDisplayId) })) {
       return sendResponse(res, 409, false, `Unique ID ${cleanDisplayId} conflicts with a permanent user ID`);

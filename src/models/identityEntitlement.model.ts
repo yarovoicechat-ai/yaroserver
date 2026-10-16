@@ -22,7 +22,7 @@ export interface IIdentityEntitlement extends Document {
   type: EntitlementType;
   config: {
     // Official ID & Custom ID specific
-    displayId?: string; // e.g. "Official" or custom short vanity ID "777"
+    displayId?: string; // e.g. "Official" or custom short vanity ID "ABCD"
     badgeUrl?: string; // URL for animated/static official badge
     badgeText?: string; // e.g. "OFFICIAL", "VIP 1", "ROYAL"
     badgeAnimationType?: 'shimmer' | 'pulse' | 'glow' | 'gold_rotate' | 'svga' | 'lottie' | 'static';

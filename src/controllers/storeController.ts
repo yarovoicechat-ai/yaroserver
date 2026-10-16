@@ -24,6 +24,12 @@ import {
 
 const STORE_DURATIONS = [3, 7, 15, 30] as const;
 
+const normalizeUniqueDisplayId = (value: unknown) => String(value || '').trim().toUpperCase();
+const uniqueDisplayIdLength = (metadata: any, displayId: string) =>
+  Number(metadata?.characterCount || metadata?.idLength || metadata?.digitCount || metadata?.digits || displayId.length);
+const isValidUniqueDisplayId = (displayId: string, length: number) =>
+  /^[A-Z0-9]{3,12}$/.test(displayId) && Number.isInteger(length) && length === displayId.length;
+
 const buildDefaultPriceOptions = (price: number) => {
   const base = Math.max(0, Number(price) || 0);
   const ratios: Record<number, number> = { 3: 0.15, 7: 0.3, 15: 0.55, 30: 1 };
@@ -954,7 +960,8 @@ export const getStoreInventory = async (req: any, res: Response) => {
           : { metadata: plain.metadata || {} }),
         isEquippedUniqueId: Boolean(
           activeUniqueId &&
-          (plain.metadata?.uniqueDisplayId || plain.metadata?.number) === activeUniqueId.config?.displayId,
+          normalizeUniqueDisplayId(plain.metadata?.uniqueDisplayId || plain.metadata?.displayId || plain.metadata?.number) ===
+            normalizeUniqueDisplayId(activeUniqueId.config?.displayId),
         ),
       };
     });
@@ -1082,20 +1089,25 @@ export const createStoreItem = async (req: Request, res: Response) => {
 
     if (category === 'Unique ID') {
       const uniqueMetadata = metadata && typeof metadata === 'object' ? metadata : {};
-      const displayId = String(uniqueMetadata.uniqueDisplayId || uniqueMetadata.displayId || uniqueMetadata.number || '').trim();
-      const digitCount = Number(uniqueMetadata.digitCount || uniqueMetadata.digits || displayId.length);
+      const displayId = normalizeUniqueDisplayId(uniqueMetadata.uniqueDisplayId || uniqueMetadata.displayId || uniqueMetadata.number);
+      const idLength = uniqueDisplayIdLength(uniqueMetadata, displayId);
       const location = String(uniqueMetadata.location || 'store');
-      if (!/^\d+$/.test(displayId) || !Number.isInteger(digitCount) || digitCount < 3 || digitCount > 12 || displayId.length !== digitCount) {
-        return sendResponse(res, 400, false, 'Unique ID must contain exactly the configured number of digits (3-12)');
+      if (!isValidUniqueDisplayId(displayId, idLength)) {
+        return sendResponse(res, 400, false, 'Unique ID must contain exactly the configured number of letters or numbers (3-12)');
       }
       if (!['store', 'level', 'event'].includes(location)) return sendResponse(res, 400, false, 'Unique ID location must be Store, Level, or Event');
       if (location === 'event' && !uniqueMetadata.eventId) return sendResponse(res, 400, false, 'Choose an event for this Unique ID');
       if (location === 'level' && (!['wealth', 'charm'].includes(String(uniqueMetadata.progressionType)) || !Number.isInteger(Number(uniqueMetadata.requiredLevel)) || Number(uniqueMetadata.requiredLevel) < 1)) {
         return sendResponse(res, 400, false, 'Choose Wealth or Charm and a valid reward level');
       }
-      const duplicate = await StoreItem.findOne({ category: 'Unique ID', 'metadata.number': displayId }).lean();
+      const duplicatePattern = new RegExp(`^${displayId}$`, 'i');
+      const duplicate = await StoreItem.findOne({ category: 'Unique ID', $or: [
+        { 'metadata.number': duplicatePattern },
+        { 'metadata.displayId': duplicatePattern },
+        { 'metadata.uniqueDisplayId': duplicatePattern },
+      ] }).lean();
       if (duplicate) return sendResponse(res, 409, false, `Unique ID ${displayId} has already been created`);
-      if (await User.exists({ userId: Number(displayId) })) {
+      if (/^\d+$/.test(displayId) && await User.exists({ userId: Number(displayId) })) {
         return sendResponse(res, 409, false, `Unique ID ${displayId} conflicts with a permanent user ID`);
       }
       const uniqueLevel = await IdentityEffect.findOne({ _id: uniqueMetadata.uniqueIdLevelId, category: 'unique_badge', status: 'active' }).lean();
@@ -1105,8 +1117,10 @@ export const createStoreItem = async (req: Request, res: Response) => {
         number: displayId,
         displayId,
         uniqueDisplayId: displayId,
-        digitCount,
-        digits: digitCount,
+        idLength,
+        characterCount: idLength,
+        digitCount: idLength,
+        digits: idLength,
         uniqueIdLevelId: String(uniqueLevel._id),
         levelNumber: Number(uniqueLevel.config.levelNumber || uniqueLevel.config.vipLevel || 1),
         levelName: uniqueLevel.name,
@@ -1222,20 +1236,25 @@ export const updateStoreItem = async (req: Request, res: Response) => {
 
     if ((updateData.category || existingItem.category) === 'Unique ID') {
       const uniqueMetadata = { ...(existingItem.metadata || {}), ...(updateData.metadata || {}) };
-      const displayId = String(uniqueMetadata.uniqueDisplayId || uniqueMetadata.displayId || uniqueMetadata.number || '').trim();
-      const digitCount = Number(uniqueMetadata.digitCount || uniqueMetadata.digits || displayId.length);
+      const displayId = normalizeUniqueDisplayId(uniqueMetadata.uniqueDisplayId || uniqueMetadata.displayId || uniqueMetadata.number);
+      const idLength = uniqueDisplayIdLength(uniqueMetadata, displayId);
       const location = String(uniqueMetadata.location || 'store');
-      if (!/^\d+$/.test(displayId) || !Number.isInteger(digitCount) || digitCount < 3 || digitCount > 12 || displayId.length !== digitCount) {
-        return sendResponse(res, 400, false, 'Unique ID must contain exactly the configured number of digits (3-12)');
+      if (!isValidUniqueDisplayId(displayId, idLength)) {
+        return sendResponse(res, 400, false, 'Unique ID must contain exactly the configured number of letters or numbers (3-12)');
       }
       if (!['store', 'level', 'event'].includes(location)) return sendResponse(res, 400, false, 'Unique ID location must be Store, Level, or Event');
       if (location === 'event' && !uniqueMetadata.eventId) return sendResponse(res, 400, false, 'Choose an event for this Unique ID');
       if (location === 'level' && (!['wealth', 'charm'].includes(String(uniqueMetadata.progressionType)) || !Number.isInteger(Number(uniqueMetadata.requiredLevel)) || Number(uniqueMetadata.requiredLevel) < 1)) {
         return sendResponse(res, 400, false, 'Choose Wealth or Charm and a valid reward level');
       }
-      const duplicate = await StoreItem.findOne({ category: 'Unique ID', 'metadata.number': displayId, _id: { $ne: id } }).lean();
+      const duplicatePattern = new RegExp(`^${displayId}$`, 'i');
+      const duplicate = await StoreItem.findOne({ category: 'Unique ID', _id: { $ne: id }, $or: [
+        { 'metadata.number': duplicatePattern },
+        { 'metadata.displayId': duplicatePattern },
+        { 'metadata.uniqueDisplayId': duplicatePattern },
+      ] }).lean();
       if (duplicate) return sendResponse(res, 409, false, `Unique ID ${displayId} has already been created`);
-      if (await User.exists({ userId: Number(displayId) })) {
+      if (/^\d+$/.test(displayId) && await User.exists({ userId: Number(displayId) })) {
         return sendResponse(res, 409, false, `Unique ID ${displayId} conflicts with a permanent user ID`);
       }
       const uniqueLevel = await IdentityEffect.findOne({ _id: uniqueMetadata.uniqueIdLevelId, category: 'unique_badge', status: 'active' }).lean();
@@ -1246,8 +1265,10 @@ export const updateStoreItem = async (req: Request, res: Response) => {
         number: displayId,
         displayId,
         uniqueDisplayId: displayId,
-        digitCount,
-        digits: digitCount,
+        idLength,
+        characterCount: idLength,
+        digitCount: idLength,
+        digits: idLength,
         uniqueIdLevelId: String(uniqueLevel._id),
         levelNumber: Number(uniqueLevel.config.levelNumber || uniqueLevel.config.vipLevel || 1),
         levelName: uniqueLevel.name,
@@ -2072,10 +2093,10 @@ export const equipStoreItem = async (req: any, res: Response) => {
 
       if (actualCategory === 'Unique ID') {
         const metadata = catalogItem?.metadata || ownedItem.metadata || {};
-        const displayId = String(metadata.uniqueDisplayId || metadata.displayId || metadata.number || '').trim();
-        const digitCount = Number(metadata.digitCount || metadata.digits || displayId.length);
+        const displayId = normalizeUniqueDisplayId(metadata.uniqueDisplayId || metadata.displayId || metadata.number);
+        const idLength = uniqueDisplayIdLength(metadata, displayId);
         const badgeIconUrl = String(metadata.badgeIconUrl || ownedItem.animationUrl || ownedItem.imageUrl || '').trim();
-        if (!/^\d+$/.test(displayId) || !Number.isInteger(digitCount) || displayId.length !== digitCount || !badgeIconUrl) {
+        if (!isValidUniqueDisplayId(displayId, idLength) || !badgeIconUrl) {
           return sendResponse(res, 409, false, 'This inventory item is missing its configured ID or badge');
         }
         const officialEntitlement = await IdentityEntitlement.findOne({
@@ -2086,13 +2107,13 @@ export const equipStoreItem = async (req: any, res: Response) => {
           expiresAt: { $gt: new Date() },
         }).lean();
         if (officialEntitlement) return sendResponse(res, 409, false, 'Deactivate your Official ID before activating a Unique ID');
-        if (await User.exists({ userId: Number(displayId) })) {
+        if (/^\d+$/.test(displayId) && await User.exists({ userId: Number(displayId) })) {
           return sendResponse(res, 409, false, `Unique ID ${displayId} conflicts with a permanent user ID`);
         }
         const collision = await IdentityEntitlement.findOne({
           userId: { $ne: account.userId },
           type: { $in: ['official_id', 'custom_display_id'] },
-          'config.displayId': displayId,
+          'config.displayId': new RegExp(`^${displayId}$`, 'i'),
           status: 'active',
           startsAt: { $lte: new Date() },
           expiresAt: { $gt: new Date() },
