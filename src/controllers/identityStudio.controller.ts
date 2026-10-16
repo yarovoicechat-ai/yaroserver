@@ -362,31 +362,77 @@ export const listOfficialIds = async (req: Request, res: Response) => {
 
 export const listUniqueIds = async (req: Request, res: Response) => {
   try {
-    const { search = '' } = req.query as any;
+    const { search = '', status = 'all', page = 1, limit = 50 } = req.query as any;
     const query: any = { type: 'custom_display_id' };
-    if (search) {
-      query.$or = [
-        { 'config.displayId': { $regex: String(search), $options: 'i' } },
-        { userId: !isNaN(Number(search)) ? Number(search) : -1 },
-      ];
+    const now = new Date();
+
+    if (status === 'active') {
+      query.status = 'active';
+      query.startsAt = { $lte: now };
+      query.expiresAt = { $gt: now };
+    } else if (status === 'expired') {
+      query.$or = [{ status: 'expired' }, { expiresAt: { $lte: now } }];
+    } else if (status === 'revoked') {
+      query.status = 'revoked';
     }
 
-    const [ids, badges] = await Promise.all([
+    if (search) {
+      const searchStr = String(search).trim();
+      const numSearch = Number(searchStr);
+      const orConditions: any[] = [
+        { 'config.displayId': { $regex: searchStr, $options: 'i' } },
+      ];
+      if (!isNaN(numSearch)) {
+        orConditions.push({ userId: numSearch });
+      }
+
+      // Also search by username or display name
+      const matchingUsers = await User.find({
+        $or: [
+          { userName: { $regex: searchStr, $options: 'i' } },
+          { name: { $regex: searchStr, $options: 'i' } },
+        ],
+      })
+        .select('userId')
+        .limit(50)
+        .lean();
+
+      if (matchingUsers.length > 0) {
+        orConditions.push({ userId: { $in: matchingUsers.map((u: any) => u.userId) } });
+      }
+
+      query.$and = (query.$and || []).concat([{ $or: orConditions }]);
+    }
+
+    const pageNum = Math.max(1, Number(page) || 1);
+    const limitNum = Math.max(1, Math.min(200, Number(limit) || 50));
+    const skip = (pageNum - 1) * limitNum;
+
+    const [ids, total, badges] = await Promise.all([
       IdentityEntitlement.find(query)
         .sort({ createdAt: -1 })
-        .limit(100)
-        .populate('userObjectId', 'name userName image userId')
+        .skip(skip)
+        .limit(limitNum)
+        .populate('userObjectId', 'name userName image userId email')
         .lean(),
+      IdentityEntitlement.countDocuments(query),
       IdentityEntitlement.find({ type: 'unique_id_badge' }).sort({ createdAt: -1 }).lean(),
     ]);
+
     const latestBadgeByUser = new Map<number, any>();
     badges.forEach((badge: any) => {
       if (!latestBadgeByUser.has(badge.userId)) latestBadgeByUser.set(badge.userId, badge);
     });
 
     return sendResponse(res, 200, true, 'Unique IDs fetched', {
-      total: ids.length,
-      entitlements: ids.map((id: any) => ({ ...id, badgeEntitlement: latestBadgeByUser.get(id.userId) || null })),
+      total,
+      page: pageNum,
+      limit: limitNum,
+      totalPages: Math.ceil(total / limitNum),
+      entitlements: ids.map((id: any) => ({
+        ...id,
+        badgeEntitlement: latestBadgeByUser.get(id.userId) || null,
+      })),
     });
   } catch (error: any) {
     return sendResponse(res, 500, false, error.message || 'Failed to list unique IDs');
@@ -618,10 +664,13 @@ export const revokeUniqueId = async (req: AuthRequest, res: Response) => {
   try {
     const numericUserId = Number(req.params.userId);
     if (!Number.isFinite(numericUserId)) return sendResponse(res, 400, false, 'Valid user ID is required');
+
     await IdentityEntitlement.updateMany(
       { userId: numericUserId, type: { $in: ['custom_display_id', 'unique_id_badge'] }, status: 'active' },
       { $set: { status: 'revoked' } },
     );
+    await User.updateOne({ userId: numericUserId }, { $set: { uniqueId: '' } });
+
     await IdentityAuditLog.create({
       action: 'revoke_entitlement',
       targetUserId: numericUserId,
@@ -637,6 +686,226 @@ export const revokeUniqueId = async (req: AuthRequest, res: Response) => {
     return sendResponse(res, 200, true, `Unique ID revoked; permanent ID ${numericUserId} is active again`, resolvedIdentity);
   } catch (error: any) {
     return sendResponse(res, 500, false, error.message || 'Failed to revoke unique ID');
+  }
+};
+
+export const adjustUniqueIdValidity = async (req: AuthRequest, res: Response) => {
+  try {
+    const numericUserId = Number(req.params.userId);
+    if (!Number.isFinite(numericUserId)) return sendResponse(res, 400, false, 'Valid user ID is required');
+
+    const { daysDelta, newExpiresAt, isPermanent, reason = 'Validity adjusted by admin' } = req.body || {};
+
+    const entitlements = await IdentityEntitlement.find({
+      userId: numericUserId,
+      type: { $in: ['custom_display_id', 'unique_id_badge'] },
+    });
+
+    if (!entitlements || entitlements.length === 0) {
+      return sendResponse(res, 404, false, 'No unique ID record found for this user');
+    }
+
+    const now = new Date();
+    let calculatedExpiresAt: Date;
+
+    if (isPermanent) {
+      // 100 years in future
+      calculatedExpiresAt = new Date(now.getTime() + 100 * 365 * 24 * 60 * 60 * 1000);
+    } else if (newExpiresAt) {
+      const parsed = new Date(newExpiresAt);
+      if (isNaN(parsed.getTime())) {
+        return sendResponse(res, 400, false, 'Invalid expiration date provided');
+      }
+      calculatedExpiresAt = parsed;
+    } else if (daysDelta !== undefined && daysDelta !== null) {
+      const deltaNumber = Number(daysDelta);
+      if (isNaN(deltaNumber)) {
+        return sendResponse(res, 400, false, 'Invalid days delta provided');
+      }
+
+      // Base date: if adding days to an expired item, start from now; otherwise start from current expiresAt
+      const primaryItem = entitlements.find(e => e.type === 'custom_display_id') || entitlements[0];
+      const currentExpiry = primaryItem.expiresAt instanceof Date ? primaryItem.expiresAt : new Date(primaryItem.expiresAt);
+      const baseDate = deltaNumber > 0 && currentExpiry < now ? now : currentExpiry;
+
+      calculatedExpiresAt = new Date(baseDate.getTime() + deltaNumber * 24 * 60 * 60 * 1000);
+    } else {
+      return sendResponse(res, 400, false, 'Please specify daysDelta, newExpiresAt, or isPermanent');
+    }
+
+    const nextStatus = calculatedExpiresAt > now ? 'active' : 'expired';
+
+    for (const item of entitlements) {
+      item.expiresAt = calculatedExpiresAt;
+      item.status = nextStatus;
+      await item.save();
+    }
+
+    // Keep User.uniqueId synchronized
+    const idItem = entitlements.find(e => e.type === 'custom_display_id');
+    if (idItem?.config?.displayId) {
+      await User.updateOne(
+        { userId: numericUserId },
+        { $set: { uniqueId: nextStatus === 'active' ? idItem.config.displayId : '' } }
+      );
+    }
+
+    await IdentityAuditLog.create({
+      action: 'extend_entitlement',
+      targetUserId: numericUserId,
+      entitlementType: 'custom_display_id',
+      details: {
+        daysDelta,
+        newExpiresAt: calculatedExpiresAt,
+        isPermanent: Boolean(isPermanent),
+        status: nextStatus,
+        reason,
+      },
+      performedBy: {
+        adminId: (req.user as any)?._id || req.user?.id,
+        adminName: req.user?.name || (req.user as any)?.userName || 'Admin',
+        role: req.user?.role || 'admin',
+      },
+    });
+
+    const resolvedIdentity = await IdentityResolverService.resolveEffectiveIdentity(numericUserId);
+
+    return sendResponse(res, 200, true, `Unique ID validity updated. New expiry: ${calculatedExpiresAt.toISOString()}`, {
+      expiresAt: calculatedExpiresAt,
+      status: nextStatus,
+      resolvedIdentity,
+    });
+  } catch (error: any) {
+    return sendResponse(res, 500, false, error.message || 'Failed to adjust validity');
+  }
+};
+
+export const removeUniqueId = async (req: AuthRequest, res: Response) => {
+  try {
+    const numericUserId = Number(req.params.userId);
+    if (!Number.isFinite(numericUserId)) return sendResponse(res, 400, false, 'Valid user ID is required');
+
+    const deletePermanently = req.body?.deletePermanently === true || req.query?.deletePermanently === 'true';
+    const reason = req.body?.reason || req.query?.reason || 'Unique ID removed by admin';
+
+    if (deletePermanently) {
+      await IdentityEntitlement.deleteMany({
+        userId: numericUserId,
+        type: { $in: ['custom_display_id', 'unique_id_badge'] },
+      });
+    } else {
+      await IdentityEntitlement.updateMany(
+        { userId: numericUserId, type: { $in: ['custom_display_id', 'unique_id_badge'] } },
+        { $set: { status: 'revoked' } }
+      );
+    }
+
+    await User.updateOne({ userId: numericUserId }, { $set: { uniqueId: '' } });
+
+    await IdentityAuditLog.create({
+      action: 'revoke_entitlement',
+      targetUserId: numericUserId,
+      entitlementType: 'custom_display_id',
+      details: {
+        permanentlyDeleted: Boolean(deletePermanently),
+        reason,
+      },
+      performedBy: {
+        adminId: (req.user as any)?._id || req.user?.id,
+        adminName: req.user?.name || (req.user as any)?.userName || 'Admin',
+        role: req.user?.role || 'admin',
+      },
+    });
+
+    const resolvedIdentity = await IdentityResolverService.resolveEffectiveIdentity(numericUserId);
+
+    return sendResponse(
+      res,
+      200,
+      true,
+      `Unique ID removed. User reverted to permanent ID ${numericUserId}`,
+      resolvedIdentity
+    );
+  } catch (error: any) {
+    return sendResponse(res, 500, false, error.message || 'Failed to remove unique ID');
+  }
+};
+
+export const updateUniqueIdDetails = async (req: AuthRequest, res: Response) => {
+  try {
+    const numericUserId = Number(req.params.userId);
+    if (!Number.isFinite(numericUserId)) return sendResponse(res, 400, false, 'Valid user ID is required');
+
+    const { displayId, uniqueLevelId, notes } = req.body || {};
+
+    const idEntitlement = await IdentityEntitlement.findOne({
+      userId: numericUserId,
+      type: 'custom_display_id',
+    });
+
+    if (!idEntitlement) {
+      return sendResponse(res, 404, false, 'Unique ID record not found for this user');
+    }
+
+    if (displayId) {
+      const cleanDisplayId = String(displayId).trim().toUpperCase();
+      if (!/^[A-Z0-9]{3,12}$/.test(cleanDisplayId)) {
+        return sendResponse(res, 400, false, 'Unique ID must be 3–12 letters or numbers');
+      }
+
+      if (/^\d+$/.test(cleanDisplayId) && (Number(cleanDisplayId) !== numericUserId) && (await User.exists({ userId: Number(cleanDisplayId) }))) {
+        return sendResponse(res, 409, false, `Unique ID ${cleanDisplayId} conflicts with an existing permanent user ID`);
+      }
+
+      const collision = await IdentityEntitlement.findOne({
+        type: { $in: ['official_id', 'custom_display_id'] },
+        'config.displayId': { $regex: `^${cleanDisplayId}$`, $options: 'i' },
+        status: 'active',
+        userId: { $ne: numericUserId },
+      }).lean();
+
+      if (collision) {
+        return sendResponse(res, 409, false, `ID ${cleanDisplayId} is already in use by another user`);
+      }
+
+      idEntitlement.config.displayId = cleanDisplayId;
+      await idEntitlement.save();
+
+      await IdentityEntitlement.updateMany(
+        { userId: numericUserId, type: 'unique_id_badge' },
+        { $set: { 'config.displayId': cleanDisplayId } }
+      );
+
+      await User.updateOne({ userId: numericUserId }, { $set: { uniqueId: cleanDisplayId } });
+    }
+
+    if (uniqueLevelId) {
+      const levelDoc: any = await IdentityEffect.findOne({ _id: uniqueLevelId, category: 'unique_badge' }).lean();
+      if (levelDoc) {
+        await IdentityEntitlement.updateMany(
+          { userId: numericUserId, type: 'unique_id_badge' },
+          {
+            $set: {
+              'config.badgeName': levelDoc.config?.badgeName || levelDoc.name || 'VIP ID',
+              'config.badgeIconUrl': levelDoc.config?.badgeIconUrl || '',
+              'config.animationType': levelDoc.config?.animationType || 'svga',
+              'config.vipLevel': Number(levelDoc.config?.levelNumber || levelDoc.config?.vipLevel || 1),
+              'config.levelId': String(levelDoc._id),
+            },
+          }
+        );
+      }
+    }
+
+    if (notes !== undefined) {
+      idEntitlement.notes = String(notes).trim();
+      await idEntitlement.save();
+    }
+
+    const resolvedIdentity = await IdentityResolverService.resolveEffectiveIdentity(numericUserId);
+    return sendResponse(res, 200, true, 'Unique ID updated successfully', resolvedIdentity);
+  } catch (error: any) {
+    return sendResponse(res, 500, false, error.message || 'Failed to update unique ID details');
   }
 };
 

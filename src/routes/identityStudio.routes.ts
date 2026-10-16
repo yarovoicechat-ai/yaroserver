@@ -14,6 +14,9 @@ import {
   deleteUniqueIdLevel,
   grantUniqueId,
   revokeUniqueId,
+  adjustUniqueIdValidity,
+  removeUniqueId,
+  updateUniqueIdDetails,
   listNameEffects,
   createNameEffect,
   updateNameEffect,
@@ -64,6 +67,9 @@ router.patch('/admin/unique-id-levels/:id', verifyToken, adminRoles, updateUniqu
 router.delete('/admin/unique-id-levels/:id', verifyToken, adminRoles, deleteUniqueIdLevel);
 router.post('/admin/unique-ids/grant', verifyToken, adminRoles, grantUniqueId);
 router.post('/admin/unique-ids/:userId/revoke', verifyToken, adminRoles, revokeUniqueId);
+router.post('/admin/unique-ids/:userId/validity', verifyToken, adminRoles, adjustUniqueIdValidity);
+router.delete('/admin/unique-ids/:userId/remove', verifyToken, adminRoles, removeUniqueId);
+router.patch('/admin/unique-ids/:userId', verifyToken, adminRoles, updateUniqueIdDetails);
 
 /* =========================================================================
    ADMIN ANIMATED NAME & COLOR EFFECTS
