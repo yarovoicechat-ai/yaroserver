@@ -8,6 +8,8 @@ export interface ILevel extends Document {
     coinPerMinute: number;  // Commission: coins per minute host earns at this level
     image?: string;
     text?: string;
+    audience?: 'general' | 'employee' | 'vip' | 'event';
+    isStaffOnly?: boolean;
 }
 
 const LevelSchema = new Schema<ILevel>(
@@ -19,6 +21,8 @@ const LevelSchema = new Schema<ILevel>(
         minMinutes: { type: Number, default: 0 },
         coinPerMinute: { type: Number, default: 1 },
         image: { type: String },
+        audience: { type: String, enum: ['general', 'employee', 'vip', 'event'], default: 'general' },
+        isStaffOnly: { type: Boolean, default: false, index: true },
     },
     { timestamps: true }
 );

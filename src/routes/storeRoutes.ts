@@ -21,13 +21,20 @@ import {
   getAssetGrantHistoryAdmin,
   revokeGrantedAssetAdmin,
 } from '../controllers/storeController';
-import { requireRoles, verifyToken } from '../middlewares/authorize.middleware';
+import { AuthRequest, requireRoles, verifyToken } from '../middlewares/authorize.middleware';
 
 const router = Router();
 const storeManagers = requireRoles('owner', 'superAdmin', 'admin', 'operator');
 
+// The public store never receives employee-only items. A management panel may
+// explicitly request them, but only with a valid store-manager token.
+const authorizeStaffCatalog = (req: AuthRequest, res: any, next: any) => {
+  if (String(req.query.includeStaff || '') !== 'true') return next();
+  return verifyToken(req, res, () => storeManagers(req, res, next));
+};
+
 // Public / Mobile app queries
-router.get('/items', getStoreItems);
+router.get('/items', authorizeStaffCatalog, getStoreItems);
 router.get('/levels', getStoreLevels);
 router.get('/inventory', verifyToken, getStoreInventory);
 router.get('/admin/unique-ids', verifyToken, storeManagers, getUniqueIdItemsAdmin);

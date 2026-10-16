@@ -19,6 +19,7 @@ export interface IEntryEffect extends Document {
   sound?: string;
   bannerColors: string[];
   price: number; // in Diamonds
+  priceOptions?: { days: 3 | 7 | 15 | 30; diamonds: number }[];
   rarity: 'common' | 'rare' | 'epic' | 'legendary' | 'mythic';
   isVip: boolean;
   isLimited: boolean;
@@ -47,6 +48,11 @@ const EntryEffectSchema = new Schema<IEntryEffect>(
     sound: { type: String, default: '' },
     bannerColors: { type: [String], default: ['#7C3AED', '#4C1D95'] },
     price: { type: Number, required: true, default: 0, min: 0 },
+    priceOptions: [{
+      days: { type: Number, enum: [3, 7, 15, 30], required: true },
+      diamonds: { type: Number, min: 0, required: true },
+      _id: false,
+    }],
     rarity: {
       type: String,
       enum: ['common', 'rare', 'epic', 'legendary', 'mythic'],

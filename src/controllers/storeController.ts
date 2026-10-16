@@ -743,53 +743,20 @@ const DEFAULT_SEED_ITEMS: Partial<IStoreItem>[] = [
   },
 ];
 
-export const getStoreItems = async (req: Request, res: Response) => {
+export const getStoreItems = async (req: Request & { user?: { role?: string } }, res: Response) => {
   try {
-    const { category, search, activeOnly } = req.query;
+    const { category, search, activeOnly, includeStaff } = req.query;
+    const canIncludeStaff = includeStaff === 'true' && ['owner', 'superAdmin', 'admin', 'operator'].includes(String(req.user?.role || ''));
 
     // Auto-seeding disabled: Only display items actively managed/uploaded via Admin Panel
 
-    // Auto-sync any existing frames from Level collection (e.g., 'new frame' uploaded via Admin) into StoreItem
-    try {
-      const levels = await Level.find({ image: { $exists: true, $ne: "" } }).lean();
-      for (const lvl of levels) {
-        const frameName = lvl.name || lvl.text;
-        if (!frameName) continue;
-        const exists = await StoreItem.findOne({
-          category: { $in: ['Frames', 'Frame'] },
-          $or: [{ name: frameName }, { imageUrl: lvl.image }]
-        });
-        if (!exists) {
-          const price = 3500;
-          await StoreItem.create({
-            name: frameName,
-            category: 'Frames',
-            price,
-            priceOptions: [
-              { days: 3, diamonds: 525 },
-              { days: 7, diamonds: 1050 },
-              { days: 15, diamonds: 1925 },
-              { days: 30, diamonds: price },
-            ],
-            validity: '30 Days',
-            badgeText: 'HOT',
-            previewColor: '#F43F5E',
-            imageUrl: lvl.image,
-            desc: `Avatar profile frame: ${frameName}`,
-            isActive: true,
-            sortOrder: lvl.level || 1,
-            metadata: { frameLevel: lvl.level || 1 },
-          });
-          console.log(`[StoreItem] Auto-synced frame "${frameName}" from Level to StoreItem catalog.`);
-        }
-      }
-    } catch (syncErr: any) {
-      console.warn('[StoreItem] Frame sync notice:', syncErr.message);
-    }
-
-    // Seat skin auto-sync disabled: only admin items used
+    // StoreItem is the source of truth for app catalog pricing. Level records
+    // describe progression and must not create fixed-price store listings.
 
     const filter: any = {};
+    if (!canIncludeStaff) {
+      filter.$and = [...(filter.$and || []), { $nor: [{ isStaffOnly: true }, { audience: 'employee' }] }];
+    }
     if (category && category !== 'All') {
       const cat = String(category).trim();
       if (cat === 'Frames' || cat === 'Frame') {
@@ -902,6 +869,9 @@ export const getStoreItemById = async (req: Request, res: Response) => {
     const { id } = req.params;
     const item = await StoreItem.findById(id);
     if (!item) {
+      return sendResponse(res, 404, false, 'Store item not found');
+    }
+    if ((item.isStaffOnly || item.audience === 'employee') && !['owner', 'superAdmin', 'admin', 'operator'].includes(String((req as any).user?.role || ''))) {
       return sendResponse(res, 404, false, 'Store item not found');
     }
     return sendResponse(res, 200, true, 'Store item retrieved', item);
@@ -1134,7 +1104,7 @@ export const createStoreItem = async (req: Request, res: Response) => {
     }
 
     const normalizedPrices = normalizePriceOptions(priceOptions, Number(price) || 0);
-    const thirtyDayPrice = normalizedPrices.find((option) => option.days === 30)?.diamonds || Number(price) || 0;
+    const thirtyDayPrice = normalizedPrices.find((option) => option.days === 30)?.diamonds ?? Number(price) ?? 0;
 
     const newItem = await StoreItem.create({
       uniqueId: finalUniqueId,
@@ -1189,7 +1159,11 @@ export const createStoreItem = async (req: Request, res: Response) => {
         const frameLvl = Number(metadata.frameLevel || metadata.level) || 1;
         await Level.findOneAndUpdate(
           { level: frameLvl },
-          { name: name.trim(), text: name.trim(), level: frameLvl, image: imageUrl || '' },
+          {
+            name: name.trim(), text: name.trim(), level: frameLvl, image: imageUrl || '',
+            audience: isStaffOnly ? 'employee' : audience,
+            isStaffOnly: Boolean(isStaffOnly || audience === 'employee'),
+          },
           { upsert: true }
         );
       } catch (lvlSyncErr: any) {
@@ -1289,6 +1263,14 @@ export const updateStoreItem = async (req: Request, res: Response) => {
     const updated = await StoreItem.findByIdAndUpdate(id, updateData, { new: true, runValidators: true });
     if (!updated) {
       return sendResponse(res, 404, false, 'Store item not found');
+    }
+
+    if ((updated.category === 'Frames' || updated.category === 'Frame') && (updated as any).metadata?.frameLevel) {
+      const staffOnly = Boolean((updated as any).isStaffOnly || (updated as any).audience === 'employee');
+      await Level.updateOne(
+        { level: Number((updated as any).metadata.frameLevel) || 1 },
+        { $set: { isStaffOnly: staffOnly, audience: staffOnly ? 'employee' : ((updated as any).audience || 'general') } },
+      ).catch((error: any) => console.warn('[updateStoreItem] Frame audience sync notice:', error.message));
     }
 
     if (updated.category === 'VIP' || updated.category === 'King of Kings') {
@@ -1815,6 +1797,9 @@ export const buyStoreItem = async (req: any, res: Response) => {
     const item: any = await StoreItem.findOne({ _id: itemId, isActive: true });
     if (!item) {
       return sendResponse(res, 404, false, 'Store item is unavailable');
+    }
+    if (item.isStaffOnly || item.audience === 'employee') {
+      return sendResponse(res, 403, false, 'This frame is reserved for staff and cannot be purchased from the store');
     }
     if (item.category === 'Unique ID' && String(item.metadata?.location || 'store') !== 'store') {
       return sendResponse(res, 403, false, 'This Unique ID is reserved for its Level or Event reward');

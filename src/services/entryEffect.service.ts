@@ -5,6 +5,19 @@ import { getIOOptional } from '../sockets';
 import { VipService } from './vip.service';
 import { StoreItem } from '../models/storeItem.model';
 
+const ENTRY_DURATIONS = [3, 7, 15, 30] as const;
+const normalizeEntryPriceOptions = (value: any, basePrice: number) => {
+  const ratios: Record<number, number> = { 3: 0.15, 7: 0.3, 15: 0.55, 30: 1 };
+  const supplied = Array.isArray(value) ? value : [];
+  return ENTRY_DURATIONS.map((days) => {
+    const match = supplied.find((option: any) => Number(option?.days) === days);
+    return {
+      days,
+      diamonds: Math.max(0, match ? Number(match.diamonds) || 0 : Math.round(basePrice * ratios[days])),
+    };
+  });
+};
+
 export const INITIAL_ENTRY_EFFECTS: Partial<IEntryEffect>[] = [
   {
     name: 'King Arrival',
@@ -432,7 +445,9 @@ export class EntryEffectService {
     const name = String(data.name || '').trim();
     if (!name) throw new Error('Effect name is required');
     const slug = data.slug || `${name.toLowerCase().replace(/[^a-z0-9]+/g, '-')}-${Date.now().toString(36)}`;
-    const price = Number(data.price) || 0;
+    const requestedPrice = Math.max(0, Number(data.price) || 0);
+    const priceOptions = normalizeEntryPriceOptions(data.priceOptions, requestedPrice);
+    const price = priceOptions.find((option) => option.days === 30)?.diamonds ?? requestedPrice;
 
     const effect = await EntryEffect.create({
       name,
@@ -445,6 +460,7 @@ export class EntryEffectService {
       sound: data.sound || '',
       bannerColors: Array.isArray(data.bannerColors) && data.bannerColors.length >= 2 ? data.bannerColors : ['#7C3AED', '#4C1D95'],
       price,
+      priceOptions,
       rarity: data.rarity || 'epic',
       isVip: Boolean(data.isVip),
       isLimited: Boolean(data.isLimited),
@@ -460,12 +476,7 @@ export class EntryEffectService {
         name,
         category: 'Entry',
         price,
-        priceOptions: [
-          { days: 3, diamonds: Math.round(price * 0.15) },
-          { days: 7, diamonds: Math.round(price * 0.3) },
-          { days: 15, diamonds: Math.round(price * 0.55) },
-          { days: 30, diamonds: price },
-        ],
+        priceOptions,
         validity: data.validity || '30 Days',
         badgeText: data.badgeText || (data.isVip ? 'VIP' : 'HOT'),
         previewColor: (data.bannerColors && data.bannerColors[0]) || '#8B5CF6',
@@ -501,7 +512,14 @@ export class EntryEffectService {
     if (data.animationUrl !== undefined) effect.animationUrl = data.animationUrl;
     if (data.sound !== undefined) effect.sound = data.sound;
     if (data.icon !== undefined) effect.icon = data.icon;
-    if (data.price !== undefined) effect.price = Number(data.price);
+    if (data.price !== undefined || data.priceOptions !== undefined) {
+      const requestedPrice = data.price !== undefined
+        ? Math.max(0, Number(data.price) || 0)
+        : Math.max(0, Number(effect.price) || 0);
+      const priceOptions = normalizeEntryPriceOptions(data.priceOptions ?? effect.priceOptions, requestedPrice);
+      effect.priceOptions = priceOptions as any;
+      effect.price = priceOptions.find((option) => option.days === 30)?.diamonds ?? requestedPrice;
+    }
     if (data.bannerColors !== undefined) effect.bannerColors = data.bannerColors;
     if (data.rarity !== undefined) effect.rarity = data.rarity;
     if (data.isVip !== undefined) effect.isVip = Boolean(data.isVip);
@@ -520,6 +538,7 @@ export class EntryEffectService {
           $set: {
             name: effect.name,
             price: effect.price,
+            priceOptions: effect.priceOptions,
             imageUrl: effect.image,
             animationUrl: effect.animationUrl,
             isActive: effect.isActive,

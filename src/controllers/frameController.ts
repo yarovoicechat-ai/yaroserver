@@ -5,51 +5,14 @@ import { deleteImageFromCloudinary } from "../utils/cloudinary";
 import { StoreItem } from "../models/storeItem.model";
 import Level from "../models/level.model";
 
-export const syncLevelsToStoreItems = async () => {
-  try {
-    const levels = await Level.find({ image: { $exists: true, $ne: "" } }).lean();
-    for (const lvl of levels) {
-      const frameName = lvl.name || lvl.text || `Frame Level ${lvl.level}`;
-      const exists = await StoreItem.findOne({
-        category: { $in: ['Frames', 'Frame'] },
-        $or: [{ name: frameName }, { imageUrl: lvl.image }]
-      });
-
-      if (!exists) {
-        const price = 3500;
-        await StoreItem.create({
-          name: frameName,
-          category: 'Frames',
-          price,
-          priceOptions: [
-            { days: 3, diamonds: 525 },
-            { days: 7, diamonds: 1050 },
-            { days: 15, diamonds: 1925 },
-            { days: 30, diamonds: price },
-          ],
-          validity: '30 Days',
-          badgeText: 'HOT',
-          previewColor: '#F43F5E',
-          imageUrl: lvl.image,
-          desc: `Avatar profile frame: ${frameName}`,
-          isActive: true,
-          sortOrder: lvl.level || 1,
-          metadata: { frameLevel: lvl.level || 1 },
-        });
-        console.log(`[FrameSync] Automatically synced frame "${frameName}" to StoreItem!`);
-      }
-    }
-  } catch (err: any) {
-    console.warn('[FrameSync] Sync warning:', err.message);
-  }
-};
-
 export const createLevel = async (req: AuthRequest, res: Response) => {
     let imageUrl = "";
     try {
-        const { text, level, image, name, price, priceOptions, animationUrl, badgeText, validity, desc } = req.body;
+        const { text, level, image, name, price, priceOptions, animationUrl, badgeText, validity, desc,
+          audience = 'general', isStaffOnly = false } = req.body;
         const frameName = (name || text || '').trim();
         const frameLevel = Number(level) || 1;
+        const staffOnly = audience === 'employee' || isStaffOnly === true;
 
         if (!frameName || !image) {
             return res.status(400).json({ error: "Frame name and image are required" });
@@ -63,31 +26,27 @@ export const createLevel = async (req: AuthRequest, res: Response) => {
             levelData.name = frameName;
             levelData.text = frameName;
             levelData.image = imageUrl;
+            levelData.audience = staffOnly ? 'employee' : audience;
+            levelData.isStaffOnly = staffOnly;
             await levelData.save();
         } else {
-            levelData = await levelService.createLevel({ name: frameName, text: frameName, level: frameLevel, image: imageUrl });
+            levelData = await levelService.createLevel({
+              name: frameName, text: frameName, level: frameLevel, image: imageUrl,
+              audience: staffOnly ? 'employee' : audience, isStaffOnly: staffOnly,
+            } as any);
         }
 
-        // 2. Auto-create or update in StoreItem collection so it immediately appears in the Store!
-        const parsedPrice = Number(price) || 3500;
-        const normalizedPrices = Array.isArray(priceOptions) && priceOptions.length === 4
-          ? priceOptions
-          : [
-              { days: 3, diamonds: Math.round(parsedPrice * 0.15) },
-              { days: 7, diamonds: Math.round(parsedPrice * 0.3) },
-              { days: 15, diamonds: Math.round(parsedPrice * 0.55) },
-              { days: 30, diamonds: parsedPrice },
-            ];
-
+        // StoreItem owns the app's catalog price. Level sync updates frame
+        // metadata without replacing a configured store price with a default.
         const updateDoc: any = {
           name: frameName,
           category: 'Frames',
-          price: parsedPrice,
-          priceOptions: normalizedPrices,
           validity: validity || '30 Days',
           badgeText: badgeText || 'HOT',
           previewColor: '#F43F5E',
           imageUrl: imageUrl,
+          audience: staffOnly ? 'employee' : audience,
+          isStaffOnly: staffOnly,
           desc: desc || `Avatar profile frame: ${frameName}`,
           isActive: true,
           sortOrder: frameLevel,
@@ -101,16 +60,37 @@ export const createLevel = async (req: AuthRequest, res: Response) => {
           };
         }
 
-        await StoreItem.findOneAndUpdate(
-          {
-            category: { $in: ['Frames', 'Frame'] },
-            $or: [{ name: frameName }, { imageUrl: imageUrl }]
-          },
-          updateDoc,
-          { upsert: true, new: true }
-        );
+        const storeItemFilter = {
+          category: { $in: ['Frames', 'Frame'] },
+          $or: [{ name: frameName }, { imageUrl: imageUrl }]
+        };
+        const existingStoreItem = await StoreItem.findOne(storeItemFilter).select('_id');
+        const hasExplicitPrice = price !== undefined && price !== null && price !== '';
+        const hasExplicitPriceOptions = Array.isArray(priceOptions) && priceOptions.length > 0;
 
-        res.status(201).json({ success: true, message: 'Frame uploaded and synced to Store!', data: levelData });
+        if (hasExplicitPrice || hasExplicitPriceOptions) {
+          const parsedPrice = hasExplicitPrice ? Math.max(0, Number(price) || 0) : 0;
+          const ratios: Record<number, number> = { 3: 0.15, 7: 0.3, 15: 0.55, 30: 1 };
+          const normalizedPrices = [3, 7, 15, 30].map((days) => {
+            const supplied = priceOptions?.find((option: any) => Number(option?.days) === days);
+            const diamonds = supplied
+              ? Math.max(0, Number(supplied.diamonds) || 0)
+              : Math.round(parsedPrice * ratios[days]);
+            return { days, diamonds };
+          });
+          updateDoc.priceOptions = normalizedPrices;
+          updateDoc.price = normalizedPrices.find((option) => option.days === 30)?.diamonds ?? parsedPrice;
+        }
+
+        if (existingStoreItem || hasExplicitPrice || hasExplicitPriceOptions) {
+          await StoreItem.findOneAndUpdate(
+            storeItemFilter,
+            updateDoc,
+            { upsert: !existingStoreItem, new: true }
+          );
+        }
+
+        res.status(201).json({ success: true, message: staffOnly ? 'Staff frame uploaded and hidden from the public store.' : 'Frame uploaded and synced to Store!', data: levelData });
     } catch (err: any) {
         if (imageUrl && imageUrl.includes("cloudinary")) {
             await deleteImageFromCloudinary(imageUrl);
@@ -121,7 +101,6 @@ export const createLevel = async (req: AuthRequest, res: Response) => {
 
 export const getLevels = async (req: AuthRequest, res: Response) => {
     try {
-        await syncLevelsToStoreItems();
         const levels = await levelService.getLevels();
         res.json(levels);
     } catch (err: any) {

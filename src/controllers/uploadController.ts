@@ -137,3 +137,67 @@ export const uploadRoomCover = async (req: AuthRequest, res: Response) => {
     return sendResponse(res, 500, false, error.message || "Failed to upload room DP");
   }
 };
+
+export const analyzeAssetName = async (req: AuthRequest, res: Response) => {
+  const file = req.file;
+  if (!file) return sendResponse(res, 400, false, "Choose an image to analyze");
+
+  const apiKey = process.env.OPENAI_API_KEY;
+  if (!apiKey) {
+    return sendResponse(res, 503, false, "AI naming is not configured on the server (OPENAI_API_KEY is missing)");
+  }
+
+  try {
+    const assetType = String(req.body?.assetType || "digital asset").trim().slice(0, 60);
+    const model = process.env.OPENAI_ASSET_NAME_MODEL || "gpt-4.1-mini";
+    const imageDataUrl = `data:${file.mimetype};base64,${file.buffer.toString("base64")}`;
+    const response = await fetch("https://api.openai.com/v1/responses", {
+      method: "POST",
+      headers: {
+        Authorization: `Bearer ${apiKey}`,
+        "Content-Type": "application/json",
+      },
+      signal: AbortSignal.timeout(30000),
+      body: JSON.stringify({
+        model,
+        store: false,
+        max_output_tokens: 80,
+        input: [{
+          role: "user",
+          content: [
+            {
+              type: "input_text",
+              text: `Analyze this ${assetType} image. Suggest one polished, memorable product name based on its visible colors, shapes, and theme. Return only the name, 2 to 4 words, without quotes, emojis, numbering, or a file extension.`,
+            },
+            { type: "input_image", image_url: imageDataUrl, detail: "low" },
+          ],
+        }],
+      }),
+    });
+
+    const payload: any = await response.json().catch(() => ({}));
+    if (!response.ok) {
+      console.warn("Asset name AI provider returned an error:", response.status, payload?.error?.code || "provider_error");
+      return sendResponse(res, 502, false, "AI could not analyze this image. You can enter the name manually.");
+    }
+
+    const outputText = typeof payload.output_text === "string"
+      ? payload.output_text
+      : (payload.output || [])
+        .flatMap((item: any) => Array.isArray(item.content) ? item.content : [])
+        .find((part: any) => part.type === "output_text")?.text;
+    const name = String(outputText || "")
+      .replace(/^[\s"'`]+|[\s"'`]+$/g, "")
+      .replace(/[.!?]+$/g, "")
+      .split(/\s+/)
+      .slice(0, 5)
+      .join(" ")
+      .slice(0, 48);
+
+    if (!name) return sendResponse(res, 502, false, "AI did not return a usable name");
+    return sendResponse(res, 200, true, "Asset name suggested", { name });
+  } catch (error: any) {
+    console.error("analyzeAssetName error:", error?.message || error);
+    return sendResponse(res, 502, false, "AI name suggestion failed. You can enter the name manually.");
+  }
+};
