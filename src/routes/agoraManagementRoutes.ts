@@ -12,6 +12,8 @@ import {
   getUsageOverview,
   getUsageHistory,
   syncUsage,
+  getProviderSyncStatus,
+  syncProviderUsage,
   getSwitchHistory,
   updateSwitchPolicy,
   getClientAgoraConfig,
@@ -43,6 +45,8 @@ router.post('/rollback', rollbackProject as any);
 router.get('/usage', getUsageOverview as any);
 router.get('/usage/history', getUsageHistory as any);
 router.post('/usage/sync', syncUsage as any);
+router.get('/usage/provider-status', getProviderSyncStatus as any);
+router.post('/usage/provider-sync', syncProviderUsage as any);
 
 // Switching history & policy
 router.get('/switch-history', getSwitchHistory as any);

@@ -2,16 +2,34 @@ import crypto from 'crypto';
 
 /**
  * Derives a 32-byte key for AES-256-GCM.
- * Prioritizes AGORA_CREDENTIAL_ENCRYPTION_KEY, falling back to VERIFICATION_ENCRYPTION_KEY or ENCRYPTION_SECRET_KEY.
+ * Production requires a dedicated AGORA_CREDENTIAL_SECRET (or AGORA_CREDENTIAL_ENCRYPTION_KEY).
+ * Silent fallback to JWT_SECRET is strictly forbidden.
  */
 const getEncryptionKey = (): Buffer => {
   const secret =
-    process.env.AGORA_CREDENTIAL_ENCRYPTION_KEY ||
-    process.env.VERIFICATION_ENCRYPTION_KEY ||
-    process.env.ENCRYPTION_SECRET_KEY ||
-    process.env.JWT_ACCESS_SECRET ||
-    'yaro_agora_multi_project_secure_aes256_fallback_key_2026';
-  return crypto.createHash('sha256').update(secret).digest();
+    process.env.AGORA_CREDENTIAL_SECRET ||
+    process.env.AGORA_CREDENTIAL_ENCRYPTION_KEY;
+
+  if (secret && secret.trim()) {
+    return crypto.createHash('sha256').update(secret.trim()).digest();
+  }
+
+  // In production, strictly enforce dedicated AGORA_CREDENTIAL_SECRET
+  if (process.env.NODE_ENV === 'production') {
+    throw new Error(
+      'FATAL: Production Agora credential encryption requires a dedicated AGORA_CREDENTIAL_SECRET environment variable. Silent fallback to JWT_SECRET is prohibited for security compliance.'
+    );
+  }
+
+  // Non-production development fallback: allow ENCRYPTION_SECRET_KEY, but never JWT_ACCESS_SECRET or hardcoded secret
+  const devFallback = process.env.ENCRYPTION_SECRET_KEY || process.env.VERIFICATION_ENCRYPTION_KEY;
+  if (!devFallback || !devFallback.trim()) {
+    throw new Error(
+      'Agora credential encryption key missing. Please define AGORA_CREDENTIAL_SECRET in your environment configuration.'
+    );
+  }
+
+  return crypto.createHash('sha256').update(devFallback.trim()).digest();
 };
 
 /**
@@ -86,4 +104,17 @@ export const redactSensitive = <T>(obj: T): T => {
     }
   }
   return result as T;
+};
+
+/**
+ * Asserts the Agora security configuration is safe and derives a valid 256-bit key.
+ * In production mode, throws an exception if AGORA_CREDENTIAL_SECRET is absent or invalid.
+ * Never prints or leaks secret values.
+ */
+export const assertAgoraSecurityConfig = (): { valid: boolean; keyLengthBits: number } => {
+  const key = getEncryptionKey();
+  if (!key || key.length !== 32) {
+    throw new Error('FATAL: Agora credential encryption key length is invalid (must be 256 bits).');
+  }
+  return { valid: true, keyLengthBits: key.length * 8 };
 };

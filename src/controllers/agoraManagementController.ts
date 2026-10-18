@@ -3,6 +3,7 @@ import { AgoraProjectService } from '../services/agora/agoraProject.service';
 import { AgoraTokenService } from '../services/agora/agoraToken.service';
 import { AgoraUsageService } from '../services/agora/agoraUsage.service';
 import { AgoraFailoverService } from '../services/agora/agoraFailover.service';
+import { AgoraProviderSyncService } from '../services/agora/agoraProviderSync.service';
 import { ActiveAgoraConfiguration } from '../models/agoraConfig.model';
 import { AgoraSwitchHistory, AgoraConfigurationAuditLog } from '../models/agoraAudit.model';
 import sendResponse from '../utils/reponse';
@@ -146,6 +147,27 @@ export const syncUsage = async (req: Request, res: Response, next: NextFunction)
       reconciled: result.reconciledSnapshots,
       overview,
     });
+  } catch (err: any) {
+    next(new AppError(err.message, 500));
+  }
+};
+
+export const getProviderSyncStatus = async (req: Request, res: Response, next: NextFunction) => {
+  try {
+    const month = (req.query.month as string) || undefined;
+    const status = await AgoraProviderSyncService.getProviderSyncStatus(month);
+    return sendResponse(res, 200, true, 'Provider sync status retrieved', status);
+  } catch (err: any) {
+    next(new AppError(err.message, 500));
+  }
+};
+
+export const syncProviderUsage = async (req: Request, res: Response, next: NextFunction) => {
+  try {
+    const month = req.body?.month || (req.query.month as string) || undefined;
+    const actor = getActor(req);
+    const result = await AgoraProviderSyncService.syncOfficialUsage(month, actor.name, actor.role);
+    return sendResponse(res, 200, true, result.message, result);
   } catch (err: any) {
     next(new AppError(err.message, 500));
   }

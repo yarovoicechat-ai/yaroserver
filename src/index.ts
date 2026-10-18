@@ -31,6 +31,7 @@ import { identityStudioRouter } from "./routes/identityStudio.routes";
 import levelRouter from "./routes/level.routes";
 import { GiftService } from "./gift/gift.service";
 import { VipService } from "./services/vip.service";
+import { assertAgoraSecurityConfig } from "./services/agora/agoraSecurity";
 
 const app: Application = express();
 
@@ -363,6 +364,18 @@ const io = new Server(httpServer, {
 chatSocket(io);
 
 const startServer = async (): Promise<void> => {
+  try {
+    assertAgoraSecurityConfig();
+    console.info('[SECURITY] Agora credential encryption configuration verified.');
+  } catch (secError: any) {
+    if (process.env.NODE_ENV === 'production') {
+      console.error(`[FATAL SECURITY ERROR] ${secError?.message || secError}`);
+      process.exit(1);
+    } else {
+      console.warn(`[DEV SECURITY NOTICE] ${secError?.message || secError}`);
+    }
+  }
+
   const port = Number(config.PORT || 3101);
 
   await new Promise<void>((resolve, reject) => {

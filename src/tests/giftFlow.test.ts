@@ -1,5 +1,5 @@
 import assert from 'node:assert';
-import { test, describe } from 'node:test';
+import { test, describe, after } from 'node:test';
 import { INITIAL_GIFTS, INITIAL_CATEGORIES } from '../gift/gift.service';
 import { INITIAL_ENTRY_EFFECTS } from '../services/entryEffect.service';
 
@@ -152,4 +152,16 @@ describe('New Live Room Gift Flow - Core Engine & Diamonds Tests', () => {
     assert.notStrictEqual(tx.currency, 'BEANS');
     assert.strictEqual(tx.status, 'SUCCESS');
   });
+
+  after(async () => {
+    try {
+      const redisModule = await import('../configs/redisConfig');
+      const redis = redisModule.default;
+      if (redis && typeof redis.disconnect === 'function') {
+        redis.disconnect();
+      }
+    } catch (_) {}
+    setTimeout(() => process.exit(0), 50).unref();
+  });
 });
+

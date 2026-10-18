@@ -212,7 +212,9 @@ export const sendGift = async (req: AuthRequest, res: Response) => {
             ...giftPayload,
         });
     } catch (error: any) {
-        await session.abortTransaction();
+        if (session.inTransaction()) {
+            await session.abortTransaction();
+        }
         return sendResponse(res, 500, false, error.message);
     } finally {
         session.endSession();

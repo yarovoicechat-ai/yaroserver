@@ -9,6 +9,10 @@ export interface IAgoraUsageSnapshot extends Document {
   roomMinutes: number;
   totalAppCallMinutes: number;
   officialBilledUnits?: number; // From Agora billing report if synchronized
+  officialSyncStatus: 'PENDING_PROVIDER_SYNC' | 'SYNCHRONIZED' | 'MANUAL_OVERRIDE';
+  officialSyncAt?: Date;
+  officialSyncError?: string | null;
+  usageSource: 'INTERNAL_SESSION_TRACKING' | 'AGORA_REST_API';
   freeTierBudgetMinutes: number;
   estimatedRemainingMinutes: number;
   isStale: boolean;
@@ -60,6 +64,23 @@ const agoraUsageSnapshotSchema = new Schema<IAgoraUsageSnapshot>(
       type: Number,
       default: 0,
       min: 0,
+    },
+    officialSyncStatus: {
+      type: String,
+      enum: ['PENDING_PROVIDER_SYNC', 'SYNCHRONIZED', 'MANUAL_OVERRIDE'],
+      default: 'PENDING_PROVIDER_SYNC',
+    },
+    officialSyncAt: {
+      type: Date,
+      default: null,
+    },
+    officialSyncError: {
+      type: String,
+      default: null,
+    },
+    usageSource: {
+      type: String,
+      default: 'INTERNAL_SESSION_TRACKING',
     },
     freeTierBudgetMinutes: {
       type: Number,

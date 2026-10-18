@@ -14,6 +14,7 @@ import { BeansPlan } from "../models/beansPlan.model";
 import mongoose from "mongoose";
 import { IdentityEntitlement } from "../models/identityEntitlement.model";
 import { IdentityResolverService } from "../services/identityResolver.service";
+import { Room } from "../models/room.model";
 
 // import { deleteFromS3, uploadToS3 } from "../utils/uploadS3";
 import { generateOtp, sendCustomEmail, sendOtpForEmailVerification } from "../utils/otp";
@@ -1674,6 +1675,27 @@ export const getPublicUserProfile = async (req: AuthRequest, res: Response) => {
       : false;
 
     const effective = await IdentityResolverService.resolveEffectiveIdentity(user);
+    let activeRoom = await Room.findOne({
+      $or: [
+        { ownerId: user._id, isActive: true },
+        { members: user._id, isActive: true },
+      ],
+      isActive: true,
+    }).select('_id title').lean();
+
+    if (!activeRoom && (user as any).currentRoomId) {
+      activeRoom = await Room.findOne({
+        _id: (user as any).currentRoomId,
+        isActive: true,
+      }).select('_id title').lean();
+
+      if (!activeRoom) {
+        User.updateOne(
+          { _id: user._id },
+          { $unset: { currentRoomId: 1 }, $set: { isInRoom: false } }
+        ).exec().catch(() => {});
+      }
+    }
     const enrichedUser = {
       ...user,
       isFollowing,
@@ -1690,6 +1712,12 @@ export const getPublicUserProfile = async (req: AuthRequest, res: Response) => {
       vipBadge: effective?.vipBadge || '',
       equippedFrame: effective?.avatarFrame || user.equippedFrame || null,
       effectiveIdentity: effective,
+      currentRoomId: activeRoom ? String(activeRoom._id) : null,
+      currentRoomTitle: activeRoom?.title || null,
+      isInRoom: Boolean(activeRoom),
+      isHost: Boolean(user.role === 'host' || (user as any).isHost === true || ((user as any).callRate && (user as any).callRate > 0)),
+      callRate: (user as any).callRate || 20,
+      videoCallRate: (user as any).videoCallRate || 35,
     };
     return sendResponse(res, 200, true, "Public user profile fetched successfully", enrichedUser);
   } catch (error: any) {
