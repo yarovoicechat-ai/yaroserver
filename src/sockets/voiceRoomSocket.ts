@@ -380,7 +380,7 @@ export const registerVoiceRoomHandlers = (io: Server, socket: AuthenticatedSocke
   const user = socket.user;
 
   // 1. Join Room
-  socket.on("voice_room:join", async (data: { roomId: string; user?: any; isHost?: boolean; customSeats?: number; roomTitle?: string }) => {
+  socket.on("voice_room:join", async (data: { roomId: string; user?: any; isHost?: boolean; customSeats?: number; roomTitle?: string; stealth?: boolean }) => {
     try {
       const rawRoomId = String(data?.roomId || "").trim();
       if (!rawRoomId) return;
@@ -549,10 +549,19 @@ export const registerVoiceRoomHandlers = (io: Server, socket: AuthenticatedSocke
           console.warn("[VoiceRoom] Join deduplication warning:", joinLockErr);
         }
       }
-      state.onlineUsers[userData.userId] = {
-        ...userData,
-        socketId: socket.id,
-      };
+
+      const isStealth = Boolean((isGlobalManager || isSuperAdminOrOwnerRole) && data?.stealth);
+      if (isStealth) {
+        shouldBroadcastJoin = false;
+        (socket as any).isStealth = true;
+      }
+
+      if (!isStealth) {
+        state.onlineUsers[userData.userId] = {
+          ...userData,
+          socketId: socket.id,
+        };
+      }
 
       if (isGlobalManager) {
         state.bannedChatUsers = (state.bannedChatUsers || []).filter((id) => String(id) !== String(userData.userId));
@@ -566,7 +575,7 @@ export const registerVoiceRoomHandlers = (io: Server, socket: AuthenticatedSocke
 
       await saveVoiceRoomState(state);
 
-      if (shouldBroadcastJoin && userData.userId) {
+      if (shouldBroadcastJoin && !isStealth && userData.userId) {
         RoomTaskService.recordVisitor(roomId, String(userData.userId)).catch((err) => {
           console.warn("[VoiceRoom] Record visitor warning:", err);
         });
@@ -606,6 +615,7 @@ export const registerVoiceRoomHandlers = (io: Server, socket: AuthenticatedSocke
         isHost: authorizedHost,
         isOwner: authorizedHost,
         isGlobalRoomManager: isGlobalManager,
+        isStealth: isStealth,
         isLocked: Boolean(state.isLocked || roomDocument?.isLocked),
         admins: state.admins,
         bannedChatUsers: state.bannedChatUsers,
@@ -613,7 +623,7 @@ export const registerVoiceRoomHandlers = (io: Server, socket: AuthenticatedSocke
       });
 
       // Broadcast user join to all sockets in the channel
-      if (shouldBroadcastJoin) {
+      if (shouldBroadcastJoin && !isStealth) {
         io.to(socketRoomChannel).emit("voice_room:user_joined", {
           roomId,
           eventId: `join:${roomId}:${userData.userId}:${Date.now()}`,
@@ -2104,6 +2114,65 @@ export const registerVoiceRoomHandlers = (io: Server, socket: AuthenticatedSocke
     } catch (err: any) {
       console.error("[VoiceRoom] Update room details error:", err);
       socket.emit("voice_room:error", { message: err?.message || "Failed to update room details" });
+    }
+  });
+
+  // 17b. Ban / Terminate Room (Global Room Manager & SuperAdmin exclusive)
+  socket.on("voice_room:ban_room", async (data: { roomId: string; reason?: string }) => {
+    try {
+      const rawRoomId = String(data?.roomId || (socket as any).voiceRawRoomId || (socket as any).voiceRoomId || "").trim();
+      if (!rawRoomId) return;
+      const roomId = normalizeRoomId(rawRoomId);
+
+      const isSuperAdminOrOwnerRole = (user as any)?.role === "superAdmin" || (user as any)?.role === "owner" || (user as any)?.role === "admin";
+      const isGlobalManager = await isGlobalRoomManagerSocket(socket);
+
+      if (!isSuperAdminOrOwnerRole && !isGlobalManager) {
+        socket.emit("voice_room:error", {
+          message: "Aapke paas room ban karne ka official power nahi hai. (Unauthorized to ban room)",
+          code: "UNAUTHORIZED_ROOM_BAN",
+        });
+        return;
+      }
+
+      const banReason = data?.reason || "This voice room has been officially terminated by platform administration.";
+
+      // 1. Mark Room as inactive/banned in MongoDB
+      await Room.updateMany(
+        { $or: [{ channelName: roomId }, { channelName: rawRoomId }] },
+        { $set: { isActive: false, isLocked: true } }
+      );
+
+      // 2. Set 7-day ban flag in Redis
+      await redis.set(`voice_room_ban7d:${roomId}`, '1', 'EX', 7 * 86400);
+
+      // 3. Force-leave all sockets in this room channel
+      const socketRoomChannel = `voice_room_channel:${roomId}`;
+      io.to(socketRoomChannel).emit("voice_room:force_leave", {
+        reason: banReason,
+        code: "ROOM_TERMINATED_BY_ADMIN",
+      });
+      if (rawRoomId !== roomId) {
+        io.to(`voice_room_channel:${rawRoomId}`).emit("voice_room:force_leave", {
+          reason: banReason,
+          code: "ROOM_TERMINATED_BY_ADMIN",
+        });
+      }
+      io.to(`room:${roomId}`).emit("roomClosed", { channelName: roomId, reason: banReason });
+
+      // 4. Remove active Redis room state
+      await redis.del(`voice_room:${roomId}`);
+      if (rawRoomId !== roomId) await redis.del(`voice_room:${rawRoomId}`);
+
+      socket.emit("voice_room:room_banned", {
+        success: true,
+        roomId,
+        message: `Room #${roomId} successfully banned & terminated.`,
+      });
+      console.log(`[VoiceRoom] Room ${roomId} terminated and banned by ${user?.name || (user as any)?.userId}`);
+    } catch (err: any) {
+      console.error("[VoiceRoom] Ban room error:", err);
+      socket.emit("voice_room:error", { message: err?.message || "Failed to ban room" });
     }
   });
 

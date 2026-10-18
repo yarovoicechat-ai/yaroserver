@@ -70,10 +70,12 @@ export const getVipRewards = async (req: Request, res: Response) => {
   }
 };
 
+import mongoose from 'mongoose';
 import { Room } from '../models/room.model';
 import { User } from '../models/user.model';
 import redis from '../configs/redisConfig';
 import bcrypt from 'bcryptjs';
+import { getIOOptional } from '../sockets';
 
 const normalizeRoomId = (id: string): string => {
   const clean = String(id || '').trim();
@@ -299,8 +301,11 @@ export const createOrUpdateMyVoiceRoom = async (req: any, res: Response) => {
     const user = req.user;
     if (!user) return res.status(401).json({ success: false, message: 'Unauthorized' });
 
+    const targetRoomId = String(req.body?.roomId || req.body?.channelName || req.body?.id || '').trim();
+    const isGlobalManager = Boolean(user.isGlobalRoomManager || ['admin', 'owner', 'superAdmin'].includes(user.role));
+
     const roomChannelId = String(user.userId || user.meethiId || user.id || user._id);
-    const { title, about, coverImage, category, seatCount, mode, pin } = req.body || {};
+    const { title, about, coverImage, category, seatCount, mode, pin, themeId, themeAsset, seatSkinId, seatSkinAsset } = req.body || {};
     const isLocked = typeof req.body?.isLocked === 'boolean'
       ? req.body.isLocked
       : /private\s*\(pin\)/i.test(String(mode || ''));
@@ -309,7 +314,21 @@ export const createOrUpdateMyVoiceRoom = async (req: any, res: Response) => {
       return res.status(400).json({ success: false, message: 'Room PIN must contain exactly 4 digits.' });
     }
 
-    let room = await Room.findOne({ ownerId: user.id || user._id }).select('+pinHash');
+    let room: any = null;
+    if (isGlobalManager && targetRoomId) {
+      room = await Room.findOne({
+        $or: [
+          { channelName: targetRoomId },
+          { channelName: normalizeRoomId(targetRoomId) },
+          ...(mongoose.Types.ObjectId.isValid(targetRoomId) ? [{ _id: targetRoomId }] : []),
+        ],
+      }).select('+pinHash');
+    }
+
+    if (!room) {
+      room = await Room.findOne({ ownerId: user.id || user._id }).select('+pinHash');
+    }
+
     if (isLocked && !roomPin && !room?.pinHash) {
       return res.status(400).json({ success: false, message: 'Set a 4-digit PIN before enabling room privacy.' });
     }
@@ -330,7 +349,9 @@ export const createOrUpdateMyVoiceRoom = async (req: any, res: Response) => {
       });
     } else {
       room.isActive = true;
-      room.channelName = roomChannelId; // Ensure roomId == userId
+      if (!isGlobalManager || !targetRoomId) {
+        room.channelName = roomChannelId; // Ensure roomId == userId for own room
+      }
       if (title) room.title = title;
       if (typeof about === 'string') (room as any).about = about;
       if (coverImage) (room as any).coverImage = coverImage;
@@ -353,9 +374,33 @@ export const createOrUpdateMyVoiceRoom = async (req: any, res: Response) => {
         if (coverImage) state.coverImage = coverImage;
         if (about) state.about = about;
         if (seatCount) state.seatCount = seatCount;
+        if (themeId) state.themeId = themeId;
+        if (themeAsset) state.themeAsset = themeAsset;
+        if (seatSkinId) state.seatSkinId = seatSkinId;
+        if (seatSkinAsset) state.seatSkinAsset = seatSkinAsset;
         state.isLocked = isLocked;
         state.mode = isLocked ? 'Private (PIN)' : (mode || 'Public');
         await redis.set(roomKey, JSON.stringify(state), 'EX', 86400);
+
+        const io = getIOOptional();
+        if (io) {
+          const payload = {
+            roomId: room.channelName,
+            title: state.title,
+            coverImage: state.coverImage,
+            about: state.about,
+            seatCount: state.seatCount,
+            isLocked: state.isLocked,
+            mode: state.mode,
+            themeId: state.themeId,
+            themeAsset: state.themeAsset,
+            seatSkinId: state.seatSkinId,
+            seatSkinAsset: state.seatSkinAsset,
+          };
+          io.to(`voice_room_channel:${normalizeRoomId(room.channelName)}`).emit('voice_room:details_updated', payload);
+          io.to(`voice_room_channel:${room.channelName}`).emit('voice_room:details_updated', payload);
+          io.to(`room:${room.channelName}`).emit('voice_room:details_updated', payload);
+        }
       }
     } catch (redisErr) {
       console.warn('[createOrUpdateMyVoiceRoom] Redis sync warning:', redisErr);

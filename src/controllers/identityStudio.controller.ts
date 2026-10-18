@@ -915,11 +915,11 @@ export const updateUniqueIdDetails = async (req: AuthRequest, res: Response) => 
 
 export const listNameEffects = async (_req: Request, res: Response) => {
   try {
-    const count = await IdentityEffect.countDocuments();
+    const count = await IdentityEffect.countDocuments({ category: 'animated_name' });
     if (count === 0) {
       await IdentityEffect.insertMany(DEFAULT_NAME_EFFECTS);
     }
-    const effects = await IdentityEffect.find().sort({ sortOrder: 1 }).lean();
+    const effects = await IdentityEffect.find({ category: { $ne: 'unique_badge' } }).sort({ sortOrder: 1 }).lean();
     return sendResponse(res, 200, true, 'Name effects fetched', { effects });
   } catch (error: any) {
     return sendResponse(res, 500, false, error.message || 'Failed to list name effects');
