@@ -95,6 +95,22 @@ const getSocketUserIds = (socket: AuthenticatedSocket): string[] => {
     .map((value) => String(value));
 };
 
+const isGlobalRoomManagerId = async (userId: string): Promise<boolean> => {
+  const identifier = String(userId || '').trim();
+  const alternatives: any[] = [];
+  if (/^\d+$/.test(identifier) && Number.isSafeInteger(Number(identifier))) {
+    alternatives.push({ userId: Number(identifier) });
+  }
+  if (Types.ObjectId.isValid(identifier)) alternatives.push({ _id: identifier });
+  if (!alternatives.length) return false;
+  return Boolean(await User.exists({ $or: alternatives, isGlobalRoomManager: true, isDeleted: false }));
+};
+
+const isGlobalRoomManagerSocket = async (socket: AuthenticatedSocket): Promise<boolean> => {
+  const userId = String((socket.user as any)?.userId || '').trim();
+  return isGlobalRoomManagerId(userId);
+};
+
 const isRoomOwnerSocket = async (
   socket: AuthenticatedSocket,
   roomId: string,
@@ -136,6 +152,7 @@ const canModerateRoom = async (
 ): Promise<boolean> => {
   const socketUser: any = socket.user || {};
   if (socketUser.role === "admin") return true;
+  if (await isGlobalRoomManagerSocket(socket)) return true;
   if (await isRoomOwnerSocket(socket, roomId, rawRoomId)) return true;
   const actorIds = getSocketUserIds(socket);
   return (state.admins || []).some((adminId) => actorIds.includes(String(adminId)));
@@ -199,7 +216,7 @@ const getCanonicalRoomUser = async (socketUser: any, fallback: any = {}) => {
   const dbUser: any = query
     ? await User.findOne(query)
         .select(
-          "userId name image avatar gender level equippedFrame equippedFrameAsset equippedEntry equippedEntryAsset equippedEntryEffect equippedEntryTag equippedEntrance equippedEntranceAsset equippedTassel equippedTasselAsset equippedBadge equippedBadges equippedChatBubble equippedChatBubbleAsset equippedVipId equippedSvipId",
+          "userId name image avatar gender level equippedFrame equippedFrameAsset equippedEntry equippedEntryAsset equippedEntryEffect equippedEntryTag equippedEntrance equippedEntranceAsset equippedTassel equippedTasselAsset equippedBadge equippedBadges equippedChatBubble equippedChatBubbleAsset equippedVipId equippedSvipId isGlobalRoomManager",
         )
         .lean()
     : null;
@@ -237,6 +254,7 @@ const getCanonicalRoomUser = async (socketUser: any, fallback: any = {}) => {
     equippedChatBubbleAsset: source?.equippedChatBubbleAsset || null,
     equippedVipId: source?.equippedVipId || null,
     equippedSvipId: source?.equippedSvipId || null,
+    isGlobalRoomManager: Boolean(source?.isGlobalRoomManager),
   };
 };
 
@@ -247,29 +265,22 @@ export const getVoiceRoomState = async (roomId: string, defaultSeatsCount = 8, h
     if (raw) {
       const parsed = JSON.parse(raw);
       if (parsed && Array.isArray(parsed.seats)) {
-        const hasOnlineUsers = Object.keys(parsed.onlineUsers || {}).length > 0;
         const needsStateUpgrade =
           !parsed.onlineUsers ||
           !Array.isArray(parsed.admins) ||
           !Array.isArray(parsed.bannedChatUsers) ||
-          !Array.isArray(parsed.mutedUsers) ||
-          (!hasOnlineUsers && parsed.seats.some((seat: any) => Boolean(seat?.user)));
+          !Array.isArray(parsed.mutedUsers);
+        const needsRoomMetadata =
+          parsed.coverImage === undefined ||
+          parsed.about === undefined ||
+          parsed.isLocked === undefined ||
+          parsed.mode === undefined ||
+          parsed.hasPin === undefined;
 
         parsed.onlineUsers = parsed.onlineUsers || {};
         parsed.admins = Array.isArray(parsed.admins) ? parsed.admins.map(String) : [];
         parsed.bannedChatUsers = Array.isArray(parsed.bannedChatUsers) ? parsed.bannedChatUsers.map(String) : [];
         parsed.mutedUsers = Array.isArray(parsed.mutedUsers) ? parsed.mutedUsers.map(String) : [];
-
-        // Redis can outlive the last room session. Do not show or retain old
-        // seat occupants when the room has no live members.
-        if (!hasOnlineUsers) {
-          parsed.seats = parsed.seats.map((seat: any) => ({
-            ...seat,
-            user: null,
-            isMuted: true,
-          }));
-          parsed.hostUser = null;
-        }
 
         while (parsed.seats.length < 15) {
           parsed.seats.push({
@@ -280,28 +291,30 @@ export const getVoiceRoomState = async (roomId: string, defaultSeatsCount = 8, h
             isLocked: false,
           });
         }
-        if (needsStateUpgrade) {
-          try {
-            await redis.set(getRoomKey(canonicalId), JSON.stringify(parsed), "EX", 86400);
-          } catch (_) {}
-        }
-        if (!parsed.coverImage || !parsed.about || parsed.isLocked === undefined || !parsed.mode || parsed.hasPin === undefined) {
+        if (needsRoomMetadata) {
           try {
             const mRoom: any = await Room.findOne({
               $or: [{ channelName: canonicalId }, { channelName: String(roomId) }],
             }).select("coverImage about title isLocked mode +pinHash").lean();
-            if (mRoom?.coverImage && !parsed.coverImage) parsed.coverImage = mRoom.coverImage;
-            if (mRoom?.about && !parsed.about) parsed.about = mRoom.about;
-            if (mRoom?.title && !parsed.title) parsed.title = mRoom.title;
+            if (parsed.coverImage === undefined) parsed.coverImage = mRoom?.coverImage || "";
+            if (parsed.about === undefined) parsed.about = mRoom?.about || "";
+            if (!parsed.title && mRoom?.title) parsed.title = mRoom.title;
             if (mRoom) {
-              parsed.isLocked = Boolean(mRoom.isLocked || /private\s*\(pin\)/i.test(String(mRoom.mode || '')));
-              parsed.mode = mRoom.mode || (parsed.isLocked ? 'Private (PIN)' : 'Public');
-              parsed.hasPin = Boolean(mRoom.pinHash);
+              if (parsed.isLocked === undefined) {
+                parsed.isLocked = Boolean(mRoom.isLocked || /private\s*\(pin\)/i.test(String(mRoom.mode || '')));
+              }
+              if (parsed.mode === undefined) parsed.mode = mRoom.mode || (parsed.isLocked ? 'Private (PIN)' : 'Public');
+              if (parsed.hasPin === undefined) parsed.hasPin = Boolean(mRoom.pinHash);
             }
           } catch (_) {}
         }
         parsed.coverImage = parsed.coverImage || "";
         parsed.about = parsed.about || "";
+        if (needsStateUpgrade || needsRoomMetadata) {
+          try {
+            await redis.set(getRoomKey(canonicalId), JSON.stringify(parsed), "EX", 86400);
+          } catch (_) {}
+        }
         return parsed;
       }
     }
@@ -372,19 +385,23 @@ export const registerVoiceRoomHandlers = (io: Server, socket: AuthenticatedSocke
       const rawRoomId = String(data?.roomId || "").trim();
       if (!rawRoomId) return;
       const roomId = normalizeRoomId(rawRoomId);
-      const roomDocument: any = await Room.findOne({
-        $or: [
-          { channelName: roomId },
-          { channelName: rawRoomId },
-          { channelName: String(roomId) },
-          { channelName: String(rawRoomId) },
-        ],
-      })
-        .select("ownerId channelName isLocked")
-        .lean();
+      const [roomDocument, userData] = await Promise.all([
+        Room.findOne({
+          $or: [
+            { channelName: roomId },
+            { channelName: rawRoomId },
+            { channelName: String(roomId) },
+            { channelName: String(rawRoomId) },
+          ],
+        })
+          .select("ownerId channelName isLocked")
+          .lean(),
+        getCanonicalRoomUser(user, data?.user),
+      ]);
 
       const authUserDbId = String((user as any)?.id || (user as any)?._id || "").trim();
       const authUserNumId = String(user?.userId || "").trim();
+      const isGlobalManager = await isGlobalRoomManagerSocket(socket);
       const isSuperAdminOrOwnerRole = (user as any)?.role === "superAdmin" || (user as any)?.role === "owner";
 
       const authorizedHost = Boolean(
@@ -402,12 +419,10 @@ export const registerVoiceRoomHandlers = (io: Server, socket: AuthenticatedSocke
           normalizeRoomId(rawRoomId) === normalizeRoomId(authUserNumId)
         ))
       );
-      const userData = await getCanonicalRoomUser(user, data?.user);
-
       // 24-hour ban check
       try {
         const isBanned24h = await redis.get(`voice_room_ban24h:${roomId}:${userData.userId}`);
-        if (isBanned24h) {
+        if (isBanned24h && !isGlobalManager) {
           socket.emit("voice_room:error", {
             message: "Aap is room se 24 ghante ke liye banned hain. (You are banned from this room for 24 hours)",
             code: "BANNED_24H"
@@ -433,14 +448,23 @@ export const registerVoiceRoomHandlers = (io: Server, socket: AuthenticatedSocke
       (socket as any).voiceRawRoomId = rawRoomId;
       (socket as any).voiceUser = userData;
 
+      const state = await getVoiceRoomState(roomId, data.customSeats || 8, authorizedHost ? userData : null);
+      if (!state.onlineUsers) state.onlineUsers = {};
       const timerKey = `${roomId}:${userData.userId}`;
-      if (disconnectGraceTimers.has(timerKey)) {
+      const reconnectingDuringGrace = disconnectGraceTimers.has(timerKey);
+      const previousPresence = state.onlineUsers[userData.userId];
+      const wasOnline = Boolean(
+        previousPresence &&
+        (previousPresence.socketId === socket.id || reconnectingDuringGrace),
+      );
+      // Rebind the reconnecting user's presence before stale presence cleanup.
+      // This keeps their occupied seat when they return during the grace window.
+      state.onlineUsers[userData.userId] = { ...userData, socketId: socket.id };
+      if (reconnectingDuringGrace) {
         clearTimeout(disconnectGraceTimers.get(timerKey)!);
         disconnectGraceTimers.delete(timerKey);
         console.log(`[VoiceRoom] Reconnected user ${userData.userId} in room ${roomId}. Grace timer cleared.`);
       }
-
-      const state = await getVoiceRoomState(roomId, data.customSeats || 8, authorizedHost ? userData : null);
 
       // Remove abandoned Redis presence entries left behind by a server restart
       // or an interrupted cleanup. Keep users whose disconnect grace timer is live.
@@ -448,8 +472,8 @@ export const registerVoiceRoomHandlers = (io: Server, socket: AuthenticatedSocke
         const roomSockets = await io.in(socketRoomChannel).fetchSockets();
         const connectedSocketIds = new Set(roomSockets.map((roomSocket) => roomSocket.id));
         Object.entries(state.onlineUsers || {}).forEach(([onlineUserId, onlineUser]) => {
-          const timerKey = `${roomId}:${onlineUserId}`;
-          if (!connectedSocketIds.has(String((onlineUser as any).socketId || "")) && !disconnectGraceTimers.has(timerKey)) {
+          const onlineTimerKey = `${roomId}:${onlineUserId}`;
+          if (!connectedSocketIds.has(String((onlineUser as any).socketId || "")) && !disconnectGraceTimers.has(onlineTimerKey)) {
             delete state.onlineUsers[onlineUserId];
             state.seats = state.seats.map((seat) =>
               String(seat.user?.userId || "") === String(onlineUserId)
@@ -458,10 +482,24 @@ export const registerVoiceRoomHandlers = (io: Server, socket: AuthenticatedSocke
             );
           }
         });
-        if (Object.keys(state.onlineUsers || {}).length === 0) {
-          state.seats = state.seats.map((seat) => ({ ...seat, user: null, isMuted: true }));
-          state.hostUser = null;
-        }
+        // Clear seats only when their user has neither a live socket nor an
+        // active reconnect grace period. An empty/temporarily stale onlineUsers
+        // map alone must not erase the live seat layout during room entry.
+        state.seats = state.seats.map((seat) => {
+          const seatUserId = String(seat.user?.userId || "");
+          if (!seatUserId) return seat;
+          const presence = state.onlineUsers[seatUserId];
+          // When Redis has no presence record for a seat at all, there is not
+          // enough information to call it stale. Preserve it until a known
+          // disconnect/leave event can clear it.
+          if (!presence) return seat;
+          const isConnected = Boolean(
+            presence && connectedSocketIds.has(String((presence as any).socketId || "")),
+          );
+          const hasGrace = disconnectGraceTimers.has(`${roomId}:${seatUserId}`);
+          return isConnected || hasGrace ? seat : { ...seat, user: null, isMuted: true };
+        });
+        if (!state.seats[0]?.user) state.hostUser = null;
       } catch (presenceErr) {
         console.warn("[VoiceRoom] Presence reconciliation warning:", presenceErr);
       }
@@ -496,7 +534,6 @@ export const registerVoiceRoomHandlers = (io: Server, socket: AuthenticatedSocke
       if (!Array.isArray(state.admins)) state.admins = [];
       if (!Array.isArray(state.bannedChatUsers)) state.bannedChatUsers = [];
       if (!Array.isArray(state.mutedUsers)) state.mutedUsers = [];
-      const wasOnline = Boolean(state.onlineUsers[userData.userId]);
       let shouldBroadcastJoin = !wasOnline;
       if (!wasOnline && userData.userId) {
         try {
@@ -517,6 +554,16 @@ export const registerVoiceRoomHandlers = (io: Server, socket: AuthenticatedSocke
         socketId: socket.id,
       };
 
+      if (isGlobalManager) {
+        state.bannedChatUsers = (state.bannedChatUsers || []).filter((id) => String(id) !== String(userData.userId));
+        state.mutedUsers = (state.mutedUsers || []).filter((id) => String(id) !== String(userData.userId));
+        state.seats = state.seats.map((seat) =>
+          String(seat.user?.userId || '') === String(userData.userId)
+            ? { ...seat, isMuted: false, isLocked: false }
+            : seat,
+        );
+      }
+
       await saveVoiceRoomState(state);
 
       if (shouldBroadcastJoin && userData.userId) {
@@ -527,6 +574,7 @@ export const registerVoiceRoomHandlers = (io: Server, socket: AuthenticatedSocke
 
       if (ownerSeatUpdated) {
         const updatePayload = {
+        roomId,
           seatIndex: 0,
           user: userData,
           seats: state.seats,
@@ -557,6 +605,7 @@ export const registerVoiceRoomHandlers = (io: Server, socket: AuthenticatedSocke
         hasPin: Boolean(state.hasPin),
         isHost: authorizedHost,
         isOwner: authorizedHost,
+        isGlobalRoomManager: isGlobalManager,
         isLocked: Boolean(state.isLocked || roomDocument?.isLocked),
         admins: state.admins,
         bannedChatUsers: state.bannedChatUsers,
@@ -566,6 +615,7 @@ export const registerVoiceRoomHandlers = (io: Server, socket: AuthenticatedSocke
       // Broadcast user join to all sockets in the channel
       if (shouldBroadcastJoin) {
         io.to(socketRoomChannel).emit("voice_room:user_joined", {
+          roomId,
           eventId: `join:${roomId}:${userData.userId}:${Date.now()}`,
           user: userData,
           onlineCount: Object.keys(state.onlineUsers).length,
@@ -641,6 +691,7 @@ export const registerVoiceRoomHandlers = (io: Server, socket: AuthenticatedSocke
       await saveVoiceRoomState(state);
 
       const updatePayload = {
+        roomId,
         seatIndex,
         user: userData,
         seats: state.seats,
@@ -693,6 +744,7 @@ export const registerVoiceRoomHandlers = (io: Server, socket: AuthenticatedSocke
         await saveVoiceRoomState(state);
 
         const leaveSeatPayload = {
+          roomId,
           seatIndex: vacatedIndex,
           user: null,
           seats: state.seats,
@@ -702,7 +754,7 @@ export const registerVoiceRoomHandlers = (io: Server, socket: AuthenticatedSocke
         if (rawRoomId !== roomId) {
           io.to(`voice_room_channel:${rawRoomId}`).emit("voice_room:seat_updated", leaveSeatPayload);
         }
-        io.to(socketRoomChannel).emit("voice_room:force_mute", { targetUserId, isMuted: true });
+        io.to(socketRoomChannel).emit("voice_room:force_mute", { roomId, targetUserId, isMuted: true });
 
         io.to(socketRoomChannel).emit("voice_room:chat_message", {
           id: "sys-" + Date.now(),
@@ -740,19 +792,37 @@ export const registerVoiceRoomHandlers = (io: Server, socket: AuthenticatedSocke
       }
 
       const targetUserId = String(targetSeat.user?.userId || "");
-      const isForceMuted = Boolean(targetUserId && state.mutedUsers?.includes(targetUserId));
+      const isProtectedManager = targetUserId ? await isGlobalRoomManagerId(targetUserId) : false;
+      if (isProtectedManager && !isOwnSeat && Boolean(data.isMuted)) {
+        socket.emit("voice_room:error", { message: "Global room managers cannot be muted by other room users" });
+        return;
+      }
+      const isForceMuted = Boolean(!isProtectedManager && targetUserId && state.mutedUsers?.includes(targetUserId));
       const nextMuted = isForceMuted ? true : Boolean(data.isMuted);
 
       state.seats[seatIndex].isMuted = nextMuted;
+      if (isProtectedManager && isOwnSeat && !nextMuted) {
+        state.mutedUsers = (state.mutedUsers || []).filter((id) => String(id) !== targetUserId);
+        state.bannedChatUsers = (state.bannedChatUsers || []).filter((id) => String(id) !== targetUserId);
+      }
       await saveVoiceRoomState(state);
 
       const mutePayload = {
+        roomId,
         seatIndex,
         isMuted: nextMuted,
         seats: state.seats,
       };
 
       io.to(socketRoomChannel).emit("voice_room:seat_muted", mutePayload);
+      if (isProtectedManager && isOwnSeat && !nextMuted) {
+        io.to(socketRoomChannel).emit("voice_room:moderation_state", {
+          roomId,
+          admins: state.admins || [],
+          bannedChatUsers: state.bannedChatUsers || [],
+          mutedUsers: state.mutedUsers || [],
+        });
+      }
       if (rawRoomId !== roomId) {
         io.to(`voice_room_channel:${rawRoomId}`).emit("voice_room:seat_muted", mutePayload);
       }
@@ -782,6 +852,11 @@ export const registerVoiceRoomHandlers = (io: Server, socket: AuthenticatedSocke
 
       if (state.seats[seatIndex]) {
         const isLocked = Boolean(data.isLocked);
+        const seatedUserId = String(state.seats[seatIndex].user?.userId || '');
+        if (isLocked && seatedUserId && (await isGlobalRoomManagerId(seatedUserId))) {
+          socket.emit("voice_room:error", { message: "Global room managers cannot be removed or locked out of a seat" });
+          return;
+        }
         const removedUserId = isLocked ? String(state.seats[seatIndex].user?.userId || "") : "";
         state.seats[seatIndex].isLocked = isLocked;
         if (isLocked) {
@@ -791,6 +866,7 @@ export const registerVoiceRoomHandlers = (io: Server, socket: AuthenticatedSocke
         await saveVoiceRoomState(state);
 
         const lockPayload = {
+          roomId,
           seatIndex,
           isLocked,
           seats: state.seats,
@@ -806,7 +882,7 @@ export const registerVoiceRoomHandlers = (io: Server, socket: AuthenticatedSocke
             targetUserId: removedUserId,
             seatIndex,
           });
-          io.to(socketRoomChannel).emit("voice_room:force_mute", { targetUserId: removedUserId, isMuted: true });
+          io.to(socketRoomChannel).emit("voice_room:force_mute", { roomId, targetUserId: removedUserId, isMuted: true });
         }
       }
     } catch (err: any) {
@@ -834,14 +910,21 @@ export const registerVoiceRoomHandlers = (io: Server, socket: AuthenticatedSocke
 
       const isLocked = Boolean(data.isLocked);
       const socketRoomChannel = `voice_room_channel:${roomId}`;
+      const occupiedGuestSeats = state.seats.filter((seat) => seat.seatIndex !== 0 && seat.user?.userId);
+      const protectedManagerIds = new Set(
+        (await Promise.all(occupiedGuestSeats.map(async (seat) =>
+          (await isGlobalRoomManagerId(String(seat.user!.userId))) ? String(seat.user!.userId) : ''
+        ))).filter(Boolean),
+      );
       const removedUsers = isLocked
-        ? state.seats
-            .filter((seat) => seat.seatIndex !== 0 && seat.user?.userId)
+        ? occupiedGuestSeats
+            .filter((seat) => !protectedManagerIds.has(String(seat.user!.userId)))
             .map((seat) => ({ userId: String(seat.user!.userId), seatIndex: seat.seatIndex }))
         : [];
 
       state.seats = state.seats.map((s) => {
         if (s.seatIndex === 0) return s; // Seat 0 is host seat
+        if (s.user?.userId && protectedManagerIds.has(String(s.user.userId))) return { ...s, isLocked: false };
         return {
           ...s,
           isLocked,
@@ -868,7 +951,7 @@ export const registerVoiceRoomHandlers = (io: Server, socket: AuthenticatedSocke
       }
       removedUsers.forEach(({ userId, seatIndex }) => {
         io.to(socketRoomChannel).emit("voice_room:moved_to_audience", { roomId, targetUserId: userId, seatIndex });
-        io.to(socketRoomChannel).emit("voice_room:force_mute", { targetUserId: userId, isMuted: true });
+        io.to(socketRoomChannel).emit("voice_room:force_mute", { roomId, targetUserId: userId, isMuted: true });
       });
       console.log(`[VoiceRoom] Room ${roomId} all seats locked=${isLocked} by ${authUserNumId || authUserDbId}`);
     } catch (err: any) {
@@ -967,7 +1050,7 @@ export const registerVoiceRoomHandlers = (io: Server, socket: AuthenticatedSocke
         ))
       );
 
-      if (!isOwner && !isAdminRole) {
+      if (!isOwner && !isAdminRole && !(await isGlobalRoomManagerSocket(socket))) {
         socket.emit("voice_room:error", {
           message: "Only the room owner is authorized to accept or reject live requests",
           code: "UNAUTHORIZED_DECISION",
@@ -1011,6 +1094,7 @@ export const registerVoiceRoomHandlers = (io: Server, socket: AuthenticatedSocke
         await saveVoiceRoomState(state);
 
         const updatePayload = {
+          roomId,
           seatIndex,
           user: requesterData,
           seats: state.seats,
@@ -1065,8 +1149,13 @@ export const registerVoiceRoomHandlers = (io: Server, socket: AuthenticatedSocke
       const roomId = normalizeRoomId(rawRoomId);
       const state = await getVoiceRoomState(roomId);
       const targetUserId = resolveRoomUserId(state, requestedTargetUserId);
-      if (!(await isRoomOwnerSocket(socket, roomId, rawRoomId))) {
+      const canAssignAdmins = (await isRoomOwnerSocket(socket, roomId, rawRoomId)) || (await isGlobalRoomManagerSocket(socket));
+      if (!canAssignAdmins) {
         socket.emit("voice_room:error", { message: "Only the room owner can assign room admins" });
+        return;
+      }
+      if (await isGlobalRoomManagerId(targetUserId)) {
+        socket.emit("voice_room:error", { message: "Global room manager access cannot be changed from a room" });
         return;
       }
       if (targetUserId === String(state.seats[0]?.user?.userId || "") || normalizeRoomId(targetUserId) === roomId) {
@@ -1080,6 +1169,7 @@ export const registerVoiceRoomHandlers = (io: Server, socket: AuthenticatedSocke
       state.admins = Array.from(currentAdmins);
       await saveVoiceRoomState(state);
       io.to(`voice_room_channel:${roomId}`).emit("voice_room:moderation_state", {
+        roomId,
         admins: state.admins,
         bannedChatUsers: state.bannedChatUsers || [],
         mutedUsers: state.mutedUsers || [],
@@ -1106,6 +1196,10 @@ export const registerVoiceRoomHandlers = (io: Server, socket: AuthenticatedSocke
         socket.emit("voice_room:error", { message: "The room owner cannot be banned from chat" });
         return;
       }
+      if (await isGlobalRoomManagerId(targetUserId)) {
+        socket.emit("voice_room:error", { message: "Global room managers cannot be banned from chat" });
+        return;
+      }
 
       const banned = new Set((state.bannedChatUsers || []).map(String));
       if (banned.has(targetUserId)) banned.delete(targetUserId);
@@ -1113,6 +1207,7 @@ export const registerVoiceRoomHandlers = (io: Server, socket: AuthenticatedSocke
       state.bannedChatUsers = Array.from(banned);
       await saveVoiceRoomState(state);
       io.to(`voice_room_channel:${roomId}`).emit("voice_room:moderation_state", {
+        roomId,
         admins: state.admins || [],
         bannedChatUsers: state.bannedChatUsers,
         mutedUsers: state.mutedUsers || [],
@@ -1139,6 +1234,10 @@ export const registerVoiceRoomHandlers = (io: Server, socket: AuthenticatedSocke
         socket.emit("voice_room:error", { message: "The room owner cannot be muted by room moderation" });
         return;
       }
+      if (await isGlobalRoomManagerId(targetUserId)) {
+        socket.emit("voice_room:error", { message: "Global room managers cannot be muted" });
+        return;
+      }
 
       const muted = new Set((state.mutedUsers || []).map(String));
       const isMuted = !muted.has(targetUserId);
@@ -1151,18 +1250,20 @@ export const registerVoiceRoomHandlers = (io: Server, socket: AuthenticatedSocke
 
       const roomChannel = `voice_room_channel:${roomId}`;
       io.to(roomChannel).emit("voice_room:moderation_state", {
+        roomId,
         admins: state.admins || [],
         bannedChatUsers: state.bannedChatUsers || [],
         mutedUsers: state.mutedUsers,
       });
       if (targetSeat) {
         io.to(roomChannel).emit("voice_room:seat_muted", {
+          roomId,
           seatIndex: targetSeat.seatIndex,
           isMuted,
           seats: state.seats,
         });
       }
-      io.to(roomChannel).emit("voice_room:force_mute", { targetUserId, isMuted });
+      io.to(roomChannel).emit("voice_room:force_mute", { roomId, targetUserId, isMuted });
     } catch (err: any) {
       console.error("[VoiceRoom] User microphone moderation error:", err);
       socket.emit("voice_room:error", { message: "Could not update the user's microphone" });
@@ -1178,7 +1279,7 @@ export const registerVoiceRoomHandlers = (io: Server, socket: AuthenticatedSocke
 
       const senderId = String((socket as any).voiceUser?.userId || user?.userId || "");
       const state = await getVoiceRoomState(roomId);
-      if (state.bannedChatUsers?.includes(senderId)) {
+      if (state.bannedChatUsers?.includes(senderId) && !(await isGlobalRoomManagerSocket(socket))) {
         socket.emit("voice_room:error", {
           message: "You are currently muted from chat in this room.",
           code: "ROOM_CHAT_BANNED",
@@ -1309,10 +1410,27 @@ export const registerVoiceRoomHandlers = (io: Server, socket: AuthenticatedSocke
           clearTimeout(disconnectGraceTimers.get(timerKey)!);
         }
         const timer = setTimeout(async () => {
-          disconnectGraceTimers.delete(timerKey);
-          console.log(`[VoiceRoom] Grace period expired for ${targetName} (${targetUserId}) in room ${roomId}. Vacating seat.`);
+          console.log(`[VoiceRoom] Grace period expired for ${targetName} (${targetUserId}) in room ${roomId}. Checking current presence.`);
           try {
             const currentState = await getVoiceRoomState(roomId);
+            if (disconnectGraceTimers.get(timerKey) !== timer) {
+              // A fast reconnect followed by another brief disconnect started
+              // a newer grace period, or the user reconnected while this timer
+              // callback was loading state.
+              return;
+            }
+            const currentPresence = currentState.onlineUsers?.[targetUserId];
+            if (currentPresence?.socketId) {
+              const connectedSockets = await io.in(socketRoomChannel).fetchSockets();
+              if (connectedSockets.some((roomSocket) => roomSocket.id === String(currentPresence.socketId))) {
+                // A reconnect can race the timer callback after it has fired.
+                // Keep the seat when that user is already back in the room.
+                disconnectGraceTimers.delete(timerKey);
+                return;
+              }
+            }
+            if (disconnectGraceTimers.get(timerKey) !== timer) return;
+            console.log(`[VoiceRoom] Grace period confirmed for ${targetName} (${targetUserId}) in room ${roomId}. Vacating seat.`);
             const vacated: number[] = [];
             currentState.seats = currentState.seats.map((s) => {
               if (isMatchingSeatUser(s.user)) {
@@ -1326,9 +1444,13 @@ export const registerVoiceRoomHandlers = (io: Server, socket: AuthenticatedSocke
             }
             if (vacated.includes(0)) currentState.hostUser = null;
             await saveVoiceRoomState(currentState);
+            if (disconnectGraceTimers.get(timerKey) === timer) {
+              disconnectGraceTimers.delete(timerKey);
+            }
             if (vacated.length > 0) {
               vacated.forEach((freedIdx) => {
                 const seatPayload = {
+                  roomId,
                   seatIndex: freedIdx,
                   user: null,
                   seats: currentState.seats,
@@ -1340,6 +1462,7 @@ export const registerVoiceRoomHandlers = (io: Server, socket: AuthenticatedSocke
               });
             }
             const uPayload = {
+              roomId,
               user: { userId: targetUserId, name: targetName },
               onlineCount: Object.keys(currentState.onlineUsers || {}).length,
               freedSeatIndices: vacated,
@@ -1350,6 +1473,9 @@ export const registerVoiceRoomHandlers = (io: Server, socket: AuthenticatedSocke
               io.to(`voice_room_channel:${rawRoomId}`).emit("voice_room:user_left", uPayload);
             }
           } catch (err) {
+            if (disconnectGraceTimers.get(timerKey) === timer) {
+              disconnectGraceTimers.delete(timerKey);
+            }
             console.error("[VoiceRoom] Grace timer expiration error:", err);
           }
         }, GRACE_PERIOD_MS);
@@ -1387,6 +1513,7 @@ export const registerVoiceRoomHandlers = (io: Server, socket: AuthenticatedSocke
       // Broadcast vacated seats to everyone in the room
       vacatedIndices.forEach((freedIdx) => {
         const seatPayload = {
+          roomId,
           seatIndex: freedIdx,
           user: null,
           seats: state.seats,
@@ -1398,6 +1525,7 @@ export const registerVoiceRoomHandlers = (io: Server, socket: AuthenticatedSocke
       });
 
       const userLeftPayload = {
+        roomId,
         user: { userId: targetUserId, name: targetName },
         onlineCount: Object.keys(state.onlineUsers || {}).length,
         announcementSent: isExplicitLeave,
@@ -1442,6 +1570,10 @@ export const registerVoiceRoomHandlers = (io: Server, socket: AuthenticatedSocke
         socket.emit("voice_room:error", { message: "Only room admins can remove users from seats" });
         return;
       }
+      if (await isGlobalRoomManagerId(targetUserId)) {
+        socket.emit("voice_room:error", { message: "Global room managers cannot be removed from seats" });
+        return;
+      }
       if (targetUserId === String(state.seats[0]?.user?.userId || "") || normalizeRoomId(targetUserId) === roomId) {
         socket.emit("voice_room:error", { message: "The room owner cannot be removed from the seat" });
         return;
@@ -1463,6 +1595,7 @@ export const registerVoiceRoomHandlers = (io: Server, socket: AuthenticatedSocke
         await saveVoiceRoomState(state);
         const socketRoomChannel = `voice_room_channel:${roomId}`;
         const seatPayload = {
+          roomId,
           seatIndex: vacatedIdx,
           user: null,
           seats: state.seats,
@@ -1477,7 +1610,7 @@ export const registerVoiceRoomHandlers = (io: Server, socket: AuthenticatedSocke
           targetUserId,
           seatIndex: vacatedIdx,
         });
-        io.to(socketRoomChannel).emit("voice_room:force_mute", { targetUserId, isMuted: true });
+        io.to(socketRoomChannel).emit("voice_room:force_mute", { roomId, targetUserId, isMuted: true });
 
         io.to(socketRoomChannel).emit("voice_room:chat_message", {
           id: "sys-" + Date.now(),
@@ -1502,6 +1635,10 @@ export const registerVoiceRoomHandlers = (io: Server, socket: AuthenticatedSocke
       const state = await getVoiceRoomState(roomId);
       if (!(await canModerateRoom(socket, state, roomId, rawRoomId))) {
         socket.emit("voice_room:error", { message: "Only room admins can kick users" });
+        return;
+      }
+      if (await isGlobalRoomManagerId(targetUserId)) {
+        socket.emit("voice_room:error", { message: "Global room managers cannot be kicked from rooms" });
         return;
       }
       if (targetUserId === String(state.seats[0]?.user?.userId || "") || normalizeRoomId(targetUserId) === roomId) {
@@ -1534,6 +1671,7 @@ export const registerVoiceRoomHandlers = (io: Server, socket: AuthenticatedSocke
 
       if (vacatedIdx >= 0) {
         const seatPayload = {
+          roomId,
           seatIndex: vacatedIdx,
           user: null,
           seats: state.seats,
@@ -1554,6 +1692,7 @@ export const registerVoiceRoomHandlers = (io: Server, socket: AuthenticatedSocke
         seats: state.seats,
       });
       io.to(socketRoomChannel).emit("voice_room:user_left", {
+        roomId,
         user: { userId: targetUserId, name: data?.targetName || "User" },
         onlineCount: Object.keys(state.onlineUsers || {}).length,
         freedSeatIndex: vacatedIdx,
@@ -1611,12 +1750,13 @@ export const registerVoiceRoomHandlers = (io: Server, socket: AuthenticatedSocke
       if (!rawRoomId) return;
       const roomId = normalizeRoomId(rawRoomId);
       const authUserId = String((user as any)?.id || "").trim();
+      const isGlobalManager = await isGlobalRoomManagerSocket(socket);
       const roomDocument: any = await Room.findOne({
         $or: [{ channelName: roomId }, { channelName: rawRoomId }],
       });
       const isOwner = Boolean(
         roomDocument &&
-          (String(roomDocument.ownerId) === authUserId ||
+          (isGlobalManager || String(roomDocument.ownerId) === authUserId ||
             (user as any)?.role === "superAdmin" ||
             (user as any)?.role === "admin"),
       );
@@ -1673,7 +1813,7 @@ export const registerVoiceRoomHandlers = (io: Server, socket: AuthenticatedSocke
       const isFreeRoomToolTheme =
         (item.metadata?.isFree === true || Number(item.price || 0) === 0) &&
         ["ROOM_TOOL", "BOTH"].includes(themeLocation);
-      if (!owned && !isFreeRoomToolTheme) {
+      if (!owned && !isFreeRoomToolTheme && !isGlobalManager) {
         socket.emit("voice_room:error", {
           message: "Selected theme is neither free in Room Tools nor present in your active inventory",
           code: "THEME_NOT_OWNED",
@@ -1709,12 +1849,13 @@ export const registerVoiceRoomHandlers = (io: Server, socket: AuthenticatedSocke
       if (!rawRoomId) return;
       const roomId = normalizeRoomId(rawRoomId);
       const authUserId = String((user as any)?.id || "").trim();
+      const isGlobalManager = await isGlobalRoomManagerSocket(socket);
       const roomDocument: any = await Room.findOne({
         $or: [{ channelName: roomId }, { channelName: rawRoomId }],
       });
       const isOwner = Boolean(
         roomDocument &&
-          (String(roomDocument.ownerId) === authUserId ||
+          (isGlobalManager || String(roomDocument.ownerId) === authUserId ||
             (user as any)?.role === "superAdmin" ||
             (user as any)?.role === "admin"),
       );
@@ -1787,7 +1928,7 @@ export const registerVoiceRoomHandlers = (io: Server, socket: AuthenticatedSocke
             ).toUpperCase()
           ));
 
-      if (!owned && !isPreset && !isFreeRoomToolSeatSkin) {
+      if (!owned && !isPreset && !isFreeRoomToolSeatSkin && !isGlobalManager) {
         socket.emit("voice_room:error", {
           message: "Selected seat skin is not in your active inventory",
           code: "SEAT_SKIN_NOT_OWNED",
@@ -1869,9 +2010,10 @@ export const registerVoiceRoomHandlers = (io: Server, socket: AuthenticatedSocke
       const authUserDbId = String((user as any)?.id || (user as any)?._id || "").trim();
       const authUserNumId = String(user?.userId || "").trim();
       const isSuperAdminOrOwnerRole = (user as any)?.role === "superAdmin" || (user as any)?.role === "owner" || (user as any)?.role === "admin";
+      const isGlobalManager = await isGlobalRoomManagerSocket(socket);
 
       const isOwner = Boolean(
-        isSuperAdminOrOwnerRole ||
+        isSuperAdminOrOwnerRole || isGlobalManager ||
         (roomDocument?.ownerId && (
           String(roomDocument.ownerId) === authUserDbId ||
           (authUserNumId && String(roomDocument.ownerId) === authUserNumId)

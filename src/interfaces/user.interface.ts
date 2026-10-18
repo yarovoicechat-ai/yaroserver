@@ -70,6 +70,7 @@ export interface UserInterface extends Document {
   audio?: string;
   isUserName?: boolean;
   userName?: string;
+  isGlobalRoomManager?: boolean;
   isActive?: boolean;
   isBusy?: boolean;
   hostTypes?: string[];

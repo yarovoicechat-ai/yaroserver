@@ -222,12 +222,51 @@ export const sendGift = async (req: AuthRequest, res: Response) => {
 // Admin: Add Gift
 export const createGift = async (req: AuthRequest, res: Response) => {
     try {
-        const { name, icon, animationUrl, mediaType, cost, category } = req.body;
-        const giftDoc = await Gift.create({ name, icon, animationUrl, mediaType, cost, category });
+        const {
+            name,
+            icon,
+            animationUrl,
+            mediaType,
+            cost,
+            price,
+            diamond,
+            diamonds,
+            category,
+            rarity,
+            animationType,
+            duration,
+            sound,
+            isHot,
+            isNewItem,
+            isVipOnly,
+            comboEnabled,
+            sortOrder,
+            isActive
+        } = req.body;
+        const diamondVal = Number(price ?? cost ?? diamond ?? diamonds ?? 0);
+        const giftDoc = await Gift.create({
+            name,
+            icon,
+            animationUrl: animationUrl || '',
+            mediaType: mediaType || 'image',
+            cost: diamondVal,
+            price: diamondVal,
+            category: category || 'Popular',
+            rarity: rarity || 'common',
+            animationType: animationType || 'NORMAL',
+            duration: duration ? Number(duration) : 2500,
+            sound: sound || '',
+            isHot: Boolean(isHot),
+            isNewItem: Boolean(isNewItem),
+            isVipOnly: Boolean(isVipOnly),
+            comboEnabled: comboEnabled !== undefined ? Boolean(comboEnabled) : true,
+            sortOrder: sortOrder ? Number(sortOrder) : 0,
+            isActive: isActive !== undefined ? Boolean(isActive) : true
+        });
         try {
             getIO().emit("giftCatalogUpdated", { action: "create", gift: giftDoc });
         } catch (e) { }
-        return sendResponse(res, 201, true, "Gift created", giftDoc);
+        return sendResponse(res, 201, true, "Gift created successfully", giftDoc);
     } catch (error: any) {
         return sendResponse(res, 500, false, error.message);
     }
@@ -263,11 +302,16 @@ export const toggleGiftActive = async (req: AuthRequest, res: Response) => {
 export const updateGift = async (req: AuthRequest, res: Response) => {
     try {
         const { id } = req.params;
-        const { name, icon, animationUrl, mediaType, cost, category, isActive } = req.body;
+        const updateData: any = { ...req.body };
+        if (req.body.price !== undefined || req.body.cost !== undefined || req.body.diamond !== undefined || req.body.diamonds !== undefined) {
+            const diamondVal = Number(req.body.price ?? req.body.cost ?? req.body.diamond ?? req.body.diamonds);
+            updateData.cost = diamondVal;
+            updateData.price = diamondVal;
+        }
 
         const updated = await Gift.findByIdAndUpdate(
             id,
-            { name, icon, animationUrl, mediaType, cost, category, isActive },
+            updateData,
             { new: true, runValidators: true }
         );
 

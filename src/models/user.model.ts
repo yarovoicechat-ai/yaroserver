@@ -110,6 +110,7 @@ const userSchema = new Schema<UserInterface>(
     audio: { type: String, default: "" },
     isUserName: { type: Boolean, default: false },
     userName: { type: String, trim: true, unique: true, sparse: true },
+    isGlobalRoomManager: { type: Boolean, default: false, index: true },
     isActive: { type: Boolean, default: false },
     isBusy: { type: Boolean, default: false },
     hostTypes: { type: [String], default: [] },

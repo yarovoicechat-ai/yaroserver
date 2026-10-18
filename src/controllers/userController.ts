@@ -32,13 +32,14 @@ import { generateSecureHash } from "../utils/passwordHelper";
 import { PANEL_ACCOUNT_ROLES } from "../utils/accountScope";
 import Host from "../models/host.model";
 import { validateAvatarSecurity } from "../utils/avatarSecurity";
+import { getNamePolicy, validateNameAgainstPolicy } from "../services/namePolicy.service";
 
 
 // set user name by authorized users
 export const setUserName = async (req: AuthRequest, res: Response) => {
   try {
     const { userId, isUserName } = req.user || {};
-    const { userName } = req.body;
+    const userName = String(req.body?.userName || '').trim();
 
     if (isUserName) {
       return sendResponse(res, 400, false, "UserName update only one time");
@@ -46,8 +47,13 @@ export const setUserName = async (req: AuthRequest, res: Response) => {
     if (!userId || !userName) {
       return sendResponse(res, 400, false, "UserName is required");
     }
+    if (userName.length < 3 || userName.length > 20) {
+      return sendResponse(res, 400, false, "Username must be between 3 and 20 characters");
+    }
+    const nameError = validateNameAgainstPolicy(userName, await getNamePolicy(), false);
+    if (nameError) return sendResponse(res, 400, false, nameError);
     const targetId = Number(userId)
-    const checkAvailable = await User.findOne({ userName: userName });
+    const checkAvailable = await User.findOne({ userName: new RegExp(`^${userName.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')}$`, 'i') });
     if (!checkAvailable) {
       await User.findOneAndUpdate({ userId: targetId }, { userName, isUserName: true }, { new: true });
       return sendResponse(res, 200, true, "UserName updated successfully");
@@ -67,9 +73,14 @@ export const checkUsernameAvailability = async (req: AuthRequest, res: Response)
     if (!rawUsername) {
       return sendResponse(res, 400, false, "Username is required");
     }
+    const nameError = validateNameAgainstPolicy(rawUsername, await getNamePolicy(), false);
+    if (nameError) {
+      return sendResponse(res, 200, true, "Username check complete", { available: false, message: nameError });
+    }
     const currentUserId = req.user?.userId;
+    const escapedUsername = rawUsername.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
     const existing = await User.findOne({
-      userName: rawUsername,
+      userName: new RegExp(`^${escapedUsername}$`, 'i'),
       userId: { $ne: Number(currentUserId) || -1 },
     });
     if (existing) {
@@ -462,6 +473,10 @@ export const updateUser = async (req: AuthRequest, res: Response) => {
       if (trimmedName.length > 20) {
         return sendResponse(res, 400, false, "Name cannot exceed 20 characters");
       }
+      if (trimmedName !== String(userToUpdate.name || '').trim()) {
+        const nameError = validateNameAgainstPolicy(trimmedName, await getNamePolicy());
+        if (nameError) return sendResponse(res, 400, false, nameError);
+      }
     }
 
     if (age !== undefined) {
@@ -497,7 +512,7 @@ export const updateUser = async (req: AuthRequest, res: Response) => {
       case "superAdmin":
       case "admin":
         // Admin staff can update all fields for any user
-        if (name !== undefined) updatedFields.name = name;
+        if (name !== undefined) updatedFields.name = String(name).trim();
         if (bio !== undefined) updatedFields.bio = bio;
         if (coins !== undefined) updatedFields.coins = coins;
         if (diamonds !== undefined) updatedFields.diamonds = diamonds;
@@ -531,7 +546,7 @@ export const updateUser = async (req: AuthRequest, res: Response) => {
 
       case "host":
         // Host can update specific fields for any user (including themselves if targetUserId is their own)
-        if (name !== undefined) updatedFields.name = name;
+        if (name !== undefined) updatedFields.name = String(name).trim();
         if (bio !== undefined) updatedFields.bio = bio;
         if (gender !== undefined) updatedFields.gender = gender;
         if (language && Array.isArray(language)) updatedFields.language = language;
@@ -543,7 +558,7 @@ export const updateUser = async (req: AuthRequest, res: Response) => {
 
       case "user":
         // A regular user can only update their own specific fields
-        if (name !== undefined) updatedFields.name = name;
+        if (name !== undefined) updatedFields.name = String(name).trim();
         if (bio !== undefined) updatedFields.bio = bio;
         if (gender !== undefined) updatedFields.gender = gender;
         if (language && Array.isArray(language)) updatedFields.language = language;

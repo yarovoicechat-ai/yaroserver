@@ -38,6 +38,21 @@ const logAudit = async (req: Request, action: string, target: string, details: s
     }
 };
 
+const findGlobalRoomManager = async (identifier: unknown) => {
+    const value = String(identifier ?? '').trim();
+    const alternatives: any[] = [];
+    if (/^\d+$/.test(value) && Number.isSafeInteger(Number(value))) {
+        alternatives.push({ userId: Number(value) });
+    }
+    if (mongoose.Types.ObjectId.isValid(value)) alternatives.push({ _id: value });
+    if (!alternatives.length) return null;
+    return User.findOne({
+        isGlobalRoomManager: true,
+        isDeleted: false,
+        $or: alternatives,
+    }).select('userId');
+};
+
 // ==================== ROOMS MANAGEMENT ====================
 
 export const getAllRooms = async (req: Request, res: Response, next: NextFunction): Promise<void> => {
@@ -143,6 +158,11 @@ export const kickUserFromRoom = async (req: Request, res: Response, next: NextFu
         const { userId } = req.body; // user ID to kick (number or string ID)
         if (!userId) {
             return sendResponse(res, 400, false, 'userId is required');
+        }
+
+        const protectedManager = await findGlobalRoomManager(userId);
+        if (protectedManager) {
+            return sendResponse(res, 403, false, 'Global room managers cannot be kicked from rooms');
         }
 
         const room = await Room.findById(id);
@@ -339,6 +359,11 @@ export const muteUserInRoom = async (req: Request, res: Response, next: NextFunc
         const { userId, isMuted = true } = req.body;
         if (!userId) {
             return sendResponse(res, 400, false, 'userId is required');
+        }
+
+        const protectedManager = await findGlobalRoomManager(userId);
+        if (protectedManager && isMuted) {
+            return sendResponse(res, 403, false, 'Global room managers cannot be muted');
         }
 
         const room = await Room.findById(id);

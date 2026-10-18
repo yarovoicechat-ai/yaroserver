@@ -29,6 +29,13 @@ const NUMBER_RULES: Record<string, { min: number; max: number }> = {
 const BOOLEAN_KEYS = ['maintenanceMode', 'emailAlerts', 'userNotifications', 'systemDigest'];
 const CONTENT_KEYS = ['privacyPolicy', 'termsAndConditions'];
 
+const parseNameList = (value: unknown): string[] | null => {
+    if (!Array.isArray(value)) return null;
+    const names = [...new Set(value.map((entry) => String(entry || '').trim()).filter(Boolean))];
+    if (names.length > 500 || names.some((name) => name.length > 40)) return null;
+    return names;
+};
+
 export const getCachedSettings = async () => {
     return cacheService.getOrSet('global_settings', async () => {
         let settings = await Settings.findOne();
@@ -93,6 +100,18 @@ export const updateSettings = async (req: Request, res: Response, next: NextFunc
         }
         for (const key of CONTENT_KEYS) {
             if (req.body[key] !== undefined) updates[key] = String(req.body[key]);
+        }
+        for (const key of ['blockedNames', 'allowedNames'] as const) {
+            if (req.body[key] === undefined) continue;
+            const names = parseNameList(req.body[key]);
+            if (!names) return sendResponse(res, 400, false, `${key} must contain up to 500 names of at most 40 characters each`);
+            updates[key] = names;
+        }
+        if (req.body.enforceAllowedNames !== undefined) {
+            const value = req.body.enforceAllowedNames;
+            if (typeof value === 'boolean') updates.enforceAllowedNames = value;
+            else if (value === 'true' || value === 'false') updates.enforceAllowedNames = value === 'true';
+            else return sendResponse(res, 400, false, 'enforceAllowedNames must be a boolean');
         }
         if (req.body.agoraAppId !== undefined) {
             const appId = String(req.body.agoraAppId).trim();

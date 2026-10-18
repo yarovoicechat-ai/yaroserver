@@ -42,14 +42,23 @@ export const getMyNotifications = async (req: AuthRequest, res: Response) => {
         const page = parseInt(req.query.page as string) || 1;
         const limit = parseInt(req.query.limit as string) || 20;
         const skip = (page - 1) * limit;
+        const requestedType = String(req.query.type || '').trim().toLowerCase();
+        const allowedTypes = ['system', 'promo', 'transaction', 'call', 'event', 'follow'];
+        const notificationFilter: any = { userId };
 
-        const notifications = await Notification.find({ userId })
+        if (allowedTypes.includes(requestedType)) {
+            notificationFilter.type = requestedType;
+        } else if (String(req.query.excludeSystem || '').toLowerCase() === 'true') {
+            notificationFilter.type = { $ne: 'system' };
+        }
+
+        const notifications = await Notification.find(notificationFilter)
             .sort({ createdAt: -1 })
             .skip(skip)
             .limit(limit);
 
-        const total = await Notification.countDocuments({ userId });
-        const unreadCount = await Notification.countDocuments({ userId, isRead: false });
+        const total = await Notification.countDocuments(notificationFilter);
+        const unreadCount = await Notification.countDocuments({ ...notificationFilter, isRead: false });
 
         return sendResponse(res, 200, true, "Notifications fetched successfully", {
             notifications,

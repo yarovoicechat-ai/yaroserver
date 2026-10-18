@@ -72,6 +72,7 @@ export const broadcastGiftSuccess = (params: BroadcastGiftParams) => {
     giftImage: gift.image || (gift.icon?.startsWith('http') ? gift.icon : '') || gift.previewUrl || '',
     giftIcon: gift.icon,
     animationUrl: gift.animationUrl || '',
+    mediaType: gift.mediaType || 'image',
     previewUrl: gift.previewUrl || '',
     animationType: gift.animationType || 'NORMAL',
     duration: gift.duration || 2500,

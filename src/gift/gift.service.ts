@@ -665,6 +665,7 @@ export class GiftService {
         giftImage: (gift as any).image || (gift as any).imageUrl || (gift as any).previewUrl || '',
         previewUrl: (gift as any).previewUrl || (gift as any).imageUrl || '',
         animationUrl: gift.animationUrl,
+        mediaType: gift.mediaType || 'image',
         animationType: gift.animationType,
         rarity: gift.rarity,
         duration: gift.duration,
@@ -753,10 +754,15 @@ export class GiftService {
    * Admin: Create Gift
    */
   static async createGift(dto: CreateGiftDTO) {
+    const rawVal = dto.price ?? dto.cost ?? (dto as any).diamond ?? (dto as any).diamonds ?? 0;
+    const diamondVal = Number(rawVal);
+    const slug = dto.slug || dto.name.toLowerCase().replace(/[^a-z0-9]+/g, '-').replace(/(^-|-$)+/g, '') || `gift-${Date.now()}`;
     const gift = new Gift({
       ...dto,
-      currency: 'diamonds',
-      cost: dto.price,
+      slug,
+      price: diamondVal,
+      cost: diamondVal,
+      currency: dto.currency || 'DIAMONDS',
     });
     return gift.save();
   }
@@ -765,7 +771,14 @@ export class GiftService {
    * Admin: Update Gift
    */
   static async updateGift(id: string, dto: UpdateGiftDTO) {
-    return Gift.findByIdAndUpdate(id, { $set: dto }, { new: true, runValidators: true });
+    const updateData: any = { ...dto };
+    if (dto.price !== undefined || dto.cost !== undefined || (dto as any).diamond !== undefined || (dto as any).diamonds !== undefined) {
+      const rawVal = dto.price ?? dto.cost ?? (dto as any).diamond ?? (dto as any).diamonds;
+      const diamondVal = Number(rawVal);
+      updateData.price = diamondVal;
+      updateData.cost = diamondVal;
+    }
+    return Gift.findByIdAndUpdate(id, { $set: updateData }, { new: true, runValidators: true });
   }
 
   /**

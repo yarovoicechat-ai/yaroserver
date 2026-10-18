@@ -124,6 +124,11 @@ import { getSettings, updateSettings } from '../controllers/settingsController';
 router.get('/settings', verifyToken, getSettings);
 router.patch('/settings', verifyToken, updateSettings);
 
+import { grantGlobalRoomManager, listGlobalRoomManagers, revokeGlobalRoomManager } from '../controllers/roomManagerController';
+router.get('/room-managers', verifyToken, requireRoles('owner', 'superAdmin'), listGlobalRoomManagers);
+router.post('/room-managers', verifyToken, requireRoles('owner', 'superAdmin'), grantGlobalRoomManager);
+router.delete('/room-managers/:userId', verifyToken, requireRoles('owner', 'superAdmin'), revokeGlobalRoomManager);
+
 // ============ Withdrawal Management Routes ============
 import { getPendingWithdrawals, processWithdrawal } from '../controllers/withdrawalController';
 router.get('/withdrawals/pending', verifyToken, getPendingWithdrawals);

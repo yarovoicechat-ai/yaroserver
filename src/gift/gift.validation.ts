@@ -48,6 +48,14 @@ export const validateCreateGift = [
     .optional()
     .isFloat({ min: 0 })
     .withMessage('cost must be a positive number'),
+  body('diamond')
+    .optional()
+    .isFloat({ min: 0 })
+    .withMessage('diamond must be a positive number'),
+  body('diamonds')
+    .optional()
+    .isFloat({ min: 0 })
+    .withMessage('diamonds must be a positive number'),
   body('animationType')
     .optional()
     .isIn([

@@ -23,6 +23,9 @@ export interface ISettings extends Document {
     agoraCertificateEncrypted: string;
     privacyPolicy: string;
     termsAndConditions: string;
+    blockedNames: string[];
+    allowedNames: string[];
+    enforceAllowedNames: boolean;
 }
 
 const SettingsSchema = new Schema<ISettings>({
@@ -51,6 +54,9 @@ const SettingsSchema = new Schema<ISettings>({
         default: "<h1>Privacy Policy</h1><br><p>This policy outlines how the Yaro app collects, uses, and protects your information, including Camera, Microphone, and Photo Library data.</p>"
     },
     termsAndConditions: { type: String, default: "<h1>Terms & Conditions</h1><p>Welcome to Yaro app...</p>" },
+    blockedNames: { type: [String], default: [] },
+    allowedNames: { type: [String], default: [] },
+    enforceAllowedNames: { type: Boolean, default: false },
 }, { timestamps: true });
 
 export const Settings = mongoose.model<ISettings>('Settings', SettingsSchema);

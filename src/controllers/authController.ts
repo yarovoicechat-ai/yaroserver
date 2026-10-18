@@ -14,6 +14,7 @@ import { APP_ACCOUNT_ROLES } from "../utils/accountScope";
 import { DeviceLimit } from "../models/deviceLimit.model";
 import { getCachedSettings } from "./settingsController";
 import { checkAndLockDeviceRegistration } from "../services/deviceLimitService";
+import { getDefaultNameForPolicy, getNamePolicy, validateNameAgainstPolicy } from "../services/namePolicy.service";
 
 // ==================== RESET PASSWORD ====================
 export const resetPassword = async (req: Request, res: Response) => {
@@ -194,9 +195,22 @@ export const userRegister = async (req: AuthRequest, res: Response) => {
     const userId = requestedUserId ? Number(requestedUserId) : await generateUniqueId();
     const customMeethiId = req.body?.meethiId || req.body?.customId || String(userId);
 
-    const name = (req.body?.name && String(req.body.name).trim())
-      ? String(req.body.name).trim().slice(0, 20)
-      : await generateRandomName();
+    const namePolicy = await getNamePolicy();
+    const requestedName = String(req.body?.name || '').trim().slice(0, 20);
+    if (requestedName) {
+      const nameError = validateNameAgainstPolicy(requestedName, namePolicy);
+      if (nameError) return sendResponse(res, 400, false, nameError);
+    }
+    let generatedName = '';
+    if (!requestedName) {
+      for (let attempt = 0; attempt < 10 && !generatedName; attempt += 1) {
+        generatedName = getDefaultNameForPolicy(await generateRandomName(), namePolicy);
+      }
+      if (!generatedName) {
+        return sendResponse(res, 400, false, 'No approved display name is available. Please contact support.');
+      }
+    }
+    const name = requestedName || generatedName;
     const hashedPassword = await generateSecureHash(password);
     let image = "";
     switch (gender) {
@@ -470,6 +484,14 @@ export const userGoogleAuth = async (req: Request, res: Response) => {
       );
     }
 
+    const namePolicy = await getNamePolicy();
+    const approvedGoogleName = getDefaultNameForPolicy(String(googleUserInfo.name || '').trim().slice(0, 20), namePolicy);
+    if (!approvedGoogleName) {
+      return sendResponse(res, 400, false, 'Your Google display name is restricted. Please contact support.');
+    }
+    const googleNameError = validateNameAgainstPolicy(approvedGoogleName, namePolicy);
+    if (googleNameError) return sendResponse(res, 400, false, googleNameError);
+
     const existingEmailUser = await User.findOne({ email: googleUserInfo.email, role: { $in: APP_ACCOUNT_ROLES }, isDeleted: false });
     if (existingEmailUser) {
       if (!payload.email_verified) {
@@ -532,7 +554,7 @@ export const userGoogleAuth = async (req: Request, res: Response) => {
 
     const newUser = new User({
       userId,
-      name: googleUserInfo.name,
+      name: approvedGoogleName,
       email: googleUserInfo.email,
       googleId: googleUserInfo.googleId,
       gender,
