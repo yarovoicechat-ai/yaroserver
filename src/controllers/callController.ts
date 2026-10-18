@@ -22,6 +22,8 @@ import { recalculateAndUpdateHostLevel } from '../services/user.service';
 import { CALL_DIAMONDS_PER_MINUTE } from '../configs/monetization';
 import redis from '../configs/redisConfig';
 import { config } from '../configs/envConfig';
+import { AgoraTokenService } from '../services/agora/agoraToken.service';
+import { AgoraUsageService } from '../services/agora/agoraUsage.service';
 
 
 // export const startCall = async (req: AuthRequest, res: Response) => {
@@ -400,13 +402,8 @@ export const startCall = async (req: AuthRequest, res: Response) => {
 
     console.log('[CALL] START REQUEST:', { userId, hostId, randomMatch, isVideo });
 
-    const [runtimeSettings, agoraCredentials] = await Promise.all([getCachedSettings(), getAgoraCredentials()]);
+    const runtimeSettings = await getCachedSettings();
     const CALL_RATE_PER_MINUTE = Math.max(1, Number(runtimeSettings.callRatePerMinute || CALL_DIAMONDS_PER_MINUTE));
-    const APP_ID = agoraCredentials.appId || config.AGORA_APP_ID || process.env.AGORA_APP_ID || 'd23c897f9305450faa7809ffcf666e57';
-    const APP_CERTIFICATE = agoraCredentials.certificate || config.AGORA_APP_CERTIFICATE || process.env.APP_CERTIFICATE || '1b562d3ec8134249bda984e72d02213c';
-    if (!APP_ID || !APP_CERTIFICATE) {
-      return sendResponse(res, 503, false, 'Calling service is not configured');
-    }
 
     if (!userId || (!hostId && !randomMatch)) {
       return sendResponse(res, 400, false, "Required call details are missing");
@@ -587,33 +584,16 @@ export const startCall = async (req: AuthRequest, res: Response) => {
     }
 
     const maxMinutes = Math.floor(availableDiamonds / CALL_RATE_PER_MINUTE);
-    const expirationTimeInSeconds = maxMinutes * 60;
     const channelName = `call${Date.now()}${uuidv4().replace(/-/g, '').slice(0, 6)}`;
 
     const callerAgoraUid = Math.floor(Math.random() * 1e9);
     const hostAgoraUid = Math.floor(Math.random() * 1e9);
-    const nowSec = Math.floor(Date.now() / 1000);
-    // Unix timestamp in seconds for token expiration (86400s / 24h validity window for robustness)
-    const tokenExpireTs = nowSec + Math.max(expirationTimeInSeconds, 86400);
 
-    const callerToken = RtcTokenBuilder.buildTokenWithUid(
-      APP_ID,
-      APP_CERTIFICATE,
+    const agoraTokens = await AgoraTokenService.generateCallTokens(
       channelName,
       callerAgoraUid,
-      RtcRole.PUBLISHER,
-      tokenExpireTs,
-      tokenExpireTs
-    );
-
-    const hostToken = RtcTokenBuilder.buildTokenWithUid(
-      APP_ID,
-      APP_CERTIFICATE,
-      channelName,
       hostAgoraUid,
-      RtcRole.PUBLISHER,
-      tokenExpireTs,
-      tokenExpireTs
+      maxMinutes
     );
 
     const transaction = await CoinsTransaction.create({
@@ -628,11 +608,13 @@ export const startCall = async (req: AuthRequest, res: Response) => {
       channelName,
       meta: {
         channelName,
-        appId: APP_ID,
+        appId: agoraTokens.appId,
+        projectId: agoraTokens.projectId,
+        configVersion: agoraTokens.configVersion,
         callerAgoraUid,
         hostAgoraUid,
-        callerToken,
-        hostToken,
+        callerToken: agoraTokens.callerToken,
+        hostToken: agoraTokens.hostToken,
         maxMinutes,
         reservedDiamonds: maxMinutes * CALL_RATE_PER_MINUTE,
         callDiamondsPerMinute: CALL_RATE_PER_MINUTE,
@@ -644,6 +626,18 @@ export const startCall = async (req: AuthRequest, res: Response) => {
 
     console.log('💾 Transaction created:', transaction._id);
 
+    // Record session start (idempotent)
+    AgoraUsageService.recordSessionStart({
+      sessionId: String(transaction._id),
+      sessionType: isVideo ? '1v1_video' : '1v1_audio',
+      projectId: agoraTokens.projectId,
+      appId: agoraTokens.appId,
+      channelName,
+      callerId: String(userId),
+      hostId: String(host._id),
+      startTime: transaction.createdAt,
+    }).catch((err) => console.error('Failed to record session start:', err));
+
     // Emit incoming call
     const callPayload = {
       transactionId: transaction._id,
@@ -654,10 +648,12 @@ export const startCall = async (req: AuthRequest, res: Response) => {
       isVideo,
       callType: isVideo ? 'video' : 'audio',
       agora: {
-        appId: APP_ID,
-        hostToken,
+        appId: agoraTokens.appId,
+        projectId: agoraTokens.projectId,
+        configVersion: agoraTokens.configVersion,
+        hostToken: agoraTokens.hostToken,
         hostAgoraUid,
-        callerToken,
+        callerToken: agoraTokens.callerToken,
         callerAgoraUid,
       },
       maxMinutes,
@@ -695,11 +691,12 @@ export const startCall = async (req: AuthRequest, res: Response) => {
           ringExpiresAt: transaction.ringExpiresAt!.toISOString(),
           eventAt: transaction.createdAt.toISOString(),
           agoraString: JSON.stringify({
-            hostToken,
+            hostToken: agoraTokens.hostToken,
             hostAgoraUid,
-            callerToken,
+            callerToken: agoraTokens.callerToken,
             callerAgoraUid,
-            appId: APP_ID
+            appId: agoraTokens.appId,
+            projectId: agoraTokens.projectId,
           })
         }
       );
@@ -712,17 +709,19 @@ export const startCall = async (req: AuthRequest, res: Response) => {
       transactionId: transaction._id,
       channelName,
       maxMinutes,
-      expiresInSeconds: expirationTimeInSeconds,
+      expiresInSeconds: maxMinutes * 60,
       callRatePerMinute: CALL_RATE_PER_MINUTE,
       createdAt: transaction.createdAt,
       ringExpiresAt: transaction.ringExpiresAt,
       isVideo,
       callType: isVideo ? 'video' : 'audio',
       agora: {
-        appId: APP_ID,
-        callerToken,
+        appId: agoraTokens.appId,
+        projectId: agoraTokens.projectId,
+        configVersion: agoraTokens.configVersion,
+        callerToken: agoraTokens.callerToken,
         callerAgoraUid,
-        hostToken,
+        hostToken: agoraTokens.hostToken,
         hostAgoraUid,
       },
       matchedHost: {

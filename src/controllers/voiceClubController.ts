@@ -463,13 +463,6 @@ export const getVoiceRoomToken = async (req: Request, res: Response) => {
     const userId = (req as any).user?._id || (req as any).user?.id || req.query.userId || req.body.userId;
     const isPublisher = req.query.role === 'broadcaster' || req.body.role === 'broadcaster' || true;
 
-    const agoraCredentials = await getAgoraCredentials();
-    const APP_ID = agoraCredentials.appId || process.env.AGORA_APP_ID || 'd23c897f9305450faa7809ffcf666e57';
-    const APP_CERTIFICATE = agoraCredentials.certificate || process.env.APP_CERTIFICATE || '1b562d3ec8134249bda984e72d02213c';
-
-    // Channel name for the voice room
-    const channelName = `voiceroom_${roomId}`;
-
     // Numeric UID for Agora RTC
     let agoraUid = 0;
     if (userId) {
@@ -479,28 +472,18 @@ export const getVoiceRoomToken = async (req: Request, res: Response) => {
       agoraUid = Math.floor(Math.random() * 1e8) + 1000;
     }
 
-    const tokenExpireSeconds = 86400; // 24 hours validity
-
-    let token = '';
-    if (APP_CERTIFICATE) {
-      token = RtcTokenBuilder.buildTokenWithUid(
-        APP_ID,
-        APP_CERTIFICATE,
-        channelName,
-        agoraUid,
-        isPublisher ? RtcRole.PUBLISHER : RtcRole.SUBSCRIBER,
-        tokenExpireSeconds,
-        tokenExpireSeconds
-      );
-    }
+    const { AgoraTokenService } = await import('../services/agora/agoraToken.service');
+    const roomTokenData = await AgoraTokenService.generateRoomToken(roomId, agoraUid, Boolean(isPublisher));
 
     return res.status(200).json({
       success: true,
       data: {
-        appId: APP_ID,
-        channelName,
-        agoraUid,
-        token,
+        appId: roomTokenData.appId,
+        channelName: roomTokenData.channelName,
+        agoraUid: roomTokenData.agoraUid,
+        token: roomTokenData.token,
+        projectId: roomTokenData.projectId,
+        configVersion: roomTokenData.configVersion,
       },
     });
   } catch (error: any) {

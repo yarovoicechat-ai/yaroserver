@@ -420,6 +420,14 @@ export class BillingService {
 
             await session.commitTransaction();
 
+            // Finalize Agora Call Session Usage & check failover threshold
+            const { AgoraUsageService } = await import('./agora/agoraUsage.service');
+            AgoraUsageService.recordSessionEnd({
+                sessionId: String(transactionId),
+                endTime: callEndTime,
+                durationSeconds: durationSec,
+            }).catch((err) => console.error('[BillingService] Failed to record Agora call usage:', err));
+
             // Evaluate Referral Milestone (post-commit)
             if (durationSec > 0) {
                 const { evaluateReferralCallMilestone } = await import('./referralMilestoneService');
