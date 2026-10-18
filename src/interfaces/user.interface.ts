@@ -71,6 +71,15 @@ export interface UserInterface extends Document {
   isUserName?: boolean;
   userName?: string;
   isGlobalRoomManager?: boolean;
+  officialPowers?: {
+    canBanRoom?: boolean;
+    canBanUser?: boolean;
+    canGhostEntry?: boolean;
+    canKickAnyUser?: boolean;
+    canMuteAnyUser?: boolean;
+    canLockAnySeat?: boolean;
+    isGlobalRoomManager?: boolean;
+  };
   isActive?: boolean;
   isBusy?: boolean;
   hostTypes?: string[];

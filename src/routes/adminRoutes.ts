@@ -129,6 +129,18 @@ router.get('/room-managers', verifyToken, requireRoles('owner', 'superAdmin'), l
 router.post('/room-managers', verifyToken, requireRoles('owner', 'superAdmin'), grantGlobalRoomManager);
 router.delete('/room-managers/:userId', verifyToken, requireRoles('owner', 'superAdmin'), revokeGlobalRoomManager);
 
+// ============ Official ID Powers & In-App Moderation ============
+import {
+  listOfficialPowerUsers,
+  searchUserForPowers,
+  setOfficialPowers,
+  revokeAllOfficialPowers,
+} from '../controllers/officialPowersController';
+router.get('/official-powers', verifyToken, requireRoles('owner', 'superAdmin', 'admin'), listOfficialPowerUsers);
+router.get('/official-powers/search', verifyToken, requireRoles('owner', 'superAdmin', 'admin'), searchUserForPowers);
+router.post('/official-powers', verifyToken, requireRoles('owner', 'superAdmin', 'admin'), setOfficialPowers);
+router.delete('/official-powers/:userId', verifyToken, requireRoles('owner', 'superAdmin', 'admin'), revokeAllOfficialPowers);
+
 // ============ Withdrawal Management Routes ============
 import { getPendingWithdrawals, processWithdrawal } from '../controllers/withdrawalController';
 router.get('/withdrawals/pending', verifyToken, getPendingWithdrawals);

@@ -95,6 +95,28 @@ const getSocketUserIds = (socket: AuthenticatedSocket): string[] => {
     .map((value) => String(value));
 };
 
+export const getUserOfficialPowers = async (userId: string) => {
+  const identifier = String(userId || '').trim();
+  const alternatives: any[] = [];
+  if (/^\d+$/.test(identifier) && Number.isSafeInteger(Number(identifier))) {
+    alternatives.push({ userId: Number(identifier) });
+  }
+  if (Types.ObjectId.isValid(identifier)) alternatives.push({ _id: identifier });
+  if (!alternatives.length) return null;
+  const dbUser: any = await User.findOne({ $or: alternatives, isDeleted: false })
+    .select('officialPowers isGlobalRoomManager role')
+    .lean();
+  return {
+    isGlobalRoomManager: Boolean(dbUser?.isGlobalRoomManager || dbUser?.officialPowers?.isGlobalRoomManager),
+    canBanRoom: Boolean(dbUser?.officialPowers?.canBanRoom || dbUser?.isGlobalRoomManager || ['owner', 'superAdmin'].includes(dbUser?.role)),
+    canBanUser: Boolean(dbUser?.officialPowers?.canBanUser || dbUser?.isGlobalRoomManager || ['owner', 'superAdmin'].includes(dbUser?.role)),
+    canGhostEntry: Boolean(dbUser?.officialPowers?.canGhostEntry),
+    canKickAnyUser: Boolean(dbUser?.officialPowers?.canKickAnyUser || dbUser?.isGlobalRoomManager || ['owner', 'superAdmin'].includes(dbUser?.role)),
+    canMuteAnyUser: Boolean(dbUser?.officialPowers?.canMuteAnyUser || dbUser?.isGlobalRoomManager || ['owner', 'superAdmin'].includes(dbUser?.role)),
+    canLockAnySeat: Boolean(dbUser?.officialPowers?.canLockAnySeat || dbUser?.isGlobalRoomManager || ['owner', 'superAdmin'].includes(dbUser?.role)),
+  };
+};
+
 const isGlobalRoomManagerId = async (userId: string): Promise<boolean> => {
   const identifier = String(userId || '').trim();
   const alternatives: any[] = [];
@@ -103,11 +125,22 @@ const isGlobalRoomManagerId = async (userId: string): Promise<boolean> => {
   }
   if (Types.ObjectId.isValid(identifier)) alternatives.push({ _id: identifier });
   if (!alternatives.length) return false;
-  return Boolean(await User.exists({ $or: alternatives, isGlobalRoomManager: true, isDeleted: false }));
+  return Boolean(await User.exists({
+    $or: alternatives,
+    isDeleted: false,
+    $and: [
+      {
+        $or: [
+          { isGlobalRoomManager: true },
+          { 'officialPowers.isGlobalRoomManager': true },
+        ],
+      },
+    ],
+  }));
 };
 
 const isGlobalRoomManagerSocket = async (socket: AuthenticatedSocket): Promise<boolean> => {
-  const userId = String((socket.user as any)?.userId || '').trim();
+  const userId = String((socket.user as any)?.userId || (socket.user as any)?._id || (socket.user as any)?.id || '').trim();
   return isGlobalRoomManagerId(userId);
 };
 
@@ -151,8 +184,12 @@ const canModerateRoom = async (
   rawRoomId: string,
 ): Promise<boolean> => {
   const socketUser: any = socket.user || {};
-  if (socketUser.role === "admin") return true;
+  if (['admin', 'superAdmin', 'owner'].includes(socketUser.role)) return true;
   if (await isGlobalRoomManagerSocket(socket)) return true;
+  const userPowers = await getUserOfficialPowers(String(socketUser.userId || socketUser._id || socketUser.id || ''));
+  if (userPowers && (userPowers.canKickAnyUser || userPowers.canMuteAnyUser || userPowers.isGlobalRoomManager || userPowers.canBanRoom)) {
+    return true;
+  }
   if (await isRoomOwnerSocket(socket, roomId, rawRoomId)) return true;
   const actorIds = getSocketUserIds(socket);
   return (state.admins || []).some((adminId) => actorIds.includes(String(adminId)));
@@ -216,7 +253,7 @@ const getCanonicalRoomUser = async (socketUser: any, fallback: any = {}) => {
   const dbUser: any = query
     ? await User.findOne(query)
         .select(
-          "userId name image avatar gender level equippedFrame equippedFrameAsset equippedEntry equippedEntryAsset equippedEntryEffect equippedEntryTag equippedEntrance equippedEntranceAsset equippedTassel equippedTasselAsset equippedBadge equippedBadges equippedChatBubble equippedChatBubbleAsset equippedVipId equippedSvipId isGlobalRoomManager",
+          "userId name image avatar gender level equippedFrame equippedFrameAsset equippedEntry equippedEntryAsset equippedEntryEffect equippedEntryTag equippedEntrance equippedEntranceAsset equippedTassel equippedTasselAsset equippedBadge equippedBadges equippedChatBubble equippedChatBubbleAsset equippedVipId equippedSvipId isGlobalRoomManager officialPowers",
         )
         .lean()
     : null;
@@ -254,7 +291,8 @@ const getCanonicalRoomUser = async (socketUser: any, fallback: any = {}) => {
     equippedChatBubbleAsset: source?.equippedChatBubbleAsset || null,
     equippedVipId: source?.equippedVipId || null,
     equippedSvipId: source?.equippedSvipId || null,
-    isGlobalRoomManager: Boolean(source?.isGlobalRoomManager),
+    isGlobalRoomManager: Boolean(source?.isGlobalRoomManager || source?.officialPowers?.isGlobalRoomManager),
+    officialPowers: source?.officialPowers || null,
   };
 };
 
@@ -550,7 +588,12 @@ export const registerVoiceRoomHandlers = (io: Server, socket: AuthenticatedSocke
         }
       }
 
-      const isStealth = Boolean((isGlobalManager || isSuperAdminOrOwnerRole) && data?.stealth);
+      const userPowers = userData?.officialPowers || (user as any)?.officialPowers || (await getUserOfficialPowers(String(userData.userId)));
+      const hasGhostPower = Boolean(userPowers?.canGhostEntry);
+      const isStealth = Boolean(
+        (isGlobalManager || isSuperAdminOrOwnerRole || hasGhostPower) &&
+        (data?.stealth !== undefined ? data.stealth : hasGhostPower)
+      );
       if (isStealth) {
         shouldBroadcastJoin = false;
         (socket as any).isStealth = true;
@@ -2126,8 +2169,10 @@ export const registerVoiceRoomHandlers = (io: Server, socket: AuthenticatedSocke
 
       const isSuperAdminOrOwnerRole = (user as any)?.role === "superAdmin" || (user as any)?.role === "owner" || (user as any)?.role === "admin";
       const isGlobalManager = await isGlobalRoomManagerSocket(socket);
+      const userPowers = await getUserOfficialPowers(String((user as any)?.userId || (user as any)?._id || (user as any)?.id || ''));
+      const canBanRoom = Boolean(isSuperAdminOrOwnerRole || isGlobalManager || userPowers?.canBanRoom);
 
-      if (!isSuperAdminOrOwnerRole && !isGlobalManager) {
+      if (!canBanRoom) {
         socket.emit("voice_room:error", {
           message: "Aapke paas room ban karne ka official power nahi hai. (Unauthorized to ban room)",
           code: "UNAUTHORIZED_ROOM_BAN",
@@ -2173,6 +2218,111 @@ export const registerVoiceRoomHandlers = (io: Server, socket: AuthenticatedSocke
     } catch (err: any) {
       console.error("[VoiceRoom] Ban room error:", err);
       socket.emit("voice_room:error", { message: err?.message || "Failed to ban room" });
+    }
+  });
+
+  // 17c. Ban / Block User Globally (Official Power canBanUser, Global Room Manager, or Admin)
+  socket.on("voice_room:ban_user", async (data: { roomId?: string; targetUserId: string | number; reason?: string }) => {
+    try {
+      const targetIdentifier = String(data?.targetUserId || '').trim();
+      if (!targetIdentifier) return;
+
+      const isSuperAdminOrOwnerRole = (user as any)?.role === "superAdmin" || (user as any)?.role === "owner" || (user as any)?.role === "admin";
+      const isGlobalManager = await isGlobalRoomManagerSocket(socket);
+      const userPowers = await getUserOfficialPowers(String((user as any)?.userId || (user as any)?._id || (user as any)?.id || ''));
+      const canBanUser = Boolean(isSuperAdminOrOwnerRole || isGlobalManager || userPowers?.canBanUser);
+
+      if (!canBanUser) {
+        socket.emit("voice_room:error", {
+          message: "Aapke paas user ban karne ka official power nahi hai. (Unauthorized to ban user)",
+          code: "UNAUTHORIZED_USER_BAN",
+        });
+        return;
+      }
+
+      // Find target user
+      const targetQuery: any[] = [];
+      if (/^\d+$/.test(targetIdentifier) && Number.isSafeInteger(Number(targetIdentifier))) {
+        targetQuery.push({ userId: Number(targetIdentifier) });
+      }
+      if (Types.ObjectId.isValid(targetIdentifier)) {
+        targetQuery.push({ _id: targetIdentifier });
+      }
+
+      const targetDoc = await User.findOne({ $or: targetQuery, isDeleted: false });
+      if (!targetDoc) {
+        socket.emit("voice_room:error", { message: "Target user not found" });
+        return;
+      }
+
+      if (['owner', 'superAdmin'].includes(String(targetDoc.role || ''))) {
+        socket.emit("voice_room:error", { message: "Cannot ban platform owners or administrators." });
+        return;
+      }
+
+      const banReason = data?.reason || "Globally banned by Official Room Manager.";
+
+      // 1. Mark as blocked in User model
+      targetDoc.isBlocked = true;
+      targetDoc.status = 'Blocked';
+      await targetDoc.save();
+
+      // 2. Set 30-day block key in Redis
+      await redis.set(`user_blocked:${targetDoc._id}`, '1', 'EX', 30 * 86400);
+      await redis.set(`user_blocked:${targetDoc.userId}`, '1', 'EX', 30 * 86400);
+
+      // 3. Eject target user from current room channel if roomId provided
+      const rawRoomId = String(data?.roomId || (socket as any).voiceRawRoomId || (socket as any).voiceRoomId || "").trim();
+      if (rawRoomId) {
+        const roomId = normalizeRoomId(rawRoomId);
+        const socketRoomChannel = `voice_room_channel:${roomId}`;
+
+        // Notify room
+        io.to(socketRoomChannel).emit("voice_room:user_banned_broadcast", {
+          targetUserId: targetDoc.userId,
+          targetName: targetDoc.name,
+          reason: banReason,
+          bannedBy: (user as any)?.name || (user as any)?.userId,
+        });
+
+        // Remove from room state if seated or in audience
+        const state = await getVoiceRoomState(roomId);
+        if (state) {
+          state.seats = (state.seats || []).map((seat: any) => {
+            const sUid = String(seat?.user?.userId || '');
+            if (sUid === String(targetDoc.userId) || sUid === String(targetDoc._id)) {
+              return { ...seat, user: null, isMuted: false };
+            }
+            return seat;
+          });
+          if (state.onlineUsers) {
+            Object.keys(state.onlineUsers).forEach((key) => {
+              const u = state.onlineUsers[key];
+              if (String(u?.userId) === String(targetDoc.userId) || String(u?.userId) === String(targetDoc._id)) {
+                delete state.onlineUsers[key];
+              }
+            });
+          }
+          await saveVoiceRoomState(state);
+          io.to(socketRoomChannel).emit("voice_room:state", state);
+        }
+      }
+
+      // 4. Force disconnect target user across all sockets
+      io.emit("auth:force_logout", {
+        userId: targetDoc.userId,
+        reason: banReason,
+      });
+
+      socket.emit("voice_room:user_banned", {
+        success: true,
+        targetUserId: targetDoc.userId,
+        message: `User ${targetDoc.name} (#${targetDoc.userId}) has been officially banned and blocked.`,
+      });
+      console.log(`[VoiceRoom] User ${targetDoc.userId} globally banned by ${user?.name || (user as any)?.userId}`);
+    } catch (err: any) {
+      console.error("[VoiceRoom] Ban user error:", err);
+      socket.emit("voice_room:error", { message: err?.message || "Failed to ban user" });
     }
   });
 
