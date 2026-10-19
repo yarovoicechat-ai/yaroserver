@@ -7,6 +7,9 @@ import {
   equipReward,
   adminAdjustUserExp,
   adminSearchUsersLevels,
+  getWealthLevels,
+  saveWealthLevel,
+  deleteWealthLevel,
 } from '../controllers/level.controller';
 import { verifyToken, requireRoles } from '../middlewares/authorize.middleware';
 
@@ -19,6 +22,12 @@ router.get('/status', verifyToken, getMyLevelStatus);
 router.get('/config', getLevelConfig);
 router.post('/claim', verifyToken, claimReward);
 router.post('/equip', verifyToken, equipReward);
+
+// Wealth Levels configuration (Dynamic rewards, uploads & expiry days)
+router.get('/wealth', getWealthLevels);
+router.post('/wealth', verifyToken, adminRoles, saveWealthLevel);
+router.put('/wealth/:level', verifyToken, adminRoles, saveWealthLevel);
+router.delete('/wealth/:level', verifyToken, adminRoles, deleteWealthLevel);
 
 // Admin routes
 router.post('/admin/adjust-exp', verifyToken, adminRoles, adminAdjustUserExp);

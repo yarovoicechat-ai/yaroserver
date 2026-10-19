@@ -276,7 +276,63 @@ export class LevelService {
           uniqueIdInventoryOnly: true,
           uniqueDisplayId: String(uniqueStoreItem.metadata?.number || ''),
         } as LevelRewardItem;
-      } else {
+      } else if (journeyType === 'wealth') {
+        const { WealthLevel } = await import('../models/wealthLevel.model');
+        const wDoc: any = await WealthLevel.findOne({
+          $or: [
+            { level: Number(rewardId) },
+            { 'frameReward.name': rewardId },
+            { 'entryReward.name': rewardId },
+            { 'badgeReward.name': rewardId },
+            { 'tagReward.name': rewardId },
+            { 'uniqueIdReward.name': rewardId },
+            { 'tasselReward.name': rewardId },
+            { 'profileBorderReward.name': rewardId },
+            { 'customThemeReward.name': rewardId },
+            { 'coverBannerReward.name': rewardId },
+          ],
+        }).lean();
+
+        if (wDoc) {
+          const rewards = [
+            { key: 'frame', cfg: wDoc.frameReward, cat: 'Frames' },
+            { key: 'entry', cfg: wDoc.entryReward, cat: 'Entrance' },
+            { key: 'badge', cfg: wDoc.badgeReward, cat: 'Badge' },
+            { key: 'tag', cfg: wDoc.tagReward, cat: 'Tag' },
+            { key: 'uniqueId', cfg: wDoc.uniqueIdReward, cat: 'Unique ID' },
+            { key: 'tassel', cfg: wDoc.tasselReward, cat: 'Tassel' },
+            { key: 'profileBorder', cfg: wDoc.profileBorderReward, cat: 'Profile Border' },
+            { key: 'customTheme', cfg: wDoc.customThemeReward, cat: 'Theme' },
+            { key: 'coverBanner', cfg: wDoc.coverBannerReward, cat: 'Profile Card' },
+          ];
+
+          const matched = rewards.find(r => r.cfg?.enabled && (r.cfg.name === rewardId || rewardId.includes(r.key))) ||
+                          rewards.find(r => r.cfg?.enabled);
+
+          if (matched && matched.cfg) {
+            rewardItem = {
+              id: `${wDoc.level}_${matched.key}`,
+              name: matched.cfg.name || `Wealth Lv.${wDoc.level} ${matched.cat}`,
+              type: (matched.key === 'frame' ? 'frame' :
+                     matched.key === 'entry' ? 'entrance' :
+                     matched.key === 'customTheme' ? 'theme' :
+                     matched.key === 'profileBorder' ? 'profile_border' :
+                     matched.key === 'uniqueId' ? 'custom_id' :
+                     matched.key === 'tassel' ? 'tassel' :
+                     matched.key === 'coverBanner' ? 'cover_banner' :
+                     matched.key === 'tag' ? 'tag' : 'badge') as any,
+              categoryName: matched.cat,
+              requiredLevel: wDoc.level,
+              durationDays: Math.max(0, Number(matched.cfg.days) || 0),
+              imageUrl: matched.cfg.url || '',
+              animationUrl: matched.cfg.animationUrl || matched.cfg.url || '',
+              description: `Exclusive Wealth Level ${wDoc.level} Reward`,
+            };
+          }
+        }
+      }
+
+      if (!rewardItem) {
         throw new Error('Invalid reward item');
       }
     }
@@ -300,12 +356,15 @@ export class LevelService {
     // Map reward type to canonical Store Category
     let category = 'Badge';
     if (rewardItem.type === 'frame') category = 'Frames';
-    else if (rewardItem.type === 'entrance' || rewardItem.type === 'vehicle') category = 'Entrance';
+    else if (rewardItem.type === 'entrance' || rewardItem.type === 'vehicle' || (rewardItem as any).type === 'entry') category = 'Entrance';
     else if (rewardItem.type === 'theme') category = 'Theme';
     else if (rewardItem.type === 'mic') category = 'Mic Wave';
     else if (rewardItem.type === 'profile_border') category = 'Profile Border';
     else if (rewardItem.type === 'custom_id') category = 'Custom ID';
     else if (rewardItem.type === 'party_set' || rewardItem.type === 'room_skin') category = 'Room Skin';
+    else if ((rewardItem as any).type === 'tassel') category = 'Tassel';
+    else if ((rewardItem as any).type === 'tag') category = 'Tag';
+    else if ((rewardItem as any).type === 'cover_banner' || (rewardItem as any).type === 'profile_card') category = 'Profile Card';
 
     const inventoryEntry: any = {
       ...(uniqueStoreItem ? { itemId: uniqueStoreItem._id, uniqueId: uniqueStoreItem.uniqueId, metadata: uniqueStoreItem.metadata || {} } : {}),
