@@ -1,15 +1,20 @@
 import { Server } from "socket.io";
+import { Types } from "mongoose";
 import { createAdapter } from "@socket.io/redis-adapter";
 import redis from "../configs/redisConfig";
 import { sendMessage, markMessagesSeen } from "../services/chat.service";
 import { CoinsTransaction } from "../models/spentCoinModel";
+import Conversation from "../models/conversation.model";
 import { AuthenticatedSocket, socketAuth } from "../middlewares/auth.socket";
 import { User } from "../models/user.model";
+import Notification from "../models/notification.model";
 import { CallStatus } from "../constants/user";
 import { getAllHostsService, invalidateHostCache } from "../services/user.service";
 import { BillingService } from '../services/billing.service';
 import { PermissionEngine } from "../utils/permissionEngine";
 import { notifyHostCallState } from "../services/callStateNotification.service";
+import { recordCallActivityState } from "../services/callActivity.service";
+import { CallActivityStatus } from "../utils/callActivityRules";
 import { registerVoiceRoomHandlers } from "./voiceRoomSocket";
 
 // Redis Pub/Sub for Adapter
@@ -20,6 +25,42 @@ let ioInstance: Server;
 
 // Helper: Get 'room' name for user
 export const getUserRoom = (userId: string) => `user:${userId}`;
+
+const publishCallActivityState = async (
+    io: Server,
+    transactionId: string,
+    callerId: unknown,
+    hostId: unknown,
+    callerStatus: CallActivityStatus,
+    hostStatus: CallActivityStatus = callerStatus,
+) => {
+    try {
+        const [caller, host] = await Promise.all([
+            User.findById(callerId).select('name image').lean(),
+            User.findById(hostId).select('name image').lean(),
+        ]);
+        const callerIdString = String(callerId);
+        const hostIdString = String(hostId);
+        const updates = await Promise.all([
+            recordCallActivityState({
+                userId: callerIdString, transactionId, recipient: 'caller', status: callerStatus,
+                peerId: hostIdString, peerName: host?.name || 'Host', peerImage: host?.image || '',
+            }),
+            recordCallActivityState({
+                userId: hostIdString, transactionId, recipient: 'host', status: hostStatus,
+                peerId: callerIdString, peerName: caller?.name || 'User', peerImage: caller?.image || '',
+            }),
+        ]);
+        await Promise.all(updates.map(async (notification, index) => {
+            if (!notification) return;
+            const recipientId = index === 0 ? callerIdString : hostIdString;
+            const unreadCount = await Notification.countDocuments({ userId: recipientId, isRead: false });
+            io.to(getUserRoom(recipientId)).emit('notification:new', { notification, unreadCount });
+        }));
+    } catch (error) {
+        console.warn('[CallActivity] Could not update call activity state:', error);
+    }
+};
 
 // Deleted deprecated getSocketIdByUserId
 
@@ -143,21 +184,37 @@ const chatSocket = (io: Server) => {
         });
 
 
-        socket.on("joinConversation", ({ conversationId }: { conversationId: string }) => {
+        socket.on("joinConversation", async ({ conversationId }: { conversationId: string }) => {
+            if (!Types.ObjectId.isValid(String(conversationId || '')) || !await Conversation.exists({
+                _id: conversationId,
+                participants: socket.user!.id,
+            })) return;
             console.log(`➡️ User ${userIdStr} joining conversation ${conversationId}`);
             socket.join(conversationId);
         });
 
-        socket.on("typing", ({ conversationId }: { conversationId: string }) => {
+        socket.on("typing", async ({ conversationId }: { conversationId: string }) => {
+            if (!Types.ObjectId.isValid(String(conversationId || '')) || !await Conversation.exists({
+                _id: conversationId,
+                participants: socket.user!.id,
+            })) return;
             socket.to(conversationId).emit("userTyping", { userId: userIdStr });
         });
 
         socket.on("markSeen", async ({ conversationId }: { conversationId: string }) => {
+            if (!Types.ObjectId.isValid(String(conversationId || '')) || !await Conversation.exists({
+                _id: conversationId,
+                participants: socket.user!.id,
+            })) return;
             await markMessagesSeen(conversationId, socket.user!.id);
             io.to(conversationId).emit("messagesSeen", { conversationId, id: userIdStr });
         });
 
-        socket.on("exitChat", ({ conversationId }: { conversationId: string }) => {
+        socket.on("exitChat", async ({ conversationId }: { conversationId: string }) => {
+            if (!Types.ObjectId.isValid(String(conversationId || '')) || !await Conversation.exists({
+                _id: conversationId,
+                participants: socket.user!.id,
+            })) return;
             socket.leave(conversationId);
         });
 
@@ -194,6 +251,7 @@ const chatSocket = (io: Server) => {
                             appId: meta?.appId,
                         },
                     });
+                    await publishCallActivityState(io, transactionId, accepted.userId, accepted.hostId, 'accepted');
                     return;
                 }
                 socket.emit("callActionError", { transactionId, action: "accept", message: "Call is unavailable" });
@@ -216,6 +274,7 @@ const chatSocket = (io: Server) => {
             };
             io.to(getUserRoom(String(txn.userId))).emit("callAccepted", payload);
             socket.emit("acceptedBySystem", payload);
+            await publishCallActivityState(io, transactionId, txn.userId, txn.hostId, 'accepted');
         });
 
         socket.on("joinChannel", async ({ transactionId }: { transactionId: string }) => {
@@ -301,6 +360,7 @@ const chatSocket = (io: Server) => {
             await User.findByIdAndUpdate(txn.hostId, { $set: { isBusy: false } });
             io.to(getUserRoom(String(txn.userId))).emit("callRejected", { transactionId });
             io.to(getUserRoom(String(txn.hostId))).emit("callEnded", { transactionId, reason: "rejected" });
+            await publishCallActivityState(io, transactionId, txn.userId, txn.hostId, 'rejected');
             await notifyHostCallState(txn.hostId, String(txn._id), "rejected");
         });
 
@@ -322,6 +382,7 @@ const chatSocket = (io: Server) => {
             const payload = { transactionId, reason: 'no_answer' };
             io.to(getUserRoom(String(txn.userId))).emit('callEnded', payload);
             io.to(getUserRoom(String(txn.hostId))).emit('callEnded', payload);
+            await publishCallActivityState(io, transactionId, txn.userId, txn.hostId, 'expired');
             await notifyHostCallState(txn.hostId, String(txn._id), 'expired', now);
         });
 
@@ -400,7 +461,7 @@ const handleEndCall = async (
         const txRef = await CoinsTransaction.findOne({
             _id: transactionId,
             $or: [{ userId: participantId }, { hostId: participantId }],
-        }).select('userId hostId').lean() as any;
+        }).select('userId hostId callStart status').lean() as any;
         if (!txRef) {
             console.warn(`Unauthorized endCall ignored for transaction ${transactionId}`);
             return;
@@ -417,8 +478,8 @@ const handleEndCall = async (
             const payload = result.data ?? { transactionId };
 
             if (txRef) {
-                const callerDoc = await User.findById(txRef.userId).select('_id userId meethiId coins diamonds').lean();
-                const hostDoc = await User.findById(txRef.hostId).select('_id userId meethiId coins diamonds').lean();
+                const callerDoc = await User.findById(txRef.userId).select('_id userId meethiId name image coins diamonds').lean();
+                const hostDoc = await User.findById(txRef.hostId).select('_id userId meethiId name image coins diamonds').lean();
 
                 const callerRooms = [
                     `user:${txRef.userId}`,
@@ -455,6 +516,16 @@ const handleEndCall = async (
                 }
             }
             io.to(`call:${transactionId}`).emit("callEnded", payload);
+            const endedBeforeAccept = !txRef.callStart &&
+                ![CallStatus.ACCEPTED, CallStatus.CONNECTING, CallStatus.CONNECTED].includes(txRef.status);
+            await publishCallActivityState(
+                io,
+                transactionId,
+                txRef.userId,
+                txRef.hostId,
+                endedBeforeAccept ? 'cancelled' : 'ended',
+                endedBeforeAccept ? 'missed' : 'ended',
+            );
             await notifyHostCallState(txRef.hostId, transactionId, "ended");
         } else {
             console.error(`❌ Call End Failed for ${transactionId}: ${result.message}`);

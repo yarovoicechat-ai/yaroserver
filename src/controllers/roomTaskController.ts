@@ -1,5 +1,6 @@
 import { Response } from 'express';
 import { RoomTaskService } from '../services/roomTask.service';
+import { Room } from '../models/room.model';
 
 export const getRoomTasks = async (req: any, res: Response) => {
   try {
@@ -78,6 +79,18 @@ export const toggleAutoSendSupport = async (req: any, res: Response) => {
 
     if (!roomId) {
       return res.status(400).json({ success: false, message: 'Room ID is required' });
+    }
+
+    const cleanRoomId = String(roomId).trim();
+    const normalizedRoomId = /^10000\d{3}$/.test(cleanRoomId)
+      ? `100000000${cleanRoomId.slice(5)}`.slice(-10)
+      : cleanRoomId;
+    const room = await Room.findOne({
+      $or: [{ channelName: cleanRoomId }, { channelName: normalizedRoomId }],
+    }).select('ownerId').lean();
+    const actorIds = [req.user?.id, req.user?._id, req.user?.userId].filter(Boolean).map(String);
+    if (!room || !actorIds.includes(String(room.ownerId))) {
+      return res.status(403).json({ success: false, message: 'Only the room owner can change Room Support auto-send settings.' });
     }
 
     const data = await RoomTaskService.toggleAutoSendRewards(roomId, autoSend);

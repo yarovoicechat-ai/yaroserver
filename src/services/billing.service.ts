@@ -2,7 +2,7 @@ import mongoose, { ClientSession, Types } from 'mongoose';
 import { CoinsTransaction } from '../models/spentCoinModel';
 import { User } from '../models/user.model';
 import { CallStatus, TransactionType } from '../constants/user';
-import Conversation from '../models/conversation.model';
+import { getOrCreateConversation } from './chat.service';
 import HostLevel from '../models/hostLevel.model';
 import { recalculateAndUpdateHostLevel } from './user.service';
 import { LevelService } from './level.service';
@@ -545,16 +545,8 @@ export class BillingService {
             const totalDuration = transactions.reduce((sum, t) => sum + (Number(t.duration) || 0), 0);
 
             if (totalDuration >= 120) {
-                const conversation = await Conversation.findOne({
-                    participants: { $all: [userId, hostId] }
-                });
-
-                if (!conversation) {
-                    await Conversation.create({
-                        participants: [userId, hostId]
-                    });
-                    console.log(`✅ Chat enabled for ${userId} and ${hostId}`);
-                }
+                await getOrCreateConversation(userId as Types.ObjectId, hostId as Types.ObjectId);
+                console.log(`Chat enabled for ${userId} and ${hostId}`);
             }
         } catch (error: any) {
             console.error("Error in checkAndEnableChat:", error.message);

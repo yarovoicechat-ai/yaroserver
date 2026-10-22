@@ -145,7 +145,7 @@ export class AgoraTokenService {
         certificate,
         channelName,
         agoraUid,
-        isPublisher ? RtcRole.PUBLISHER : RtcRole.SUBSCRIBER,
+        RtcRole.PUBLISHER,
         expireTs,
         expireTs
       );

@@ -4,6 +4,7 @@ import { User } from "../models/user.model";
 import sendResponse from "../utils/reponse";
 import { AuthRequest } from "../middlewares/authorize.middleware";
 import { getIO, getUserRoom } from "../sockets";
+import { upsertCallActivity } from "../services/callActivity.service";
 
 // Helper to create notification internally
 export const createNotification = async (
@@ -14,13 +15,15 @@ export const createNotification = async (
     data: Record<string, unknown> = {}
 ) => {
     try {
-        const notification = await Notification.create({
-            userId,
-            title,
-            message,
-            type,
-            data,
-        });
+        const notification = type === 'call' && data.transactionId
+            ? await upsertCallActivity({
+                userId,
+                transactionId: String(data.transactionId),
+                title,
+                message,
+                data,
+            })
+            : await Notification.create({ userId, title, message, type, data });
         const unreadCount = await Notification.countDocuments({ userId, isRead: false });
         try {
             getIO().to(getUserRoom(String(userId))).emit("notification:new", {

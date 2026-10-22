@@ -46,7 +46,9 @@ export class ChatQueueService {
                 await sendMessage({
                     senderId: data.senderId,
                     receiverId: data.receiverId,
-                    content: data.content
+                    content: data.content,
+                    conversationId: data.conversationId,
+                    messageId: data.messageId,
                 });
             } catch (err) {
                 console.error("❌ Failed to process queued message:", err);

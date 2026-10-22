@@ -31,8 +31,8 @@ router.get('/my-room', verifyToken, getMyVoiceRoom);
 router.post('/my-room', verifyToken, createOrUpdateMyVoiceRoom);
 router.post('/create-or-update', verifyToken, createOrUpdateMyVoiceRoom);
 router.post('/rooms/:id/close', verifyToken, closeVoiceRoom);
-router.get('/rooms/:id/agora-token', getVoiceRoomToken);
-router.post('/rooms/:id/agora-token', getVoiceRoomToken);
+router.get('/rooms/:id/agora-token', verifyToken, getVoiceRoomToken);
+router.post('/rooms/:id/agora-token', verifyToken, getVoiceRoomToken);
 
 // Room Tasks & Room Support Endpoints
 router.get('/rooms/:id/tasks', verifyToken, getRoomTasks);

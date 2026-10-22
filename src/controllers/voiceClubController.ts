@@ -1,7 +1,11 @@
 import { Request, Response } from 'express';
+import { Types } from 'mongoose';
 import agoraToken from 'agora-token';
 const { RtcTokenBuilder, RtcRole } = agoraToken;
 import { getAgoraCredentials } from './settingsController';
+import { AuthRequest } from '../middlewares/authorize.middleware';
+import { getVoiceRoomState } from '../sockets/voiceRoomSocket';
+import { hasRoomVoicePublisherAccess } from '../utils/roomVoiceAuthorization';
 
 export const getVoiceClubConfig = async (req: Request, res: Response) => {
   try {
@@ -457,23 +461,59 @@ export const closeVoiceRoom = async (req: any, res: Response) => {
   }
 };
 
-export const getVoiceRoomToken = async (req: Request, res: Response) => {
+export const getVoiceRoomToken = async (req: AuthRequest, res: Response) => {
   try {
-    const { id: roomId } = req.params;
-    const userId = (req as any).user?._id || (req as any).user?.id || req.query.userId || req.body.userId;
-    const isPublisher = req.query.role === 'broadcaster' || req.body.role === 'broadcaster' || true;
+    const roomId = String(req.params.id || '').trim();
+    const userId = String(req.user?.id || '').trim();
+    const numericUserId = String(req.user?.userId || '').trim();
+    if (!roomId || !userId) {
+      return res.status(401).json({ success: false, message: 'Authenticated room access is required.' });
+    }
 
-    // Numeric UID for Agora RTC
-    let agoraUid = 0;
-    if (userId) {
-      const numericStr = String(userId).replace(/\D/g, '').slice(-8);
-      agoraUid = numericStr ? parseInt(numericStr, 10) : Math.floor(Math.random() * 1e8) + 1000;
-    } else {
-      agoraUid = Math.floor(Math.random() * 1e8) + 1000;
+    const canonicalRoomId = normalizeRoomId(roomId);
+    const roomLookup: any[] = [{ channelName: roomId }, { channelName: canonicalRoomId }];
+    if (Types.ObjectId.isValid(roomId)) roomLookup.push({ _id: roomId });
+    let roomDocument: any = await Room.findOne({ $or: roomLookup }).select('ownerId channelName').lean();
+    if (!roomDocument) {
+      const ownerUser: any = await User.findOne({
+        $or: [
+          ...(Number(canonicalRoomId) > 0 ? [{ userId: Number(canonicalRoomId) }] : []),
+          ...(Types.ObjectId.isValid(canonicalRoomId) ? [{ _id: canonicalRoomId }] : []),
+        ],
+      }).select('_id userId name').lean();
+
+      if (ownerUser) {
+        roomDocument = await Room.create({
+          title: `${ownerUser.name || 'Voice'}'s Party Club`,
+          channelName: canonicalRoomId,
+          ownerId: ownerUser._id,
+          category: 'Chat 💬',
+          seatCount: 8,
+          isActive: true,
+        });
+      }
+    }
+    if (!roomDocument) {
+      return res.status(404).json({ success: false, message: 'Room not found.' });
+    }
+    const roomState = await getVoiceRoomState(canonicalRoomId);
+    const isPublisher = hasRoomVoicePublisherAccess({
+      userId,
+      numericUserId,
+      roomOwnerId: String(roomDocument.ownerId || ''),
+      roomChannelName: normalizeRoomId(roomDocument.channelName || ''),
+      requestedRoomId: canonicalRoomId,
+      seats: roomState.seats,
+    });
+
+    // A stable Agora UID is required so refreshed tokens stay bound to this member.
+    let agoraUid = Number(numericUserId);
+    if (!Number.isSafeInteger(agoraUid) || agoraUid <= 0 || agoraUid > 4294967295) {
+      agoraUid = Math.abs(parseInt(userId.slice(-8), 16)) || (Math.floor(Math.random() * 10000000) + 1000);
     }
 
     const { AgoraTokenService } = await import('../services/agora/agoraToken.service');
-    const roomTokenData = await AgoraTokenService.generateRoomToken(roomId, agoraUid, Boolean(isPublisher));
+    const roomTokenData = await AgoraTokenService.generateRoomToken(canonicalRoomId, agoraUid, isPublisher);
 
     return res.status(200).json({
       success: true,
@@ -482,6 +522,7 @@ export const getVoiceRoomToken = async (req: Request, res: Response) => {
         channelName: roomTokenData.channelName,
         agoraUid: roomTokenData.agoraUid,
         token: roomTokenData.token,
+        isPublisher,
         projectId: roomTokenData.projectId,
         configVersion: roomTokenData.configVersion,
       },

@@ -23,6 +23,9 @@ import {
   sanitizeCredentialsForViewer,
   sanitizeRequestForViewer,
 } from '../utils/requestResponseSanitizer';
+import redis from '../configs/redisConfig';
+import { LockUnavailableError, withDistributedLock } from '../utils/distributedLock';
+import { getAdminOperatorApprovalStage, isAdminOperatorApprovalRequest } from '../utils/emsApprovalRules';
 
 const canManagePermissionTarget = async (
   actor: NonNullable<AuthRequest['user']>,
@@ -1177,7 +1180,7 @@ export const updateRequestPassword = async (req: AuthRequest, res: Response) => 
   }
 };
 
-export const approveRequest = async (req: AuthRequest, res: Response) => {
+const approveRequestLocked = async (req: AuthRequest, res: Response) => {
   try {
     const { id } = req.params;
     const { comments, password } = req.body;
@@ -1210,9 +1213,14 @@ export const approveRequest = async (req: AuthRequest, res: Response) => {
     if (requestObj.status === RequestStatus.REJECTED) {
       return sendResponse(res, 400, false, 'Rejected requests cannot be approved.');
     }
+    if ([RequestStatus.CANCELLED, RequestStatus.EXPIRED].includes(requestObj.status)) {
+      return sendResponse(res, 409, false, 'Cancelled or expired requests cannot be approved.');
+    }
 
-    const isAgencyRequest = targetRequestRole === 'agency';
+    const roleToken = targetRequestRole.replace(/[^a-z0-9]/g, '');
+    const isAgencyRequest = roleToken === 'agency' || roleToken === 'agencyrequest';
     const isHostRequest = targetRequestRole.includes('host');
+    const isAdminOperatorApproval = isAdminOperatorApprovalRequest(requestObj);
 
     // Check if host application is bound to an Agency (Agency Host Application)
     const hasAgencyBinding = Boolean(
@@ -1227,7 +1235,21 @@ export const approveRequest = async (req: AuthRequest, res: Response) => {
     const isAgencyHost = isHostRequest && hasAgencyBinding;
     const isDirectHost = isHostRequest && !hasAgencyBinding;
 
-    if (isAgencyRequest) {
+    if (isAdminOperatorApproval) {
+      const approvalStage = getAdminOperatorApprovalStage(requestObj);
+      requestObj.workflowSteps = ['Stage 1: Admin Approval', 'Stage 2: Operator Final Approval'];
+      requestObj.currentStepIndex = approvalStage.index;
+      if (actor.role !== approvalStage.role) {
+        return sendResponse(
+          res,
+          403,
+          false,
+          approvalStage.index === 0
+            ? 'Stage 1 approval requires an Admin. The Operator gives final approval after that.'
+            : 'Stage 2 final approval requires an Operator after Admin approval.'
+        );
+      }
+    } else if (isAgencyRequest) {
       if (!requestObj.workflowSteps || requestObj.workflowSteps.length < 3) {
         requestObj.workflowSteps = ['Admin Review', 'Super Admin Review', 'Operator / Owner Approval'];
       }
@@ -1323,7 +1345,17 @@ export const approveRequest = async (req: AuthRequest, res: Response) => {
 
     // Advance to next step or finalize
     let generatedCredentials: { email: string; password: string; specialCode: string; roleCode: string } | null = null;
-    if (isAgencyRequest) {
+    if (isAdminOperatorApproval) {
+      if (actor.role === 'operator') {
+        requestObj.status = RequestStatus.APPROVED;
+        requestObj.approvedDate = new Date();
+        requestObj.currentStepIndex = 1;
+        generatedCredentials = await finalizeUserApproval(requestObj, actor);
+      } else {
+        requestObj.currentStepIndex = 1;
+        requestObj.status = RequestStatus.UNDER_REVIEW;
+      }
+    } else if (isAgencyRequest) {
       const isExecutive = actor.role === 'operator' || actor.role === 'owner';
       if (isExecutive || requestObj.currentStepIndex + 1 >= requestObj.workflowSteps.length) {
         requestObj.status = RequestStatus.APPROVED;
@@ -1383,7 +1415,21 @@ export const approveRequest = async (req: AuthRequest, res: Response) => {
   }
 };
 
-export const rejectRequest = async (req: AuthRequest, res: Response) => {
+export const approveRequest = async (req: AuthRequest, res: Response) => {
+  const id = String(req.params?.id || '');
+  try {
+    return await withDistributedLock(redis, `ems:request-workflow:${id}`, () => approveRequestLocked(req, res), {
+      ttlMs: 120_000,
+    });
+  } catch (error: any) {
+    if (error instanceof LockUnavailableError) {
+      return sendResponse(res, 409, false, 'Another workflow action is processing this request. Please retry.');
+    }
+    return sendResponse(res, 500, false, error.message || 'Could not process approval.');
+  }
+};
+
+const rejectRequestLocked = async (req: AuthRequest, res: Response) => {
   try {
     const { id } = req.params;
     const { reason, comments } = req.body;
@@ -1413,6 +1459,23 @@ export const rejectRequest = async (req: AuthRequest, res: Response) => {
     }
     if (requestObj.status === RequestStatus.REJECTED) {
       return sendResponse(res, 400, false, 'Request is already rejected.');
+    }
+    if ([RequestStatus.CANCELLED, RequestStatus.EXPIRED].includes(requestObj.status)) {
+      return sendResponse(res, 409, false, 'Cancelled or expired requests cannot be rejected.');
+    }
+
+    if (isAdminOperatorApprovalRequest(requestObj)) {
+      const approvalStage = getAdminOperatorApprovalStage(requestObj);
+      if (actor.role !== approvalStage.role) {
+        return sendResponse(
+          res,
+          403,
+          false,
+          approvalStage.index === 0
+            ? 'Stage 1 rejection requires an Admin. The Operator may reject only after Admin approval.'
+            : 'Stage 2 rejection requires an Operator after Admin approval.',
+        );
+      }
     }
 
     requestObj.status = RequestStatus.REJECTED;
@@ -1449,6 +1512,20 @@ export const rejectRequest = async (req: AuthRequest, res: Response) => {
     });
   } catch (error: any) {
     return sendResponse(res, 500, false, error.message);
+  }
+};
+
+export const rejectRequest = async (req: AuthRequest, res: Response) => {
+  const id = String(req.params?.id || '');
+  try {
+    return await withDistributedLock(redis, `ems:request-workflow:${id}`, () => rejectRequestLocked(req, res), {
+      ttlMs: 120_000,
+    });
+  } catch (error: any) {
+    if (error instanceof LockUnavailableError) {
+      return sendResponse(res, 409, false, 'Another workflow action is processing this request. Please retry.');
+    }
+    return sendResponse(res, 500, false, error.message || 'Could not process rejection.');
   }
 };
 

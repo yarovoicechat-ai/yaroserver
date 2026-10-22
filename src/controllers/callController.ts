@@ -18,6 +18,7 @@ import { User } from '../models/user.model';
 import { BillingService } from '../services/billing.service';
 import { sendCallNotification, sendMissedCallNotification } from '../utils/pushNotification';
 import { notifyHostCallState } from '../services/callStateNotification.service';
+import { createNotification } from './notificationController';
 import { recalculateAndUpdateHostLevel } from '../services/user.service';
 import { CALL_DIAMONDS_PER_MINUTE } from '../configs/monetization';
 import redis from '../configs/redisConfig';
@@ -673,6 +674,33 @@ export const startCall = async (req: AuthRequest, res: Response) => {
     if (host.meethiId) hostRooms.push(`user:${host.meethiId}`);
     io.to(hostRooms).emit("incomingCall", callPayload);
 
+    await createNotification(
+      String(host._id),
+      'Incoming call',
+      `${name || 'A user'} is calling you`,
+      'call',
+      {
+        transactionId: String(transaction._id),
+        callStatus: 'ringing',
+        targetUserId: String(liveCaller._id),
+        targetName: name || 'User',
+        targetImage: callerImage || '',
+      },
+    );
+    await createNotification(
+      String(liveCaller._id),
+      'Calling',
+      `Calling ${host.name || 'Host'}`,
+      'call',
+      {
+        transactionId: String(transaction._id),
+        callStatus: 'ringing',
+        targetUserId: String(host._id),
+        targetName: host.name || 'Host',
+        targetImage: host.image || '',
+      },
+    );
+
     console.log(`[CALL_RINGING] Timestamp: ${new Date().toISOString()} | TxID: ${transaction._id} | Status: RINGING`);
 
     // 🔔 Send FCM Push to Host (VOIP Wake-up)
@@ -780,18 +808,50 @@ export const endCall = async (req: AuthRequest, res: Response) => {
       io.to(getUserRoom(String(transaction.hostId))).emit("callEnded", payload);
       await notifyHostCallState(transaction.hostId, String(transaction._id), 'ended');
 
+      const [callerForActivity, hostForActivity] = await Promise.all([
+        User.findById(transaction.userId).select('name image').lean(),
+        User.findById(transaction.hostId).select('name image').lean(),
+      ]);
+      const endedBeforeAccept = !transaction.callStart &&
+        ![CallStatus.ACCEPTED, CallStatus.CONNECTING, CallStatus.CONNECTED].includes(transaction.status);
+      await Promise.all([
+        createNotification(
+          String(transaction.userId),
+          endedBeforeAccept ? 'Call cancelled' : 'Call ended',
+          endedBeforeAccept ? 'You cancelled your call' : `Your call with ${hostForActivity?.name || 'Host'} ended`,
+          'call',
+          { transactionId: String(transaction._id), callStatus: endedBeforeAccept ? 'cancelled' : 'ended', targetUserId: String(transaction.hostId), targetName: hostForActivity?.name || 'Host', targetImage: hostForActivity?.image || '' },
+        ),
+        createNotification(
+          String(transaction.hostId),
+          endedBeforeAccept ? 'Missed call' : 'Call ended',
+          endedBeforeAccept ? `You missed a call from ${callerForActivity?.name || 'User'}` : `Your call with ${callerForActivity?.name || 'User'} ended`,
+          'call',
+          { transactionId: String(transaction._id), callStatus: endedBeforeAccept ? 'missed' : 'ended', targetUserId: String(transaction.userId), targetName: callerForActivity?.name || 'User', targetImage: callerForActivity?.image || '' },
+        ),
+      ]);
+
       // Missed Call Notification
       if (!transaction.callStart && String(transaction.userId) === String(participantId)) {
         // Caller hung up before host answered
         const host = await User.findById(transaction.hostId);
         const caller = await User.findById(transaction.userId);
-        if (host && host.fcmToken && caller) {
-          await sendMissedCallNotification(
-            host.fcmToken,
-            caller.name || 'User',
-            caller.image || '',
-            String(caller._id)
+        if (host && caller) {
+          await createNotification(
+            String(host._id),
+            'Missed call',
+            `You missed a call from ${caller.name || 'User'}`,
+            'call',
+            { transactionId: String(transaction._id), targetUserId: String(caller._id), targetName: caller.name || 'User', targetImage: caller.image || '' },
           );
+          if (host.fcmToken) {
+            await sendMissedCallNotification(
+              host.fcmToken,
+              caller.name || 'User',
+              caller.image || '',
+              String(caller._id)
+            );
+          }
         }
       }
     }
@@ -876,6 +936,16 @@ export const acceptIncomingCall = async (req: AuthRequest, res: Response) => {
 
     console.log(`[BILLING] CALL ACCEPTED: TransactionID ${transactionId} | HostID ${hostId}`);
     getIO().to(getUserRoom(String(transaction.userId))).emit("callAccepted", callData);
+    const caller = await User.findById(transaction.userId).select('name image').lean();
+    const host = await User.findById(transaction.hostId).select('name image').lean();
+    await Promise.all([
+      createNotification(String(transaction.hostId), 'Call accepted', `You accepted ${caller?.name || 'User'}'s call`, 'call', {
+        transactionId: String(transaction._id), callStatus: 'accepted', targetUserId: String(transaction.userId), targetName: caller?.name || 'User', targetImage: caller?.image || '',
+      }),
+      createNotification(String(transaction.userId), 'Call accepted', `${host?.name || 'Host'} accepted your call`, 'call', {
+        transactionId: String(transaction._id), callStatus: 'accepted', targetUserId: String(transaction.hostId), targetName: host?.name || 'Host', targetImage: host?.image || '',
+      }),
+    ]);
     return sendResponse(res, 200, true, "Call accepted", callData);
   } catch (error: any) {
     return sendResponse(res, 500, false, error.message || "Failed to accept call");
@@ -916,6 +986,24 @@ export const rejectIncomingCall = async (req: AuthRequest, res: Response) => {
     getIO().to(getUserRoom(String(transaction.userId))).emit("callRejected", { transactionId });
     getIO().to(getUserRoom(String(transaction.hostId))).emit("callEnded", { transactionId, reason: 'rejected' });
     await notifyHostCallState(transaction.hostId, String(transaction._id), 'rejected');
+    const [caller, host] = await Promise.all([
+      User.findById(transaction.userId).select('name image').lean(),
+      User.findById(transaction.hostId).select('name image').lean(),
+    ]);
+    await createNotification(
+      String(transaction.userId),
+      'Call declined',
+      `${host?.name || 'Host'} declined your call`,
+      'call',
+      { transactionId: String(transaction._id), callStatus: 'rejected', targetUserId: String(transaction.hostId), targetName: host?.name || 'Host', targetImage: host?.image || '' },
+    );
+    await createNotification(
+      String(transaction.hostId),
+      'Call declined',
+      `You declined ${caller?.name || 'User'}'s call`,
+      'call',
+      { transactionId: String(transaction._id), callStatus: 'rejected', targetUserId: String(transaction.userId), targetName: caller?.name || 'User', targetImage: caller?.image || '' },
+    );
     return sendResponse(res, 200, true, "Call rejected");
   } catch (error: any) {
     return sendResponse(res, 500, false, error.message || "Failed to reject call");

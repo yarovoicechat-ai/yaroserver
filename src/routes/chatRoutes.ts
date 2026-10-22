@@ -6,6 +6,7 @@ import {
   getConversationsController,
   markMessagesSeenController,
   deleteSeenMessagesController,
+  createConversationController,
 } from "../controllers/chatController";
 
 // import { authorize } from "../middlewares/authorize.middleware";
@@ -21,6 +22,7 @@ router.get("/messages",verifyToken, getMessagesController);
 
 // ✅ Get conversation list of logged in user
 router.get("/conversations", verifyToken, getConversationsController);
+router.post("/conversations", verifyToken, createConversationController);
 
 // ✅ Mark messages as seen
 router.post("/seen", verifyToken, markMessagesSeenController);

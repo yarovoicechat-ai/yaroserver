@@ -196,6 +196,8 @@ app.use("/api/upload", UploadRoutes);
 app.use("/api/notifications", notificationRoutes);
 app.use("/api/voiceclub", voiceClubRoutes);
 app.use("/api/v1/voiceclub", voiceClubRoutes);
+app.use("/api/voice-club", voiceClubRoutes);
+app.use("/api/v1/voice-club", voiceClubRoutes);
 app.use("/api/voice-room", voiceClubRoutes);
 app.use("/api/v1/voice-room", voiceClubRoutes);
 app.use("/api/rooms", voiceClubRoutes);

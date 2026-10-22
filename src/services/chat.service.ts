@@ -2,6 +2,8 @@ import { Types } from "mongoose";
 import Conversation, { IConversation } from "../models/conversation.model";
 import Message, { IMessage } from "../models/chat.model";
 import redis from "../configs/redisConfig";
+import { getOrCreateConversationPair } from "../utils/conversationPair";
+import { withDistributedLock } from "../utils/distributedLock";
 import { CoinsTransaction } from "../models/spentCoinModel";
 import { CallStatus, TransactionType } from "../constants/user";
 import { User } from "../models/user.model";
@@ -11,25 +13,27 @@ export const sendMessage = async ({
     senderId,
     receiverId,
     content,
+    conversationId,
+    messageId,
 }: {
     senderId: string | Types.ObjectId;
     receiverId: string | Types.ObjectId;
     content: string;
+    conversationId?: string | Types.ObjectId;
+    messageId?: string | Types.ObjectId;
 }): Promise<{ message: IMessage; conversation: IConversation | null }> => {
-    // ✅ Check if a conversation already exists between users
-    let conversation = (await Conversation.findOne({
-        participants: { $all: [senderId, receiverId] },
-    })) as IConversation | null;
+    const conversation = conversationId
+        ? await Conversation.findOne({
+            _id: conversationId,
+            participants: { $all: [senderId, receiverId], $size: 2 },
+        }) as IConversation | null
+        : await getOrCreateConversation(senderId, receiverId);
 
-    // ✅ Create new conversation if none exists
-    if (!conversation) {
-        conversation = (await Conversation.create({
-            participants: [senderId, receiverId],
-        })) as IConversation;
-    }
+    if (!conversation) throw new Error("Conversation not found for these users");
 
     // ✅ Save the message
     const message = (await Message.create({
+        ...(messageId ? { _id: messageId } : {}),
         conversationId: conversation._id,
         sender: senderId,
         receiver: receiverId,
@@ -46,6 +50,25 @@ export const sendMessage = async ({
         .populate("participants", "name image _id");
 
     return { message, conversation: updatedConversation };
+};
+
+export const getOrCreateConversation = async (
+    firstUserId: string | Types.ObjectId,
+    secondUserId: string | Types.ObjectId,
+): Promise<IConversation> => {
+    const participants = [new Types.ObjectId(String(firstUserId)), new Types.ObjectId(String(secondUserId))];
+    return getOrCreateConversationPair(String(participants[0]), String(participants[1]), {
+        find: async (ids) => Conversation.findOne({
+            participants: { $all: ids.map((id) => new Types.ObjectId(id)), $size: 2 },
+        }) as Promise<IConversation | null>,
+        create: async (ids) => Conversation.create({
+            participants: ids.map((id) => new Types.ObjectId(id)),
+        }) as Promise<IConversation>,
+        withLock: (key, task) => withDistributedLock(redis, key, task, {
+            ttlMs: 10_000,
+            waitMs: 3_000,
+        }),
+    });
 };
 
 // Get messages by conversationId
@@ -67,8 +90,8 @@ export const getConversations = async (
 ): Promise<any[]> => {
     const uid = new Types.ObjectId(userId);
 
-    // ⚡ Discovery: Find users with >10m talk time who don't have a Conversation doc yet
-    // This handles users who talked before the BillingService fix was added.
+    // Retain conversation discovery for users who met the older call-to-chat
+    // eligibility threshold before conversation creation was made explicit.
     try {
         const eligiblePartners = await CoinsTransaction.aggregate([
             {
@@ -100,9 +123,8 @@ export const getConversations = async (
 
         for (const partner of eligiblePartners) {
             if (!existingPartnerIds.includes(partner._id.toString())) {
-                await Conversation.create({
-                    participants: [uid, partner._id]
-                });
+                await getOrCreateConversation(uid, partner._id);
+                existingPartnerIds.push(partner._id.toString());
             }
         }
     } catch (discoveryError) {
@@ -123,7 +145,8 @@ export const getConversations = async (
     const myBlocklist = currentUser?.blockedUsers?.map((id: any) => id.toString()) || [];
 
     // 👇 participants me isOnline inject kar rahe
-    // ⚡ Filter conversations based on 2-minute call duration rule and blocklists
+    // Filter only for blocklists. Private conversations are available from
+    // their profile or inbox without requiring a completed call first.
     const filteredConversations = await Promise.all(conversations.map(async (conv) => {
         try {
             // Find the other participant
@@ -141,22 +164,6 @@ export const getConversations = async (
             const theirBlocklist = otherUserDoc?.blockedUsers?.map((id: any) => id.toString()) || [];
             if (theirBlocklist.includes(uid.toString())) {
                 return null;
-            }
-
-            // Check total call duration between these two users
-            const transactions = await CoinsTransaction.find({
-                $or: [
-                    { userId: uid, hostId: otherParticipant._id, type: TransactionType.VOICE_CALL },
-                    { userId: otherParticipant._id, hostId: uid, type: TransactionType.VOICE_CALL }
-                ],
-                status: CallStatus.ENDED
-            }).select("duration");
-
-            const totalDuration = transactions.reduce((sum, t) => sum + (Number(t.duration) || 0), 0);
-
-            // 2 minutes = 120 seconds
-            if (totalDuration < 120) {
-                return null; // Hide conversation
             }
 
             // Return formatted conversation

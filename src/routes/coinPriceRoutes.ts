@@ -5,12 +5,14 @@ import {
   getPricePlanById,
   updatePricePlan,
   togglePricePlanStatus,
-  deletePricePlan
+  deletePricePlan,
+  syncDefaultRechargePlans
 } from '../controllers/coinPriceController';
 import { verifyToken } from '../middlewares/authorize.middleware';
 
 const router = Router();
 
+router.post('/sync-defaults', verifyToken, syncDefaultRechargePlans);
 router.post('/', verifyToken, addPricePlan);
 router.get('/', getAllPricePlans);
 router.get('/:id', getPricePlanById);

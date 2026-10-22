@@ -5,6 +5,7 @@ import {
   getConversations,
   markMessagesSeen,
   deleteSeenMessages,
+  getOrCreateConversation,
 } from "../services/chat.service";
 import { AuthRequest } from "../middlewares/authorize.middleware";
 import sendResponse from "../utils/reponse";
@@ -15,6 +16,7 @@ import { getIO, onlineUsers, getUserRoom } from "../sockets"; // export your io 
 import { ChatQueueService } from "../services/chatQueue.service";
 import { Types } from "mongoose";
 import { User } from "../models/user.model";
+import Conversation from "../models/conversation.model";
 import { updateBalance } from "../services/coins.service";
 import { getCachedSettings } from "./settingsController";
 import {
@@ -25,17 +27,73 @@ import { evaluateModerationEscalation } from "../services/moderationEscalationSe
 import { ChatViolation } from "../models/chatViolation.model";
 import { sendPushNotification } from '../utils/pushNotification';
 
+const resolveChatUserId = async (value: unknown): Promise<string | null> => {
+  const identifier = String(value || '').trim();
+  if (!identifier) return null;
+  let target: any = Types.ObjectId.isValid(identifier) ? await User.findById(identifier).select('_id').lean() : null;
+  if (!target) {
+    const numericId = /^\d+$/.test(identifier) ? Number(identifier) : undefined;
+    target = await User.findOne({
+      $or: [
+        ...(numericId === undefined ? [] : [{ userId: numericId }]),
+        { meethiId: identifier },
+      ],
+      isDeleted: { $ne: true },
+    }).select('_id').lean();
+  }
+  return target?._id ? String(target._id) : null;
+};
+
+const usersCanChat = async (firstUserId: string, secondUserId: string) => {
+  const [first, second] = await Promise.all([
+    User.findById(firstUserId).select('blockedUsers').lean(),
+    User.findById(secondUserId).select('blockedUsers').lean(),
+  ]);
+  const firstBlocked = (first?.blockedUsers || []).some((id: any) => String(id) === secondUserId);
+  const secondBlocked = (second?.blockedUsers || []).some((id: any) => String(id) === firstUserId);
+  return Boolean(first && second && !firstBlocked && !secondBlocked);
+};
+
+export const createConversationController = async (req: AuthRequest, res: Response) => {
+  try {
+    const senderId = String(req.user?.id || req.user?.userId || '');
+    const receiverId = await resolveChatUserId(req.body?.receiverId || req.body?.userId || req.body?.recipientId);
+    if (!Types.ObjectId.isValid(senderId) || !receiverId) {
+      return sendResponse(res, 400, false, 'A valid recipient is required');
+    }
+    if (senderId === receiverId) return sendResponse(res, 400, false, 'You cannot start a chat with yourself');
+    if (!(await usersCanChat(senderId, receiverId))) {
+      return sendResponse(res, 403, false, 'Chat is unavailable because one account has blocked the other.');
+    }
+    const conversation = await getOrCreateConversation(senderId, receiverId);
+    return sendResponse(res, 200, true, 'Conversation ready', { conversation });
+  } catch (error: any) {
+    await Logger('createConversationController', error);
+    return sendResponse(res, 500, false, error.message || 'Could not open conversation');
+  }
+};
+
 export const sendMessageController = async (req: AuthRequest, res: Response) => {
   try {
     const { id, userId: reqUserId, role } = req.user || {};
     const userId = id || reqUserId;
-    const { content, conversationId } = req.body;
+    const { content } = req.body;
     const targetReceiverId = req.body.receiverId || req.body.receiver || req.body.recipientId;
 
     if (!userId || !targetReceiverId || !content) {
       return sendResponse(res, 400, false, "Missing required fields");
     }
-    const receiverId = targetReceiverId;
+    if (!Types.ObjectId.isValid(String(userId))) {
+      return sendResponse(res, 401, false, 'User session is invalid');
+    }
+    const receiverId = await resolveChatUserId(targetReceiverId);
+    if (!receiverId) return sendResponse(res, 404, false, 'Recipient not found');
+    if (String(userId) === receiverId) return sendResponse(res, 400, false, 'You cannot message yourself');
+    if (!(await usersCanChat(String(userId), receiverId))) {
+      return sendResponse(res, 403, false, 'Chat is unavailable because one account has blocked the other.');
+    }
+    const conversation = await getOrCreateConversation(String(userId), receiverId);
+    const conversationId = String(conversation._id);
 
     // 🚫 CHAT MUTE ENFORCEMENT (Check if sender account is currently muted)
     const senderUser = await User.findById(userId);
@@ -107,15 +165,18 @@ export const sendMessageController = async (req: AuthRequest, res: Response) => 
     }
 
     // ⚡ FAST PATH: Queue the message (Redis)
+    const messageId = new Types.ObjectId();
     await ChatQueueService.addMessage({
       senderId: userId,
       receiverId,
-      content
+      conversationId,
+      messageId: String(messageId),
+      content,
     });
 
     // 🔮 Optimistic Response for Client and Socket
     const mockMessage = {
-      _id: new Types.ObjectId(), // Fake ID
+      _id: messageId,
       sender: userId,
       receiver: receiverId,
       content,
@@ -126,7 +187,7 @@ export const sendMessageController = async (req: AuthRequest, res: Response) => 
 
     const receiverRoom = getUserRoom(receiverId);
     getIO().to(receiverRoom).emit("newMessageNotification", {
-      conversationId: conversationId || "pending",
+      conversationId,
       message: mockMessage,
     });
 
@@ -139,7 +200,7 @@ export const sendMessageController = async (req: AuthRequest, res: Response) => 
         data: {
           type: 'message',
           action: 'open_chat',
-          conversationId: String(conversationId || 'pending'),
+          conversationId,
           senderId: String(userId),
           senderName: sender?.name || 'User',
           senderImage: sender?.image || '',
@@ -149,7 +210,7 @@ export const sendMessageController = async (req: AuthRequest, res: Response) => 
 
     return sendResponse(res, 201, true, "Message queued", {
       message: mockMessage,
-      conversation: { _id: conversationId || "pending" },
+      conversation: { _id: conversationId },
     });
   } catch (error: any) {
     await Logger("sendMessageController", error);
@@ -167,6 +228,13 @@ export const getMessagesController = async (req: AuthRequest, res: Response) => 
 
     if (!conversationId) {
       return sendResponse(res, 400, false, "conversationId is required");
+    }
+    const requesterId = String(req.user?.id || req.user?.userId || '');
+    if (!Types.ObjectId.isValid(String(conversationId)) || !await Conversation.exists({
+      _id: String(conversationId),
+      participants: requesterId,
+    })) {
+      return sendResponse(res, 403, false, "Conversation not found or access denied");
     }
 
     const messages = await getMessages(
@@ -215,6 +283,10 @@ export const markMessagesSeenController = async (req: AuthRequest, res: Response
       return sendResponse(res, 400, false, "conversationId and userId required");
     }
 
+    if (!Types.ObjectId.isValid(String(conversationId)) || !await Conversation.exists({ _id: conversationId, participants: id })) {
+      return sendResponse(res, 403, false, "Conversation not found or access denied");
+    }
+
     await markMessagesSeen(conversationId, id);
     return sendResponse(res, 200, true, "Messages marked as seen");
   } catch (error: any) {
@@ -231,6 +303,10 @@ export const deleteSeenMessagesController = async (req: AuthRequest, res: Respon
 
     if (!id || !conversationId) {
       return sendResponse(res, 400, false, "conversationId and userId required");
+    }
+
+    if (!Types.ObjectId.isValid(String(conversationId)) || !await Conversation.exists({ _id: conversationId, participants: id })) {
+      return sendResponse(res, 403, false, "Conversation not found or access denied");
     }
 
     await deleteSeenMessages(conversationId, id);
