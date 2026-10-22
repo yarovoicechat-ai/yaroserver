@@ -628,8 +628,14 @@ export const setRoomLockPin = async (req: AuthRequest, res: Response) => {
     if (!rawRoomId) return res.status(400).json({ success: false, message: 'Room ID is required' });
     const roomId = normalizeRoomId(rawRoomId);
 
-    const roomLookup: any[] = [{ channelName: rawRoomId }, { channelName: roomId }];
+    const roomLookup: any[] = [
+      { channelName: rawRoomId },
+      { channelName: roomId },
+      { channelName: `room_${roomId}` },
+      { channelName: `room_${rawRoomId}` },
+    ];
     if (mongoose.Types.ObjectId.isValid(rawRoomId)) roomLookup.push({ _id: rawRoomId });
+    if (req.user?.id) roomLookup.push({ ownerId: req.user.id });
 
     const room = await Room.findOne({ $or: roomLookup }).select('+pinHash');
     if (!room) return res.status(404).json({ success: false, message: 'Room not found' });
@@ -690,7 +696,12 @@ export const verifyRoomLockPin = async (req: Request, res: Response) => {
     }
     const roomId = normalizeRoomId(rawRoomId);
 
-    const roomLookup: any[] = [{ channelName: rawRoomId }, { channelName: roomId }];
+    const roomLookup: any[] = [
+      { channelName: rawRoomId },
+      { channelName: roomId },
+      { channelName: `room_${roomId}` },
+      { channelName: `room_${rawRoomId}` },
+    ];
     if (mongoose.Types.ObjectId.isValid(rawRoomId)) roomLookup.push({ _id: rawRoomId });
 
     const room = await Room.findOne({ $or: roomLookup }).select('+pinHash');

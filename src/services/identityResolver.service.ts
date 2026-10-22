@@ -158,10 +158,13 @@ export class IdentityResolverService {
       if (customIdEntitlement && customIdEntitlement.config?.displayId) {
         customDisplayId = String(customIdEntitlement.config.displayId);
         effectiveDisplayId = customDisplayId;
+      } else if (userDoc.equippedCustomId) {
+        customDisplayId = String(userDoc.equippedCustomId);
+        effectiveDisplayId = customDisplayId;
       }
     }
 
-    const uniqueIdBadge = uniqueBadgeEntitlement
+    let uniqueIdBadge = uniqueBadgeEntitlement
       ? {
           badgeName: uniqueBadgeEntitlement.config?.badgeName || 'VIP ID',
           badgeIconUrl: uniqueBadgeEntitlement.config?.badgeIconUrl || '',
@@ -171,6 +174,23 @@ export class IdentityResolverService {
           vipLevel: Number(uniqueBadgeEntitlement.config?.vipLevel || 0),
         }
       : null;
+
+    if (!uniqueIdBadge && (customDisplayId || userDoc.equippedCustomId)) {
+      const inventoryList = Array.isArray(userDoc.storeInventory) ? userDoc.storeInventory : [];
+      const uniqueInv = inventoryList.find((it: any) =>
+        ['unique_id', 'custom_id', 'id'].includes(String(it.category || it.type || '').toLowerCase()) ||
+        String(it.metadata?.uniqueDisplayId || it.metadata?.displayId || '') === String(customDisplayId || userDoc.equippedCustomId)
+      );
+      const badgeIconUrl = uniqueInv?.metadata?.badgeIconUrl || uniqueInv?.animationUrl || uniqueInv?.imageUrl || '';
+      uniqueIdBadge = {
+        badgeName: uniqueInv?.metadata?.badgeName || 'VIP ID',
+        badgeIconUrl: String(badgeIconUrl || '').trim(),
+        glowColor: '#F59E0B',
+        borderGradient: ['#F59E0B', '#D97706'],
+        animationType: 'svga',
+        vipLevel: 1,
+      };
+    }
 
     // 3. VIP / SVIP Resolution (incorporating existing VipService)
     const vipExperience = await VipService.resolveVipExperience(userDoc);
