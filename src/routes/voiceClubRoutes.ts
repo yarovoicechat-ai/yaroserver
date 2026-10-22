@@ -8,6 +8,10 @@ import {
   createOrUpdateMyVoiceRoom,
   closeVoiceRoom,
   getVoiceRoomToken,
+  getRoomAdmins,
+  removeRoomAdmin,
+  setRoomLockPin,
+  verifyRoomLockPin,
 } from '../controllers/voiceClubController';
 import { verifyToken } from '../middlewares/authorize.middleware';
 
@@ -33,6 +37,14 @@ router.post('/create-or-update', verifyToken, createOrUpdateMyVoiceRoom);
 router.post('/rooms/:id/close', verifyToken, closeVoiceRoom);
 router.get('/rooms/:id/agora-token', verifyToken, getVoiceRoomToken);
 router.post('/rooms/:id/agora-token', verifyToken, getVoiceRoomToken);
+
+// Room Admins Management
+router.get('/rooms/:id/admins', verifyToken, getRoomAdmins);
+router.post('/rooms/:id/admins/remove', verifyToken, removeRoomAdmin);
+
+// Room Lock & PIN
+router.post('/rooms/:id/lock', verifyToken, setRoomLockPin);
+router.post('/rooms/:id/verify-pin', verifyToken, verifyRoomLockPin);
 
 // Room Tasks & Room Support Endpoints
 router.get('/rooms/:id/tasks', verifyToken, getRoomTasks);

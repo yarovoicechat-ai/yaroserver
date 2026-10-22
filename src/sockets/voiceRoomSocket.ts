@@ -1644,13 +1644,18 @@ export const registerVoiceRoomHandlers = (io: Server, socket: AuthenticatedSocke
 
       io.to(getVoiceRoomChannels(roomId, rawRoomId)).emit("voice_room:user_left", userLeftPayload);
 
-      if (isExplicitLeave && targetName) {
-        io.to(socketRoomChannel).emit("voice_room:chat_message", {
-          id: "sys-" + Date.now(),
-          type: "system",
-          text: `👋 ${targetName} left the room.`,
-          timestamp: Date.now(),
-        });
+      if (isExplicitLeave && targetName && targetUserId) {
+        const leaveKey = `voice_room_leave_announcement:${roomId}:${targetUserId}`;
+        const alreadyAnnounced = await redis.get(leaveKey).catch(() => null);
+        if (!alreadyAnnounced) {
+          await redis.set(leaveKey, '1', 'EX', 5).catch(() => {});
+          io.to(socketRoomChannel).emit("voice_room:chat_message", {
+            id: "sys-leave-" + Date.now(),
+            type: "system",
+            text: `👋 ${targetName} left the room.`,
+            timestamp: Date.now(),
+          });
+        }
       }
 
       console.log(`[VoiceRoom] ${targetName} (${targetUserId}) left room ${roomId} - seats vacated: ${vacatedIndices.join(",")}`);

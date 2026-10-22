@@ -15,7 +15,7 @@ export interface ITaskDefinition {
   icon: string;
 }
 
-// 13 Room Tasks exactly as shown in reference video
+// 13 Room Tasks with reduced, modest coin rewards
 export const ROOM_TASKS_CONFIG: ITaskDefinition[] = [
   // 1. Gifts
   {
@@ -25,7 +25,7 @@ export const ROOM_TASKS_CONFIG: ITaskDefinition[] = [
     description: 'Send at least one gift in your room today',
     target: 1,
     unit: 'count',
-    reward: 2500,
+    reward: 10,
     icon: 'gift',
   },
   {
@@ -35,7 +35,7 @@ export const ROOM_TASKS_CONFIG: ITaskDefinition[] = [
     description: 'Send gifts 10 times in your room today',
     target: 10,
     unit: 'count',
-    reward: 7500,
+    reward: 50,
     icon: 'gift-outline',
   },
   {
@@ -45,7 +45,7 @@ export const ROOM_TASKS_CONFIG: ITaskDefinition[] = [
     description: 'Send gifts to 3 different new users in your room (joined in the last 7 days)',
     target: 3,
     unit: 'count',
-    reward: 6000,
+    reward: 30,
     icon: 'sparkles',
   },
   {
@@ -55,7 +55,7 @@ export const ROOM_TASKS_CONFIG: ITaskDefinition[] = [
     description: '5 different users (not new accounts) send gifts in your room today',
     target: 5,
     unit: 'count',
-    reward: 9000,
+    reward: 60,
     icon: 'account-group',
   },
   {
@@ -65,7 +65,7 @@ export const ROOM_TASKS_CONFIG: ITaskDefinition[] = [
     description: '3 different new users send gifts in your room today',
     target: 3,
     unit: 'count',
-    reward: 2500,
+    reward: 25,
     icon: 'account-star',
   },
 
@@ -77,7 +77,7 @@ export const ROOM_TASKS_CONFIG: ITaskDefinition[] = [
     description: 'Gain 1 new follower today',
     target: 1,
     unit: 'count',
-    reward: 1000,
+    reward: 5,
     icon: 'account-plus',
   },
   {
@@ -87,7 +87,7 @@ export const ROOM_TASKS_CONFIG: ITaskDefinition[] = [
     description: 'Gain 10 new followers today',
     target: 10,
     unit: 'count',
-    reward: 10000,
+    reward: 25,
     icon: 'account-multiple-plus',
   },
   {
@@ -97,7 +97,7 @@ export const ROOM_TASKS_CONFIG: ITaskDefinition[] = [
     description: '3 different new users follow you today',
     target: 3,
     unit: 'count',
-    reward: 4000,
+    reward: 15,
     icon: 'account-heart',
   },
 
@@ -109,7 +109,7 @@ export const ROOM_TASKS_CONFIG: ITaskDefinition[] = [
     description: '10 different users enter your room today',
     target: 10,
     unit: 'count',
-    reward: 5000,
+    reward: 15,
     icon: 'eye-outline',
   },
   {
@@ -119,7 +119,7 @@ export const ROOM_TASKS_CONFIG: ITaskDefinition[] = [
     description: '3 different new users enter your room today',
     target: 3,
     unit: 'count',
-    reward: 3000,
+    reward: 10,
     icon: 'account-eye',
   },
 
@@ -131,7 +131,7 @@ export const ROOM_TASKS_CONFIG: ITaskDefinition[] = [
     description: 'Stay on the mic in your room for 10 minutes today',
     target: 10,
     unit: 'minutes',
-    reward: 2500,
+    reward: 10,
     icon: 'microphone',
   },
   {
@@ -141,7 +141,7 @@ export const ROOM_TASKS_CONFIG: ITaskDefinition[] = [
     description: 'Stay on the mic in your room for 30 minutes today',
     target: 30,
     unit: 'minutes',
-    reward: 8000,
+    reward: 25,
     icon: 'microphone',
   },
   {
@@ -151,7 +151,7 @@ export const ROOM_TASKS_CONFIG: ITaskDefinition[] = [
     description: 'Stay on the mic in your room for 120 minutes today',
     target: 120,
     unit: 'minutes',
-    reward: 18000,
+    reward: 50,
     icon: 'microphone',
   },
 ];
@@ -285,7 +285,22 @@ export class RoomTaskService {
    */
   static async getRoomTasks(roomId: string, userId: string) {
     const dateKey = getISTDateKey();
-    const userObjId = new mongoose.Types.ObjectId(userId);
+    let userObjId: mongoose.Types.ObjectId | null = null;
+    if (mongoose.Types.ObjectId.isValid(userId)) {
+      userObjId = new mongoose.Types.ObjectId(userId);
+    } else {
+      const found = await User.findOne({ userId: Number(userId) || -1 }).select('_id').lean();
+      if (found) userObjId = found._id as mongoose.Types.ObjectId;
+    }
+
+    if (!userObjId) {
+      return {
+        dateKey,
+        resetsInSeconds: getISTSecondsUntilMidnight(),
+        summary: { total: ROOM_TASKS_CONFIG.length, done: 0, claimable: 0, claimed: 0 },
+        tasks: ROOM_TASKS_CONFIG.map((def) => ({ ...def, progress: 0, status: 'in_progress', claimedAt: null })),
+      };
+    }
 
     // Fetch existing records for today
     const existing = await RoomTaskProgress.find({
@@ -379,7 +394,14 @@ export class RoomTaskService {
    */
   static async claimTaskReward(roomId: string, userId: string, taskId: string) {
     const dateKey = getISTDateKey();
-    const userObjId = new mongoose.Types.ObjectId(userId);
+    let userObjId: mongoose.Types.ObjectId | null = null;
+    if (mongoose.Types.ObjectId.isValid(userId)) {
+      userObjId = new mongoose.Types.ObjectId(userId);
+    } else {
+      const found = await User.findOne({ userId: Number(userId) || -1 }).select('_id').lean();
+      if (found) userObjId = found._id as mongoose.Types.ObjectId;
+    }
+    if (!userObjId) throw new Error('User not found');
 
     const taskDoc = await RoomTaskProgress.findOne({
       roomId,
@@ -401,19 +423,22 @@ export class RoomTaskService {
     }
 
     // Atomically claim and credit coins
+    const currentDef = ROOM_TASKS_CONFIG.find((d) => d.id === taskId);
+    const rewardToCredit = currentDef ? currentDef.reward : (taskDoc.reward || 10);
+    taskDoc.reward = rewardToCredit;
     taskDoc.status = 'claimed';
     taskDoc.claimedAt = new Date();
     await taskDoc.save();
 
     const updatedUser = await User.findByIdAndUpdate(
       userObjId,
-      { $inc: { coins: taskDoc.reward } },
+      { $inc: { coins: rewardToCredit } },
       { new: true }
     ).select('_id coins diamonds name');
 
     return {
       taskId,
-      reward: taskDoc.reward,
+      reward: rewardToCredit,
       status: 'claimed',
       claimedAt: taskDoc.claimedAt,
       newCoins: (updatedUser as any)?.coins || 0,

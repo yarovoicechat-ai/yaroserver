@@ -532,3 +532,185 @@ export const getVoiceRoomToken = async (req: AuthRequest, res: Response) => {
   }
 };
 
+/**
+ * Retrieve real room administrators for RoomAdminListModal
+ */
+export const getRoomAdmins = async (req: Request, res: Response) => {
+  try {
+    const rawRoomId = String(req.params.id || '').trim();
+    if (!rawRoomId) return res.status(400).json({ success: false, message: 'Room ID is required' });
+    const roomId = normalizeRoomId(rawRoomId);
+
+    const state = await getVoiceRoomState(roomId);
+    const adminIds = Array.isArray(state?.admins) ? state.admins.map(String) : [];
+
+    if (!adminIds.length) {
+      return res.status(200).json({ success: true, data: [] });
+    }
+
+    const objectIds = adminIds.filter((id) => mongoose.Types.ObjectId.isValid(id)).map((id) => new mongoose.Types.ObjectId(id));
+    const numericIds = adminIds.map(Number).filter((num) => Number.isSafeInteger(num) && num > 0);
+
+    const queryConditions: any[] = [];
+    if (objectIds.length) queryConditions.push({ _id: { $in: objectIds } });
+    if (numericIds.length) queryConditions.push({ userId: { $in: numericIds } });
+
+    const adminUsers = queryConditions.length
+      ? await User.find({ $or: queryConditions }).select('userId name image avatar level wealthLevel charmLevel equippedFrameAsset equippedFrame').lean()
+      : [];
+
+    const formatted = adminUsers.map((u: any) => ({
+      id: String(u._id),
+      userId: String(u.userId || u._id),
+      name: u.name || 'Admin',
+      avatar: u.image || u.avatar || 'https://api.yaroapp.in/uploads/avatars/male_default.webp',
+      level: u.level || 1,
+      wealthLevel: u.wealthLevel || u.level || 1,
+      charmLevel: u.charmLevel || 0,
+      equippedFrame: u.equippedFrameAsset || u.equippedFrame || null,
+    }));
+
+    return res.status(200).json({ success: true, data: formatted });
+  } catch (error: any) {
+    console.error('[getRoomAdmins] Error:', error);
+    return res.status(500).json({ success: false, message: error.message });
+  }
+};
+
+/**
+ * Remove an administrator from a room
+ */
+export const removeRoomAdmin = async (req: AuthRequest, res: Response) => {
+  try {
+    const rawRoomId = String(req.params.id || '').trim();
+    const targetUserId = String(req.body?.targetUserId || '').trim();
+    if (!rawRoomId || !targetUserId) {
+      return res.status(400).json({ success: false, message: 'Room ID and targetUserId are required' });
+    }
+    const roomId = normalizeRoomId(rawRoomId);
+
+    const state = await getVoiceRoomState(roomId);
+    const currentAdmins = new Set((state.admins || []).map(String));
+    currentAdmins.delete(targetUserId);
+    state.admins = Array.from(currentAdmins);
+
+    const { saveVoiceRoomState } = await import('../sockets/voiceRoomSocket');
+    await saveVoiceRoomState(state);
+
+    const io = getIOOptional();
+    if (io) {
+      io.to(`voice_room_channel:${roomId}`).emit('voice_room:admin_updated', {
+        roomId,
+        admins: state.admins,
+      });
+      if (rawRoomId !== roomId) {
+        io.to(`voice_room_channel:${rawRoomId}`).emit('voice_room:admin_updated', {
+          roomId,
+          admins: state.admins,
+        });
+      }
+    }
+
+    return res.status(200).json({ success: true, message: 'Admin removed successfully', data: { admins: state.admins } });
+  } catch (error: any) {
+    console.error('[removeRoomAdmin] Error:', error);
+    return res.status(500).json({ success: false, message: error.message });
+  }
+};
+
+/**
+ * Set Room Lock PIN or toggle lock
+ */
+export const setRoomLockPin = async (req: AuthRequest, res: Response) => {
+  try {
+    const rawRoomId = String(req.params.id || '').trim();
+    const { isLocked, pin } = req.body;
+    if (!rawRoomId) return res.status(400).json({ success: false, message: 'Room ID is required' });
+    const roomId = normalizeRoomId(rawRoomId);
+
+    const roomLookup: any[] = [{ channelName: rawRoomId }, { channelName: roomId }];
+    if (mongoose.Types.ObjectId.isValid(rawRoomId)) roomLookup.push({ _id: rawRoomId });
+
+    const room = await Room.findOne({ $or: roomLookup }).select('+pinHash');
+    if (!room) return res.status(404).json({ success: false, message: 'Room not found' });
+
+    if (isLocked) {
+      if (!pin || String(pin).length !== 4) {
+        return res.status(400).json({ success: false, message: 'Please set a 4-digit PIN password' });
+      }
+      room.pinHash = await bcrypt.hash(String(pin), 10);
+      room.isLocked = true;
+      room.mode = 'Private (PIN)';
+    } else {
+      room.isLocked = false;
+      room.pinHash = undefined;
+      room.mode = 'Public';
+    }
+
+    await room.save();
+
+    const state = await getVoiceRoomState(roomId);
+    state.isLocked = Boolean(isLocked);
+    state.mode = room.mode;
+    state.hasPin = Boolean(isLocked);
+
+    const { saveVoiceRoomState } = await import('../sockets/voiceRoomSocket');
+    await saveVoiceRoomState(state);
+
+    const io = getIOOptional();
+    if (io) {
+      const payload = {
+        roomId,
+        isLocked: state.isLocked,
+        mode: state.mode,
+        hasPin: state.hasPin,
+      };
+      io.to(`voice_room_channel:${roomId}`).emit('voice_room:details_updated', payload);
+      if (rawRoomId !== roomId) {
+        io.to(`voice_room_channel:${rawRoomId}`).emit('voice_room:details_updated', payload);
+      }
+    }
+
+    return res.status(200).json({ success: true, message: isLocked ? 'Room locked successfully' : 'Room unlocked', data: { isLocked: room.isLocked } });
+  } catch (error: any) {
+    console.error('[setRoomLockPin] Error:', error);
+    return res.status(500).json({ success: false, message: error.message });
+  }
+};
+
+/**
+ * Verify Room Lock PIN when a user joins
+ */
+export const verifyRoomLockPin = async (req: Request, res: Response) => {
+  try {
+    const rawRoomId = String(req.params.id || '').trim();
+    const pin = String(req.body?.pin || '').trim();
+    if (!rawRoomId || !pin) {
+      return res.status(400).json({ success: false, message: 'Room ID and PIN are required' });
+    }
+    const roomId = normalizeRoomId(rawRoomId);
+
+    const roomLookup: any[] = [{ channelName: rawRoomId }, { channelName: roomId }];
+    if (mongoose.Types.ObjectId.isValid(rawRoomId)) roomLookup.push({ _id: rawRoomId });
+
+    const room = await Room.findOne({ $or: roomLookup }).select('+pinHash');
+    if (!room) return res.status(404).json({ success: false, message: 'Room not found' });
+
+    if (!room.pinHash) {
+      // Room has no password set
+      return res.status(200).json({ success: true, valid: true });
+    }
+
+    const isValid = await bcrypt.compare(pin, room.pinHash);
+    if (!isValid) {
+      return res.status(400).json({ success: false, valid: false, message: 'Incorrect password. Please try again.' });
+    }
+
+    return res.status(200).json({ success: true, valid: true, message: 'Password verified' });
+  } catch (error: any) {
+    console.error('[verifyRoomLockPin] Error:', error);
+    return res.status(500).json({ success: false, message: error.message });
+  }
+};
+
+
