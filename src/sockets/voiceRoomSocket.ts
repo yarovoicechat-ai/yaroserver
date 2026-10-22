@@ -611,7 +611,7 @@ export const registerVoiceRoomHandlers = (io: Server, socket: AuthenticatedSocke
       const hasGhostPower = Boolean(userPowers?.canGhostEntry);
       const isStealth = Boolean(
         (isGlobalManager || isSuperAdminOrOwnerRole || hasGhostPower) &&
-        (data?.stealth !== undefined ? data.stealth : hasGhostPower)
+        data?.stealth === true
       );
       if (isStealth) {
         shouldBroadcastJoin = false;
@@ -1908,6 +1908,34 @@ export const registerVoiceRoomHandlers = (io: Server, socket: AuthenticatedSocke
         return;
       }
 
+      const isPreset = [
+        "default",
+        "cyber_neon",
+        "royal_gold",
+        "sakura_blossom",
+        "galaxy_cosmos",
+        "sunset_glow",
+      ].includes(requestedThemeId.toLowerCase());
+
+      if (isPreset) {
+        state.themeId = requestedThemeId;
+        state.themeAsset = (data as any)?.themeAsset || { id: requestedThemeId };
+        await saveVoiceRoomState(state);
+        roomDocument.themeId = state.themeId;
+        roomDocument.themeAsset = state.themeAsset;
+        await roomDocument.save();
+
+        const payload = {
+          themeId: state.themeId,
+          themeAsset: state.themeAsset,
+          updatedBy: authUserId,
+        };
+        io.to(socketRoomChannel).emit("voice_room:theme_updated", payload);
+        console.log(`[VoiceRoom] Room ${roomId} preset theme updated to ${state.themeId} by owner ${authUserId}`);
+        return;
+      }
+
+      const isValidMongoId = /^[0-9a-fA-F]{24}$/.test(requestedThemeId);
       const account: any = await User.findById(authUserId).select("storeInventory").lean();
       const now = Date.now();
       const owned = (account?.storeInventory || []).find(
@@ -1916,10 +1944,29 @@ export const registerVoiceRoomHandlers = (io: Server, socket: AuthenticatedSocke
           (!entry.expiresAt || new Date(entry.expiresAt).getTime() > now),
       );
       const item: any = await StoreItem.findOne({
-        _id: requestedThemeId,
+        $or: [
+          ...(isValidMongoId ? [{ _id: requestedThemeId }] : []),
+          { name: requestedThemeId },
+        ],
         isActive: true,
       }).lean();
+
       if (!item || normalizeItemCategory(item.category) !== "Theme") {
+        if ((data as any)?.themeAsset) {
+          state.themeId = requestedThemeId;
+          state.themeAsset = (data as any).themeAsset;
+          await saveVoiceRoomState(state);
+          roomDocument.themeId = state.themeId;
+          roomDocument.themeAsset = state.themeAsset;
+          await roomDocument.save();
+          io.to(socketRoomChannel).emit("voice_room:theme_updated", {
+            themeId: state.themeId,
+            themeAsset: state.themeAsset,
+            updatedBy: authUserId,
+          });
+          return;
+        }
+
         socket.emit("voice_room:error", {
           message: "Selected theme is unavailable",
           code: "THEME_UNAVAILABLE",
