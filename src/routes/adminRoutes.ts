@@ -267,7 +267,11 @@ router.post('/events/:id/publish', verifyToken, publishActivityEvent);
 router.patch('/events/:id/close', verifyToken, closeActivityEvent);
 router.post('/events/broadcast', verifyToken, broadcastEvent);
 
-import { listOperators, getOperator, toggleOperatorBlock, deleteOperator, resetOperatorPassword } from '../controllers/operatorController';
+import {
+  listOperators, getOperator, toggleOperatorBlock, deleteOperator, resetOperatorPassword,
+  listBdLeaders, getBdLeader, toggleBdLeaderBlock, deleteBdLeader, resetBdLeaderPassword,
+  listBds, getBd, toggleBdBlock, deleteBd, resetBdPassword,
+} from '../controllers/operatorController';
 
 // ============ Operator Module Routes ============
 router.get('/operators', verifyToken, listOperators);
@@ -275,6 +279,20 @@ router.get('/operators/:id', verifyToken, getOperator);
 router.patch('/operators/:id/toggle-block', verifyToken, toggleOperatorBlock);
 router.delete('/operators/:id', verifyToken, deleteOperator);
 router.post('/operators/:id/reset-password', verifyToken, resetOperatorPassword);
+
+// ============ BD Leader Module Routes ============
+router.get('/bd-leaders', verifyToken, listBdLeaders);
+router.get('/bd-leaders/:id', verifyToken, getBdLeader);
+router.patch('/bd-leaders/:id/toggle-block', verifyToken, toggleBdLeaderBlock);
+router.delete('/bd-leaders/:id', verifyToken, deleteBdLeader);
+router.post('/bd-leaders/:id/reset-password', verifyToken, resetBdLeaderPassword);
+
+// ============ BD Module Routes ============
+router.get('/bds', verifyToken, listBds);
+router.get('/bds/:id', verifyToken, getBd);
+router.patch('/bds/:id/toggle-block', verifyToken, toggleBdBlock);
+router.delete('/bds/:id', verifyToken, deleteBd);
+router.post('/bds/:id/reset-password', verifyToken, resetBdPassword);
 
 // ============ Admin Module Routes ============
 router.get('/admins', verifyToken, listAdmins);

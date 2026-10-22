@@ -649,6 +649,9 @@ export const listRequests = async (req: AuthRequest, res: Response) => {
         if (!exists) {
           const roleToReqType: Record<string, string> = {
             admin: 'Admin Request',
+            'bd-leader': 'BD Leader Request',
+            bdLeader: 'BD Leader Request',
+            bd: 'BD Request',
             operator: 'Operator Request',
             'super-admin': 'Super Admin Request',
             agency: 'Agency Request',
@@ -708,6 +711,9 @@ export const listRequests = async (req: AuthRequest, res: Response) => {
         if (!exists) {
           const roleToReqType: Record<string, string> = {
             admin: 'Admin Request',
+            'bd-leader': 'BD Leader Request',
+            bdLeader: 'BD Leader Request',
+            bd: 'BD Request',
             operator: 'Operator Request',
             superAdmin: 'Super Admin Request',
             'super-admin': 'Super Admin Request',
@@ -1031,6 +1037,8 @@ export const deleteRequest = async (req: AuthRequest, res: Response) => {
     const targetUserRole = rawRole.includes('super') ? 'superAdmin'
       : rawRole.includes('customer') || rawRole.includes('support') ? 'customerSupport'
       : rawRole.includes('seller') || rawRole.includes('coin') ? 'coinSeller'
+      : rawRole.includes('bd-leader') || rawRole.includes('bdleader') || rawRole.includes('bd leader') ? 'bdLeader'
+      : rawRole.includes('bd') ? 'bd'
       : rawRole.includes('operator') ? 'operator'
       : rawRole.includes('agency') ? 'agency'
       : rawRole.includes('admin') ? 'admin'

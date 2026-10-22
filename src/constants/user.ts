@@ -3,6 +3,8 @@ export enum UserRole {
   OPERATOR = "operator",
   SUPER_ADMIN = "superAdmin",
   ADMIN = "admin",
+  BD_LEADER = "bdLeader",
+  BD = "bd",
   AGENCY = "agency",
   COIN_SELLER = "coinSeller",
   CUSTOMER_SUPPORT = "customerSupport",
@@ -12,14 +14,16 @@ export enum UserRole {
 
 export const ROLE_HIERARCHY: Record<string, number> = {
   [UserRole.OWNER]: 0,
-  [UserRole.OPERATOR]: 1,
-  [UserRole.SUPER_ADMIN]: 2,
-  [UserRole.ADMIN]: 3,
-  [UserRole.AGENCY]: 4,
-  [UserRole.COIN_SELLER]: 5,
-  [UserRole.CUSTOMER_SUPPORT]: 5,
-  [UserRole.HOST]: 6,
-  [UserRole.USER]: 7,
+  [UserRole.SUPER_ADMIN]: 1,
+  [UserRole.ADMIN]: 2,
+  [UserRole.BD_LEADER]: 3,
+  [UserRole.BD]: 4,
+  [UserRole.OPERATOR]: 5,
+  [UserRole.AGENCY]: 6,
+  [UserRole.COIN_SELLER]: 7,
+  [UserRole.CUSTOMER_SUPPORT]: 7,
+  [UserRole.HOST]: 8,
+  [UserRole.USER]: 9,
 };
 
 export enum AuthType {

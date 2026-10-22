@@ -229,3 +229,194 @@ export const resetOperatorPassword = async (req: AuthRequest, res: Response) => 
     return sendResponse(res, 500, false, err.message);
   }
 };
+
+// ─── HELPER: Generic Staff Listing by Role ──────────────────────────────────
+const listStaffByRoles = async (req: AuthRequest, res: Response, roles: string[], roleKey: string) => {
+  try {
+    const { search, status, page = 1, limit = 20 } = req.query;
+    const skip = (Number(page) - 1) * Number(limit);
+
+    const actor = req.user!;
+    const matchStage: any = {
+      $and: [
+        HierarchyScopeService.buildUserScope({ id: String(actor.id), role: actor.role }),
+        { role: { $in: roles }, isDeleted: false },
+      ],
+    };
+    if (status === 'active') matchStage.isBlocked = false;
+    if (status === 'suspended') matchStage.isBlocked = true;
+    if (search) {
+      const searchStr = String(search).trim();
+      const escapedSearch = searchStr.replace(/[-[\]{}()*+?.,\\^$|#\s]/g, '\\$&');
+      const q = new RegExp(escapedSearch, 'i');
+      const searchNum = Number(searchStr);
+      matchStage.$and.push({
+        $or: [
+          { name: q },
+          { email: q },
+          { phoneNumber: q },
+          { meethiId: q },
+          ...(isNaN(searchNum) ? [] : [{ userId: searchNum }])
+        ]
+      });
+    }
+
+    const [staffList, total] = await Promise.all([
+      User.find(matchStage)
+        .select('userId name email phoneNumber image role isBlocked isActive isOnline lastOnline coins diamonds createdAt country specialCode agencyId createdBy')
+        .sort({ createdAt: -1 })
+        .skip(skip)
+        .limit(Number(limit))
+        .lean(),
+      User.countDocuments(matchStage),
+    ]);
+
+    return sendResponse(res, 200, true, `${roleKey} list fetched`, {
+      [roleKey + 's']: staffList,
+      operators: staffList,
+      bdLeaders: staffList,
+      bds: staffList,
+      total,
+      page: Number(page),
+      totalPages: Math.ceil(total / Number(limit)),
+    });
+  } catch (err: any) {
+    return sendResponse(res, 500, false, err.message);
+  }
+};
+
+// ─── BD LEADER CONTROLLERS ──────────────────────────────────────────────────
+export const listBdLeaders = async (req: AuthRequest, res: Response) => {
+  return listStaffByRoles(req, res, ['bdLeader', 'bd-leader'], 'bdLeader');
+};
+
+export const getBdLeader = async (req: AuthRequest, res: Response) => {
+  try {
+    const { id } = req.params;
+    const query = getSafeUserQuery(id);
+    if (!query) return sendResponse(res, 404, false, 'BD Leader not found');
+    query.role = { $in: ['bdLeader', 'bd-leader'] };
+    const user = await User.findOne(query).lean();
+    if (!user) return sendResponse(res, 404, false, 'BD Leader not found');
+    return sendResponse(res, 200, true, 'BD Leader fetched', user);
+  } catch (err: any) {
+    return sendResponse(res, 500, false, err.message);
+  }
+};
+
+export const toggleBdLeaderBlock = async (req: AuthRequest, res: Response) => {
+  try {
+    const { id } = req.params;
+    const query = getSafeUserQuery(id);
+    if (!query) return sendResponse(res, 404, false, 'BD Leader not found');
+    query.role = { $in: ['bdLeader', 'bd-leader'] };
+    const user = await User.findOne(query);
+    if (!user) return sendResponse(res, 404, false, 'BD Leader not found');
+    user.isBlocked = !user.isBlocked;
+    await user.save();
+    return sendResponse(res, 200, true, `BD Leader ${user.isBlocked ? 'suspended' : 'activated'}`, { isBlocked: user.isBlocked });
+  } catch (err: any) {
+    return sendResponse(res, 500, false, err.message);
+  }
+};
+
+export const deleteBdLeader = async (req: AuthRequest, res: Response) => {
+  try {
+    const { id } = req.params;
+    const query = getSafeUserQuery(id);
+    if (!query) return sendResponse(res, 404, false, 'BD Leader not found');
+    query.role = { $in: ['bdLeader', 'bd-leader'] };
+    const user = await User.findOne(query);
+    if (!user) return sendResponse(res, 404, false, 'BD Leader not found');
+    user.isDeleted = true;
+    await user.save();
+    return sendResponse(res, 200, true, 'BD Leader deleted');
+  } catch (err: any) {
+    return sendResponse(res, 500, false, err.message);
+  }
+};
+
+export const resetBdLeaderPassword = async (req: AuthRequest, res: Response) => {
+  try {
+    const { id } = req.params;
+    const query = getSafeUserQuery(id);
+    if (!query) return sendResponse(res, 404, false, 'BD Leader not found');
+    query.role = { $in: ['bdLeader', 'bd-leader'] };
+    const user = await User.findOne(query).select('+password');
+    if (!user) return sendResponse(res, 404, false, 'BD Leader not found');
+    const newPassword = generateStrongPassword();
+    user.password = await generateSecureHash(newPassword);
+    await user.save();
+    return sendResponse(res, 200, true, 'Password reset', { newPassword });
+  } catch (err: any) {
+    return sendResponse(res, 500, false, err.message);
+  }
+};
+
+// ─── BD CONTROLLERS ─────────────────────────────────────────────────────────
+export const listBds = async (req: AuthRequest, res: Response) => {
+  return listStaffByRoles(req, res, ['bd'], 'bd');
+};
+
+export const getBd = async (req: AuthRequest, res: Response) => {
+  try {
+    const { id } = req.params;
+    const query = getSafeUserQuery(id);
+    if (!query) return sendResponse(res, 404, false, 'BD not found');
+    query.role = 'bd';
+    const user = await User.findOne(query).lean();
+    if (!user) return sendResponse(res, 404, false, 'BD not found');
+    return sendResponse(res, 200, true, 'BD fetched', user);
+  } catch (err: any) {
+    return sendResponse(res, 500, false, err.message);
+  }
+};
+
+export const toggleBdBlock = async (req: AuthRequest, res: Response) => {
+  try {
+    const { id } = req.params;
+    const query = getSafeUserQuery(id);
+    if (!query) return sendResponse(res, 404, false, 'BD not found');
+    query.role = 'bd';
+    const user = await User.findOne(query);
+    if (!user) return sendResponse(res, 404, false, 'BD not found');
+    user.isBlocked = !user.isBlocked;
+    await user.save();
+    return sendResponse(res, 200, true, `BD ${user.isBlocked ? 'suspended' : 'activated'}`, { isBlocked: user.isBlocked });
+  } catch (err: any) {
+    return sendResponse(res, 500, false, err.message);
+  }
+};
+
+export const deleteBd = async (req: AuthRequest, res: Response) => {
+  try {
+    const { id } = req.params;
+    const query = getSafeUserQuery(id);
+    if (!query) return sendResponse(res, 404, false, 'BD not found');
+    query.role = 'bd';
+    const user = await User.findOne(query);
+    if (!user) return sendResponse(res, 404, false, 'BD not found');
+    user.isDeleted = true;
+    await user.save();
+    return sendResponse(res, 200, true, 'BD deleted');
+  } catch (err: any) {
+    return sendResponse(res, 500, false, err.message);
+  }
+};
+
+export const resetBdPassword = async (req: AuthRequest, res: Response) => {
+  try {
+    const { id } = req.params;
+    const query = getSafeUserQuery(id);
+    if (!query) return sendResponse(res, 404, false, 'BD not found');
+    query.role = 'bd';
+    const user = await User.findOne(query).select('+password');
+    if (!user) return sendResponse(res, 404, false, 'BD not found');
+    const newPassword = generateStrongPassword();
+    user.password = await generateSecureHash(newPassword);
+    await user.save();
+    return sendResponse(res, 200, true, 'Password reset', { newPassword });
+  } catch (err: any) {
+    return sendResponse(res, 500, false, err.message);
+  }
+};

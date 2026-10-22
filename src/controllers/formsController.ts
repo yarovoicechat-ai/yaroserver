@@ -10,6 +10,8 @@ const normalizeRole = (role: string) => {
   if (value === "owner") return UserRole.OWNER;
   if (value === "agency") return UserRole.AGENCY;
   if (value === "admin") return UserRole.ADMIN;
+  if (value === "bd-leader" || value === "bdleader" || value === "bd leader") return UserRole.BD_LEADER;
+  if (value === "bd") return UserRole.BD;
   if (value === "host") return UserRole.HOST;
   if (value === "user") return UserRole.USER;
   return UserRole.USER;
