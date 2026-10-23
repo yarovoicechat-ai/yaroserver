@@ -32,6 +32,8 @@ export interface IRoom extends Document {
     unbannedBy?: string;
     uniqueId?: string;
     customDisplayId?: string;
+    badgeUrl?: string;
+    uniqueIdBadge?: any;
     createdAt: Date;
     updatedAt: Date;
 }
@@ -68,6 +70,8 @@ const RoomSchema = new Schema<IRoom>({
     unbannedBy: { type: String, default: null },
     uniqueId: { type: String, default: '' },
     customDisplayId: { type: String, default: '' },
+    badgeUrl: { type: String, default: '' },
+    uniqueIdBadge: { type: Schema.Types.Mixed, default: null },
 }, { timestamps: true });
 
 RoomSchema.index({ ownerId: 1 });

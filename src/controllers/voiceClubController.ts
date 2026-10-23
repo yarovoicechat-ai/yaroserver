@@ -158,7 +158,7 @@ export const getAllActiveVoiceRooms = async (req: Request, res: Response) => {
       ];
     }
     const rooms = await Room.find(filter)
-      .populate('ownerId', 'userId name image avatar gender meethiId country uniqueId customDisplayId displayId')
+      .populate('ownerId', 'userId name image avatar gender meethiId country uniqueId customDisplayId displayId storeInventory equippedCustomId')
       .sort({ updatedAt: -1 })
       .limit(Math.max(Number(limit) * 2, 100))
       .lean();
@@ -202,11 +202,31 @@ export const getAllActiveVoiceRooms = async (req: Request, res: Response) => {
       const uniqueId = String(owner.uniqueId || owner.customDisplayId || owner.displayId || (r as any).uniqueId || '').trim();
       const displayRoomId = uniqueId || r.channelName;
 
+      let badgeUrl = String((r as any).badgeUrl || (r as any).badgeIconUrl || '').trim();
+      let uniqueIdBadge = (r as any).uniqueIdBadge || null;
+      if (!badgeUrl && owner) {
+        const inventoryList = Array.isArray(owner.storeInventory) ? owner.storeInventory : [];
+        const uniqueInv = inventoryList.find((it: any) =>
+          ['unique_id', 'custom_id', 'id'].includes(String(it.category || it.type || '').toLowerCase()) ||
+          String(it.metadata?.uniqueDisplayId || it.metadata?.displayId || '') === String(owner.customDisplayId || owner.equippedCustomId || uniqueId)
+        );
+        badgeUrl = String(uniqueInv?.metadata?.badgeIconUrl || uniqueInv?.animationUrl || uniqueInv?.imageUrl || '').trim();
+        if (badgeUrl) {
+          uniqueIdBadge = {
+            badgeName: uniqueInv?.metadata?.badgeName || 'VIP ID',
+            badgeIconUrl: badgeUrl,
+            animationType: 'svga',
+          };
+        }
+      }
+
       formattedRooms.push({
         id: r.channelName, // room ID is user ID
         roomId: r.channelName,
         uniqueId: uniqueId,
         displayRoomId: displayRoomId,
+        badgeUrl: badgeUrl,
+        uniqueIdBadge: uniqueIdBadge,
         title: r.title,
         about: r.about || '',
         hostName: owner.name || 'Host',
@@ -261,7 +281,7 @@ export const getMyVoiceRoom = async (req: any, res: Response) => {
 
     const room = await Room.findOne({ ownerId: user.id || user._id })
       .select('+pinHash')
-      .populate('ownerId', 'userId name image avatar gender meethiId country equippedFrame equippedFrameAsset uniqueId customDisplayId displayId')
+      .populate('ownerId', 'userId name image avatar gender meethiId country equippedFrame equippedFrameAsset uniqueId customDisplayId displayId storeInventory equippedCustomId')
       .lean();
 
     if (!room) {
@@ -276,6 +296,24 @@ export const getMyVoiceRoom = async (req: any, res: Response) => {
     const ownerUniqueId = String(owner.uniqueId || owner.customDisplayId || owner.displayId || user.uniqueId || user.customDisplayId || user.displayId || '').trim();
     const displayRoomId = ownerUniqueId || room.channelName;
 
+    let badgeUrl = String((room as any).badgeUrl || (room as any).badgeIconUrl || '').trim();
+    let uniqueIdBadge = (room as any).uniqueIdBadge || null;
+    if (!badgeUrl && owner) {
+      const inventoryList = Array.isArray(owner.storeInventory) ? owner.storeInventory : (Array.isArray(user.storeInventory) ? user.storeInventory : []);
+      const uniqueInv = inventoryList.find((it: any) =>
+        ['unique_id', 'custom_id', 'id'].includes(String(it.category || it.type || '').toLowerCase()) ||
+        String(it.metadata?.uniqueDisplayId || it.metadata?.displayId || '') === String(owner.customDisplayId || user.customDisplayId || owner.equippedCustomId || user.equippedCustomId || ownerUniqueId)
+      );
+      badgeUrl = String(uniqueInv?.metadata?.badgeIconUrl || uniqueInv?.animationUrl || uniqueInv?.imageUrl || '').trim();
+      if (badgeUrl) {
+        uniqueIdBadge = {
+          badgeName: uniqueInv?.metadata?.badgeName || 'VIP ID',
+          badgeIconUrl: badgeUrl,
+          animationType: 'svga',
+        };
+      }
+    }
+
     return res.status(200).json({
       success: true,
       data: {
@@ -285,6 +323,8 @@ export const getMyVoiceRoom = async (req: any, res: Response) => {
           roomId: room.channelName,
           uniqueId: ownerUniqueId,
           displayRoomId: displayRoomId,
+          badgeUrl: badgeUrl,
+          uniqueIdBadge: uniqueIdBadge,
           title: room.title,
           about: (room as any).about || '',
           hostName: owner.name || user.name || 'You',

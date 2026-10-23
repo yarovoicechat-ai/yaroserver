@@ -32,6 +32,8 @@ export interface VoiceRoomState {
   roomId: string;
   uniqueId?: string;
   displayRoomId?: string;
+  badgeUrl?: string;
+  uniqueIdBadge?: any;
   title: string;
   hostUser: any;
   seatCount: number;
@@ -344,16 +346,37 @@ export const getVoiceRoomState = async (roomId: string, defaultSeatsCount = 8, h
             const mRoom: any = await Room.findOne({
               $or: [{ channelName: canonicalId }, { channelName: String(roomId) }],
             })
-              .select("coverImage about title isLocked mode +pinHash ownerId")
-              .populate("ownerId", "userId uniqueId customDisplayId displayId")
+              .select("coverImage about title isLocked mode +pinHash ownerId uniqueId customDisplayId badgeUrl badgeIconUrl uniqueIdBadge")
+              .populate("ownerId", "userId uniqueId customDisplayId displayId storeInventory equippedCustomId")
               .lean();
             if (parsed.coverImage === undefined) parsed.coverImage = mRoom?.coverImage || "";
             if (parsed.about === undefined) parsed.about = mRoom?.about || "";
             if (!parsed.title && mRoom?.title) parsed.title = mRoom.title;
             const ownerDoc = mRoom?.ownerId as any;
-            const resolvedUnique = String(ownerDoc?.uniqueId || ownerDoc?.customDisplayId || ownerDoc?.displayId || "").trim();
+            const resolvedUnique = String(ownerDoc?.uniqueId || ownerDoc?.customDisplayId || ownerDoc?.displayId || mRoom?.uniqueId || "").trim();
             if (!parsed.uniqueId && resolvedUnique) parsed.uniqueId = resolvedUnique;
             if (!parsed.displayRoomId) parsed.displayRoomId = resolvedUnique || canonicalId;
+
+            let resolvedBadgeUrl = String(mRoom?.badgeUrl || mRoom?.badgeIconUrl || "").trim();
+            let resolvedUniqueBadge = mRoom?.uniqueIdBadge || null;
+            if (!resolvedBadgeUrl && ownerDoc) {
+              const inv = Array.isArray(ownerDoc.storeInventory) ? ownerDoc.storeInventory : [];
+              const uInv = inv.find((it: any) =>
+                ['unique_id', 'custom_id', 'id'].includes(String(it.category || it.type || '').toLowerCase()) ||
+                String(it.metadata?.uniqueDisplayId || it.metadata?.displayId || '') === String(ownerDoc.customDisplayId || ownerDoc.equippedCustomId || resolvedUnique)
+              );
+              resolvedBadgeUrl = String(uInv?.metadata?.badgeIconUrl || uInv?.animationUrl || uInv?.imageUrl || "").trim();
+              if (resolvedBadgeUrl) {
+                resolvedUniqueBadge = {
+                  badgeName: uInv?.metadata?.badgeName || "VIP ID",
+                  badgeIconUrl: resolvedBadgeUrl,
+                  animationType: "svga",
+                };
+              }
+            }
+            if (!parsed.badgeUrl && resolvedBadgeUrl) parsed.badgeUrl = resolvedBadgeUrl;
+            if (!parsed.uniqueIdBadge && resolvedUniqueBadge) parsed.uniqueIdBadge = resolvedUniqueBadge;
+
             if (mRoom) {
               if (parsed.isLocked === undefined) {
                 parsed.isLocked = Boolean(mRoom.isLocked || /private\s*\(pin\)/i.test(String(mRoom.mode || '')));
