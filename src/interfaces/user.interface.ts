@@ -80,6 +80,8 @@ export interface UserInterface extends Document {
     canLockAnySeat?: boolean;
     isGlobalRoomManager?: boolean;
   };
+  isAgency?: boolean;
+  isBd?: boolean;
   isActive?: boolean;
   isBusy?: boolean;
   hostTypes?: string[];

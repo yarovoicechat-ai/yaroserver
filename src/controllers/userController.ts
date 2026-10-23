@@ -15,6 +15,7 @@ import mongoose from "mongoose";
 import { IdentityEntitlement } from "../models/identityEntitlement.model";
 import { IdentityResolverService } from "../services/identityResolver.service";
 import { Room } from "../models/room.model";
+import { GiftTransaction } from "../gift/gift.model";
 
 // import { deleteFromS3, uploadToS3 } from "../utils/uploadS3";
 import { generateOtp, sendCustomEmail, sendOtpForEmailVerification } from "../utils/otp";
@@ -1376,15 +1377,18 @@ export const getBlockedContacts = async (req: AuthRequest, res: Response) => {
 
 // ðŸ”„ Exchange Coins to Diamonds
 const EXCHANGE_PACKAGES: Record<number, number> = {
-  1000: 900,
-  2000: 1800,
-  5000: 4500,
-  10000: 9000,
-  20000: 18000,
-  50000: 45000,
-  100000: 90000,
-  200000: 180000,
-  500000: 450000
+  100: 95,
+  200: 190,
+  500: 475,
+  1000: 950,
+  2000: 1900,
+  5000: 4750,
+  10000: 9500,
+  20000: 19000,
+  50000: 47500,
+  100000: 95000,
+  200000: 190000,
+  500000: 475000,
 };
 
 export const exchangeCoinsToDiamonds = async (req: AuthRequest, res: Response) => {
@@ -1798,3 +1802,194 @@ export const getPublicUserProfile = async (req: AuthRequest, res: Response) => {
   }
 };
 
+
+
+export const getUserHonorSummary = async (req: AuthRequest, res: Response) => {
+  try {
+    const targetId = req.params.userId || req.user?.id || (req.user as any)?.userId;
+    if (!targetId) return sendResponse(res, 401, false, "Unauthorized");
+
+    let user: any = null;
+    if (mongoose.Types.ObjectId.isValid(String(targetId))) {
+      user = await User.findById(targetId).lean();
+    }
+    if (!user) {
+      user = await User.findOne({ userId: Number(targetId) }).lean();
+    }
+    if (!user) {
+      return sendResponse(res, 404, false, "User not found");
+    }
+
+    const now = new Date();
+    const inventory = Array.isArray(user.storeInventory) ? user.storeInventory : [];
+
+    // 1. Frames: filter from inventory + equipped
+    const framesMap = new Map<string, any>();
+    inventory.forEach((it: any) => {
+      const cat = String(it.category || '').toLowerCase();
+      if (['avatar_frame', 'frame', 'profile_frame'].includes(cat)) {
+        const notExpired = !it.expiresAt || new Date(it.expiresAt) > now;
+        if (notExpired) {
+          framesMap.set(String(it.name || it._id), {
+            id: String(it._id || it.itemId || it.name),
+            name: it.name,
+            imageUrl: it.imageUrl || it.animationUrl || '',
+            animationUrl: it.animationUrl || '',
+            isEquipped: it.name === user.equippedFrame || it.imageUrl === user.equippedFrame,
+            expiresAt: it.expiresAt,
+          });
+        }
+      }
+    });
+    if (user.equippedFrame && !framesMap.has(user.equippedFrame)) {
+      const frameAsset = user.equippedFrameAsset || {};
+      framesMap.set(user.equippedFrame, {
+        id: 'equipped_frame',
+        name: typeof user.equippedFrame === 'string' ? user.equippedFrame : (frameAsset.name || 'Equipped Frame'),
+        imageUrl: frameAsset.imageUrl || frameAsset.image || (typeof user.equippedFrame === 'string' && user.equippedFrame.startsWith('http') ? user.equippedFrame : ''),
+        animationUrl: frameAsset.animationUrl || '',
+        isEquipped: true,
+      });
+    }
+
+    // 2. Entries: filter from inventory + equipped
+    const entriesMap = new Map<string, any>();
+    inventory.forEach((it: any) => {
+      const cat = String(it.category || '').toLowerCase();
+      if (['entry_effect', 'entry', 'vehicle', 'entrance'].includes(cat)) {
+        const notExpired = !it.expiresAt || new Date(it.expiresAt) > now;
+        if (notExpired) {
+          entriesMap.set(String(it.name || it._id), {
+            id: String(it._id || it.itemId || it.name),
+            name: it.name,
+            imageUrl: it.imageUrl || it.animationUrl || '',
+            animationUrl: it.animationUrl || '',
+            isEquipped: it.name === user.equippedEntry || it.imageUrl === user.equippedEntry,
+            expiresAt: it.expiresAt,
+          });
+        }
+      }
+    });
+    if (user.equippedEntry && !entriesMap.has(user.equippedEntry)) {
+      const entryAsset = user.equippedEntryAsset || {};
+      entriesMap.set(user.equippedEntry, {
+        id: 'equipped_entry',
+        name: typeof user.equippedEntry === 'string' ? user.equippedEntry : (entryAsset.name || 'Equipped Entry'),
+        imageUrl: entryAsset.imageUrl || entryAsset.image || (typeof user.equippedEntry === 'string' && user.equippedEntry.startsWith('http') ? user.equippedEntry : ''),
+        animationUrl: entryAsset.animationUrl || '',
+        isEquipped: true,
+      });
+    }
+
+    // 3. Badges
+    const badges: any[] = [];
+    if (user.svipLevel > 0) {
+      badges.push({ id: 'svip', name: 'SVIP Level ' + user.svipLevel, iconUrl: 'https://api.yaroapp.in/uploads/badges/svip.png', description: 'SVIP Elite Status' });
+    }
+    if (user.isOfficial || user.officialPowers?.isGlobalRoomManager) {
+      badges.push({ id: 'official', name: 'Official Moderator', iconUrl: 'https://api.yaroapp.in/uploads/branding/official_badge.png', description: 'Official Staff' });
+    }
+    if (user.uniqueId) {
+      badges.push({ id: 'unique_id', name: 'Unique ID #' + user.uniqueId, iconUrl: 'https://api.yaroapp.in/uploads/badges/unique_id.png', description: 'Exclusive VIP ID' });
+    }
+    if (Array.isArray(user.equippedBadges)) {
+      user.equippedBadges.forEach((b: any, idx: number) => {
+        if (b) {
+          badges.push({
+            id: b.id || b._id || 'badge_' + idx,
+            name: b.name || b.title || 'Special Badge',
+            iconUrl: b.iconUrl || b.imageUrl || b.icon || '',
+            description: b.description || 'Honor Badge',
+          });
+        }
+      });
+    }
+
+    // 4. Gifts: Received and Sent aggregation from GiftTransaction
+    const userMongoId = user._id;
+    const [receivedAgg, sentAgg] = await Promise.all([
+      GiftTransaction.aggregate([
+        {
+          $match: {
+            $or: [{ receiverId: userMongoId }, { receiverIds: userMongoId }],
+            status: { $in: ['SUCCESS', 'COMPLETED'] },
+          },
+        },
+        {
+          $group: {
+            _id: '$giftId',
+            count: { $sum: '$quantity' },
+            totalDiamonds: { $sum: '$totalPrice' },
+          },
+        },
+        {
+          $lookup: {
+            from: 'gifts',
+            localField: '_id',
+            foreignField: '_id',
+            as: 'giftDoc',
+          },
+        },
+        { $unwind: { path: '$giftDoc', preserveNullAndEmptyArrays: true } },
+        {
+          $project: {
+            giftId: '$_id',
+            name: { $ifNull: ['$giftDoc.name', 'Gift'] },
+            icon: { $ifNull: ['$giftDoc.icon', ''] },
+            count: 1,
+            totalDiamonds: 1,
+          },
+        },
+        { $sort: { count: -1 } },
+        { $limit: 50 },
+      ]),
+      GiftTransaction.aggregate([
+        {
+          $match: {
+            senderId: userMongoId,
+            status: { $in: ['SUCCESS', 'COMPLETED'] },
+          },
+        },
+        {
+          $group: {
+            _id: '$giftId',
+            count: { $sum: '$quantity' },
+            totalDiamonds: { $sum: '$totalPrice' },
+          },
+        },
+        {
+          $lookup: {
+            from: 'gifts',
+            localField: '_id',
+            foreignField: '_id',
+            as: 'giftDoc',
+          },
+        },
+        { $unwind: { path: '$giftDoc', preserveNullAndEmptyArrays: true } },
+        {
+          $project: {
+            giftId: '$_id',
+            name: { $ifNull: ['$giftDoc.name', 'Gift'] },
+            icon: { $ifNull: ['$giftDoc.icon', ''] },
+            count: 1,
+            totalDiamonds: 1,
+          },
+        },
+        { $sort: { count: -1 } },
+        { $limit: 50 },
+      ]),
+    ]);
+
+    return sendResponse(res, 200, true, "Honor summary fetched", {
+      frames: Array.from(framesMap.values()),
+      entries: Array.from(entriesMap.values()),
+      badges,
+      gifts: {
+        received: receivedAgg || [],
+        sent: sentAgg || [],
+      },
+    });
+  } catch (err: any) {
+    return sendResponse(res, 500, false, err.message || "Failed to fetch honor summary");
+  }
+};

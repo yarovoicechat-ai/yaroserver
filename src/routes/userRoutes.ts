@@ -24,6 +24,7 @@ import {
   checkUsernameAvailability,
   getUserProfile,
   getPublicUserProfile,
+  getUserHonorSummary,
 } from "../controllers/userController";
 
 import { verifyToken } from "../middlewares/authorize.middleware";
@@ -89,6 +90,9 @@ router.post("/report", verifyToken, createReport);
 
 // user profile routes
 router.get("/profile", verifyToken, getUserProfile);
+router.get("/profile/honor-summary", verifyToken, getUserHonorSummary);
+router.get("/honor-summary", verifyToken, getUserHonorSummary);
+router.get("/:userId/honor-summary", verifyToken, getUserHonorSummary);
 router.get("/profile/:id", verifyToken, getPublicUserProfile);
 
 // Follow, Following & Visitors system

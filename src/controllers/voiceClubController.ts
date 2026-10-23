@@ -130,6 +130,9 @@ export const getAllActiveVoiceRooms = async (req: Request, res: Response) => {
         { name: regex },
         { userName: regex },
         { meethiId: regex },
+        { uniqueId: regex },
+        { customDisplayId: regex },
+        { displayId: regex },
         {
           $expr: {
             $regexMatch: {
@@ -155,7 +158,7 @@ export const getAllActiveVoiceRooms = async (req: Request, res: Response) => {
       ];
     }
     const rooms = await Room.find(filter)
-      .populate('ownerId', 'userId name image avatar gender meethiId country')
+      .populate('ownerId', 'userId name image avatar gender meethiId country uniqueId customDisplayId displayId')
       .sort({ updatedAt: -1 })
       .limit(Math.max(Number(limit) * 2, 100))
       .lean();
@@ -194,12 +197,16 @@ export const getAllActiveVoiceRooms = async (req: Request, res: Response) => {
         return;
       }
 
-      const owner = r.ownerId || {};
+      const owner = (r.ownerId as any) || {};
       const hostId = String(owner.userId || owner.meethiId || owner._id || r.channelName);
+      const uniqueId = String(owner.uniqueId || owner.customDisplayId || owner.displayId || (r as any).uniqueId || '').trim();
+      const displayRoomId = uniqueId || r.channelName;
 
       formattedRooms.push({
         id: r.channelName, // room ID is user ID
         roomId: r.channelName,
+        uniqueId: uniqueId,
+        displayRoomId: displayRoomId,
         title: r.title,
         about: r.about || '',
         hostName: owner.name || 'Host',
@@ -254,7 +261,7 @@ export const getMyVoiceRoom = async (req: any, res: Response) => {
 
     const room = await Room.findOne({ ownerId: user.id || user._id })
       .select('+pinHash')
-      .populate('ownerId', 'userId name image avatar gender meethiId country equippedFrame equippedFrameAsset')
+      .populate('ownerId', 'userId name image avatar gender meethiId country equippedFrame equippedFrameAsset uniqueId customDisplayId displayId')
       .lean();
 
     if (!room) {
@@ -266,6 +273,8 @@ export const getMyVoiceRoom = async (req: any, res: Response) => {
 
     const owner = (room.ownerId as any) || {};
     const hostId = String(owner.userId || owner.meethiId || owner._id || room.channelName);
+    const ownerUniqueId = String(owner.uniqueId || owner.customDisplayId || owner.displayId || user.uniqueId || user.customDisplayId || user.displayId || '').trim();
+    const displayRoomId = ownerUniqueId || room.channelName;
 
     return res.status(200).json({
       success: true,
@@ -274,6 +283,8 @@ export const getMyVoiceRoom = async (req: any, res: Response) => {
         room: {
           id: room.channelName,
           roomId: room.channelName,
+          uniqueId: ownerUniqueId,
+          displayRoomId: displayRoomId,
           title: room.title,
           about: (room as any).about || '',
           hostName: owner.name || user.name || 'You',

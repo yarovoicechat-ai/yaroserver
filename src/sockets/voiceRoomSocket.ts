@@ -30,6 +30,8 @@ export interface VoiceRoomSeat {
 
 export interface VoiceRoomState {
   roomId: string;
+  uniqueId?: string;
+  displayRoomId?: string;
   title: string;
   hostUser: any;
   seatCount: number;
@@ -337,14 +339,21 @@ export const getVoiceRoomState = async (roomId: string, defaultSeatsCount = 8, h
             isLocked: false,
           });
         }
-        if (needsRoomMetadata) {
+        if (needsRoomMetadata || !parsed.displayRoomId) {
           try {
             const mRoom: any = await Room.findOne({
               $or: [{ channelName: canonicalId }, { channelName: String(roomId) }],
-            }).select("coverImage about title isLocked mode +pinHash").lean();
+            })
+              .select("coverImage about title isLocked mode +pinHash ownerId")
+              .populate("ownerId", "userId uniqueId customDisplayId displayId")
+              .lean();
             if (parsed.coverImage === undefined) parsed.coverImage = mRoom?.coverImage || "";
             if (parsed.about === undefined) parsed.about = mRoom?.about || "";
             if (!parsed.title && mRoom?.title) parsed.title = mRoom.title;
+            const ownerDoc = mRoom?.ownerId as any;
+            const resolvedUnique = String(ownerDoc?.uniqueId || ownerDoc?.customDisplayId || ownerDoc?.displayId || "").trim();
+            if (!parsed.uniqueId && resolvedUnique) parsed.uniqueId = resolvedUnique;
+            if (!parsed.displayRoomId) parsed.displayRoomId = resolvedUnique || canonicalId;
             if (mRoom) {
               if (parsed.isLocked === undefined) {
                 parsed.isLocked = Boolean(mRoom.isLocked || /private\s*\(pin\)/i.test(String(mRoom.mode || '')));
@@ -356,7 +365,7 @@ export const getVoiceRoomState = async (roomId: string, defaultSeatsCount = 8, h
         }
         parsed.coverImage = parsed.coverImage || "";
         parsed.about = parsed.about || "";
-        if (needsStateUpgrade || needsRoomMetadata) {
+        if (needsStateUpgrade || needsRoomMetadata || !parsed.displayRoomId) {
           try {
             await redis.set(getRoomKey(canonicalId), JSON.stringify(parsed), "EX", 86400);
           } catch (_) {}
@@ -373,14 +382,28 @@ export const getVoiceRoomState = async (roomId: string, defaultSeatsCount = 8, h
     persistedRoom = await Room.findOne({
       $or: [{ channelName: canonicalId }, { channelName: String(roomId) }],
     })
-      .select("title channelName coverImage about themeId themeAsset seatSkinId seatSkinAsset showSeatCharm isLocked mode +pinHash")
+      .select("title channelName coverImage about themeId themeAsset seatSkinId seatSkinAsset showSeatCharm isLocked mode +pinHash ownerId")
+      .populate("ownerId", "userId uniqueId customDisplayId displayId")
       .lean();
   } catch (err) {
     console.warn(`[VoiceRoom] Mongo room read warning for ${canonicalId}:`, err);
   }
 
+  const ownerDoc = persistedRoom?.ownerId as any;
+  const initialUniqueId = String(
+    ownerDoc?.uniqueId ||
+    ownerDoc?.customDisplayId ||
+    ownerDoc?.displayId ||
+    hostUser?.uniqueId ||
+    hostUser?.customDisplayId ||
+    hostUser?.displayId ||
+    ""
+  ).trim();
+
   const initial: VoiceRoomState = {
     roomId: canonicalId,
+    uniqueId: initialUniqueId,
+    displayRoomId: initialUniqueId || canonicalId,
     title: persistedRoom?.title || `Voice Room #${canonicalId}`,
     hostUser: hostUser || null,
     seatCount: defaultSeatsCount,

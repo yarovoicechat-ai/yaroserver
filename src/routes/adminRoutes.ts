@@ -1,4 +1,6 @@
 import express from 'express';
+import mongoose from 'mongoose';
+import { User } from '../models/user.model';
 import { verifyToken, requireRoles } from '../middlewares/authorize.middleware';
 import { HierarchyScopeService } from '../utils/hierarchyScope';
 import {
@@ -602,6 +604,97 @@ router.patch('/segments/:id', verifyToken, requireRoles('owner', 'superAdmin', '
 router.delete('/segments/:id', verifyToken, requireRoles('owner', 'superAdmin'), deleteSegment);
 router.post('/segments/preview-count', verifyToken, requireRoles('owner', 'superAdmin', 'admin', 'operator'), previewSegmentCount);
 router.get('/segments/:id/users', verifyToken, requireRoles('owner', 'superAdmin', 'admin', 'operator'), getSegmentUsersList);
+
+
+// ==========================================
+// APP BD & AGENCY ACCESS MANAGEMENT
+// ==========================================
+router.get('/app-access/users', verifyToken, requireRoles('owner', 'superAdmin', 'admin', 'operator'), async (req: any, res: any) => {
+  try {
+    const { search, filter } = req.query;
+    const query: any = { isDeleted: { $ne: true } };
+
+    if (search && String(search).trim()) {
+      const s = String(search).trim();
+      const num = Number(s);
+      const isNum = !isNaN(num);
+      const regex = new RegExp(s.replace(/[-[\]{}()*+?.,\\^$|#\s]/g, '\\\\$&'), 'i');
+
+      query.$or = [
+        { name: regex },
+        { userName: regex },
+        { email: regex },
+        { phoneNumber: regex },
+        ...(isNum ? [{ userId: num }] : []),
+      ];
+    } else {
+      // By default, show users that currently have isAgency: true or isBd: true
+      if (filter === 'agency') {
+        query.isAgency = true;
+      } else if (filter === 'bd') {
+        query.isBd = true;
+      } else {
+        query.$or = [{ isAgency: true }, { isBd: true }];
+      }
+    }
+
+    const users = await User.find(query)
+      .select('userId name userName image avatar role isAgency isBd createdAt')
+      .sort({ updatedAt: -1 })
+      .limit(50)
+      .lean();
+
+    return res.status(200).json({
+      success: true,
+      message: 'App access users fetched',
+      data: users,
+    });
+  } catch (err: any) {
+    return res.status(500).json({ success: false, message: err.message });
+  }
+});
+
+router.post('/app-access/toggle', verifyToken, requireRoles('owner', 'superAdmin', 'admin'), async (req: any, res: any) => {
+  try {
+    const { userId, type, enabled } = req.body;
+    if (!userId || !type || !['agency', 'bd'].includes(type)) {
+      return res.status(400).json({ success: false, message: 'Invalid payload: userId and type (agency|bd) are required.' });
+    }
+
+    const isEnabled = Boolean(enabled);
+    const updateField = type === 'agency' ? 'isAgency' : 'isBd';
+
+    let userDoc: any = null;
+    if (mongoose.Types.ObjectId.isValid(String(userId))) {
+      userDoc = await User.findById(userId);
+    }
+    if (!userDoc) {
+      userDoc = await User.findOne({ userId: Number(userId) });
+    }
+
+    if (!userDoc) {
+      return res.status(404).json({ success: false, message: 'User not found.' });
+    }
+
+    userDoc[updateField] = isEnabled;
+    await userDoc.save();
+
+    return res.status(200).json({
+      success: true,
+      message: `App ${type.toUpperCase()} access ${isEnabled ? 'granted to' : 'revoked from'} user ${userDoc.name || userDoc.userId}.`,
+      data: {
+        userId: userDoc.userId,
+        _id: userDoc._id,
+        name: userDoc.name,
+        role: userDoc.role,
+        isAgency: userDoc.isAgency,
+        isBd: userDoc.isBd,
+      },
+    });
+  } catch (err: any) {
+    return res.status(500).json({ success: false, message: err.message });
+  }
+});
 
 export default router;
 

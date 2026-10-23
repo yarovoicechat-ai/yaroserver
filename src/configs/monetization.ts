@@ -3,7 +3,7 @@
  * Keep financial rules server-side so clients cannot change payout math.
  */
 export const CALL_DIAMONDS_PER_MINUTE = 100;
-export const WITHDRAWAL_COINS_PER_INR = 20;
+export const WITHDRAWAL_COINS_PER_INR = 2;
 export const MIN_WITHDRAWAL_INR = 200;
 export const WITHDRAWAL_PLATFORM_FEE_PERCENT = 5;
 export const MIN_WITHDRAWAL_COINS =

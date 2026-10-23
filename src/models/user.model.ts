@@ -120,6 +120,8 @@ const userSchema = new Schema<UserInterface>(
       canLockAnySeat: { type: Boolean, default: false },
       isGlobalRoomManager: { type: Boolean, default: false },
     },
+    isAgency: { type: Boolean, default: false },
+    isBd: { type: Boolean, default: false },
     isActive: { type: Boolean, default: false },
     isBusy: { type: Boolean, default: false },
     hostTypes: { type: [String], default: [] },
