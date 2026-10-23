@@ -10,6 +10,7 @@ const router = express.Router();
 
 // Define routes properly
 router.post("/user-phone-check", validationCheckUser, requestValidator, checkPhoneAvailability);
+router.post("/check-user-device", checkPhoneAvailability);
 router.post("/user-signup", validationUserCreate, requestValidator, userRegister);
 router.post("/userphone-login", validationUserLogin, requestValidator, userLogin);
 router.post("/user-login", validationUserLogin, requestValidator, userLogin);
