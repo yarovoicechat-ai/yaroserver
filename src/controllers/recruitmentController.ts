@@ -15,7 +15,9 @@ const RECRUITMENT_ROLE_RANK: Record<string, number> = {
     operator: 1,
     'super-admin': 2,
     superadmin: 2,
+    'bd-leader': 3,
     admin: 3,
+    bd: 4,
     agency: 4,
     seller: 5,
     coinseller: 5,
@@ -33,6 +35,9 @@ const normalizeRecruitmentRole = (role: string) => {
         'coin-seller': 'seller',
         customersupport: 'customer-service',
         'customer-support': 'customer-service',
+        bdleader: 'bd-leader',
+        'bd-leader': 'bd-leader',
+        bd: 'bd',
     };
     return (aliases[compact] || compact) as RecruitmentRole;
 };
@@ -45,6 +50,8 @@ const generateApplicationId = (role: string): string => {
         admin: 'ADM',
         'customer-service': 'CS',
         'super-admin': 'SA',
+        bd: 'BD',
+        'bd-leader': 'BDL',
     };
     const prefix = rolePrefixes[role] || 'APP';
     const randNum = Math.floor(10000 + Math.random() * 90000);
@@ -125,7 +132,7 @@ export const submitApplication = async (req: Request, res: Response) => {
         const body = req.body || {};
         const role = normalizeRecruitmentRole(roleFromParams || body.role || '');
 
-        const validRoles: RecruitmentRole[] = ['agency', 'operator', 'admin', 'customer-service', 'super-admin', 'seller', 'host'];
+        const validRoles: RecruitmentRole[] = ['agency', 'operator', 'admin', 'customer-service', 'super-admin', 'seller', 'host', 'bd', 'bd-leader'];
         if (!validRoles.includes(role)) {
             return sendResponse(res, 400, false, `Invalid role. Allowed roles: ${validRoles.join(', ')}`);
         }
@@ -209,6 +216,12 @@ export const submitApplication = async (req: Request, res: Response) => {
             } else if (cleanCodeToValidate.startsWith('AGY')) {
                 senior = await User.findOne({ role: 'agency', isDeleted: { $ne: true } })
                     .select('_id name role employeeCode referralCode specialCode');
+            } else if (cleanCodeToValidate.startsWith('BDL')) {
+                senior = await User.findOne({ role: 'bd-leader', isDeleted: { $ne: true } })
+                    .select('_id name role employeeCode referralCode specialCode');
+            } else if (cleanCodeToValidate.startsWith('BD')) {
+                senior = await User.findOne({ role: 'bd', isDeleted: { $ne: true } })
+                    .select('_id name role employeeCode referralCode specialCode');
             }
         }
 
@@ -285,6 +298,8 @@ export const submitApplication = async (req: Request, res: Response) => {
             host: 'Host Request',
             seller: 'Seller Request',
             coinseller: 'Seller Request',
+            bd: 'BD Request',
+            'bd-leader': 'BD Leader Request',
         };
 
         const requestType = roleToRequestTypeMap[role];

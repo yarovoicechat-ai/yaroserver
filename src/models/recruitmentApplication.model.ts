@@ -1,6 +1,6 @@
 import mongoose, { Schema, Document } from 'mongoose';
 
-export type RecruitmentRole = 'agency' | 'operator' | 'admin' | 'customer-service' | 'super-admin' | 'seller' | 'host';
+export type RecruitmentRole = 'agency' | 'operator' | 'admin' | 'customer-service' | 'super-admin' | 'seller' | 'host' | 'bd' | 'bd-leader';
 export type ApplicationStatus =
     | 'draft'
     | 'submitted'
@@ -63,7 +63,7 @@ const RecruitmentApplicationSchema = new Schema<IRecruitmentApplication>({
     role: {
         type: String,
         required: true,
-        enum: ['agency', 'operator', 'admin', 'customer-service', 'super-admin', 'seller', 'host'],
+        enum: ['agency', 'operator', 'admin', 'customer-service', 'super-admin', 'seller', 'host', 'bd', 'bd-leader'],
         index: true
     },
     status: {

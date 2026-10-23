@@ -32,6 +32,8 @@ router.post('/operator', (req, res) => { (req.params as any).role = 'operator'; 
 router.post('/admin', (req, res) => { (req.params as any).role = 'admin'; submitApplication(req, res); });
 router.post('/customer-service', (req, res) => { (req.params as any).role = 'customer-service'; submitApplication(req, res); });
 router.post('/super-admin', (req, res) => { (req.params as any).role = 'super-admin'; submitApplication(req, res); });
+router.post('/bd', (req, res) => { (req.params as any).role = 'bd'; submitApplication(req, res); });
+router.post('/bd-leader', (req, res) => { (req.params as any).role = 'bd-leader'; submitApplication(req, res); });
 router.post('/:role', submitApplication);
 
 // Admin Portal Integration Endpoints (Protected by verifyToken middleware if applicable)
