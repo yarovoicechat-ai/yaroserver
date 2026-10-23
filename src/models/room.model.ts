@@ -22,6 +22,14 @@ export interface IRoom extends Document {
     seatSkinId?: string;
     seatSkinAsset?: any;
     showSeatCharm?: boolean;
+    isBanned?: boolean;
+    bannedAt?: Date;
+    bannedBy?: string;
+    bannedByRole?: string;
+    bannedBySpecialId?: string;
+    banReason?: string;
+    unbannedAt?: Date;
+    unbannedBy?: string;
     createdAt: Date;
     updatedAt: Date;
 }
@@ -48,10 +56,19 @@ const RoomSchema = new Schema<IRoom>({
     seatSkinId: { type: String, default: null },
     seatSkinAsset: { type: Schema.Types.Mixed, default: null },
     showSeatCharm: { type: Boolean, default: false },
+    isBanned: { type: Boolean, default: false },
+    bannedAt: { type: Date },
+    bannedBy: { type: String, default: null },
+    bannedByRole: { type: String, default: null },
+    bannedBySpecialId: { type: String, default: null },
+    banReason: { type: String, default: null },
+    unbannedAt: { type: Date },
+    unbannedBy: { type: String, default: null },
 }, { timestamps: true });
 
 RoomSchema.index({ ownerId: 1 });
 RoomSchema.index({ category: 1, isActive: 1 });
 RoomSchema.index({ isPinned: 1, pinnedOrder: 1 });
+RoomSchema.index({ isBanned: 1 });
 
 export const Room = mongoose.model<IRoom>('Room', RoomSchema);

@@ -109,6 +109,8 @@ const empCodePrefixMap: Record<string, string> = {
   host: 'EMP-HOST',
   coinSeller: 'EMP-SEL',
   customerSupport: 'EMP-CS',
+  bdLeader: 'EMP-BDL',
+  bd: 'EMP-BD',
   user: 'EMP-USR',
 };
 
@@ -121,6 +123,8 @@ const roleCodePrefixMap: Record<string, string> = {
   host: 'HOST',
   coinSeller: 'SEL',
   customerSupport: 'CS',
+  bdLeader: 'BDL',
+  bd: 'BD',
   user: 'USR',
 };
 
@@ -1565,6 +1569,9 @@ export const finalizeUserApproval = async (
     'customersupport': 'customerSupport',
     'coinseller': 'coinSeller',
     'seller': 'coinSeller',
+    'bd-leader': 'bdLeader',
+    'bdleader': 'bdLeader',
+    'bd': 'bd',
   };
 
   let targetRole = roleMap[(requestObj as any).role?.toLowerCase()] || (requestObj as any).role || 'user';
@@ -1573,6 +1580,8 @@ export const finalizeUserApproval = async (
     if (rt.includes('super')) targetRole = 'superAdmin';
     else if (rt.includes('admin')) targetRole = 'admin';
     else if (rt.includes('operator')) targetRole = 'operator';
+    else if (rt.includes('bd-leader') || rt.includes('bd leader') || rt.includes('bdleader')) targetRole = 'bdLeader';
+    else if (rt.includes('bd')) targetRole = 'bd';
     else if (rt.includes('seller') || rt.includes('coin')) targetRole = 'coinSeller';
     else if (rt.includes('support') || rt.includes('customer') || rt.includes('cs')) targetRole = 'customerSupport';
     else if (rt.includes('agency')) targetRole = 'agency';

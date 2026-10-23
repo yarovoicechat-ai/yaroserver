@@ -57,32 +57,121 @@ const findGlobalRoomManager = async (identifier: unknown) => {
 
 export const getAllRooms = async (req: Request, res: Response, next: NextFunction): Promise<void> => {
     try {
-        const { page = 1, limit = 10, search = '' } = req.query;
-        const pageNum = parseInt(page as string);
-        const limitNum = parseInt(limit as string);
+        const { page = 1, limit = 10, search = '', status = 'all' } = req.query;
+        const pageNum = Math.max(1, parseInt(page as string) || 1);
+        const limitNum = Math.min(100, Math.max(1, parseInt(limit as string) || 10));
 
         const query: any = {};
+        if (status === 'banned') {
+            query.isBanned = true;
+        } else if (status === 'normal' || status === 'active') {
+            query.isBanned = { $ne: true };
+        }
+
         if (search) {
-            query.title = { $regex: search, $options: 'i' };
+            const searchRegex = { $regex: search, $options: 'i' };
+            query.$or = [
+                { title: searchRegex },
+                { channelName: searchRegex },
+                { bannedBy: searchRegex },
+                { bannedBySpecialId: searchRegex },
+                { banReason: searchRegex },
+            ];
         }
 
         const rooms = await Room.find(query)
             .populate('ownerId', 'name email userId image gender')
             .skip((pageNum - 1) * limitNum)
             .limit(limitNum)
-            .sort({ isPinned: -1, pinnedOrder: 1, createdAt: -1 });
+            .sort({ isBanned: -1, isPinned: -1, pinnedOrder: 1, createdAt: -1 })
+            .lean();
 
         const total = await Room.countDocuments(query);
+        const totalBanned = await Room.countDocuments({ isBanned: true });
+        const totalNormal = await Room.countDocuments({ isBanned: { $ne: true } });
 
         return sendResponse(res, 200, true, 'Rooms fetched successfully', {
             rooms,
             total,
+            totalBanned,
+            totalNormal,
             page: pageNum,
             limit: limitNum,
             totalPages: Math.ceil(total / limitNum)
         });
     } catch (error: any) {
         next(new AppError(error.message || 'Error fetching rooms', 500));
+    }
+};
+
+export const banRoom = async (req: Request, res: Response, next: NextFunction): Promise<void> => {
+    try {
+        const { id } = req.params;
+        const { reason = 'Banned from Admin Panel' } = req.body;
+        const actor = (req as any).user;
+
+        const room = await Room.findById(id);
+        if (!room) {
+            return sendResponse(res, 404, false, 'Room not found');
+        }
+
+        room.isBanned = true;
+        room.bannedAt = new Date();
+        room.bannedBy = actor?.name || String(actor?.id || 'Admin');
+        room.bannedByRole = actor?.role || 'admin';
+        room.bannedBySpecialId = actor?.specialCode || actor?.specialId || 'Panel Admin';
+        room.banReason = String(reason || 'Banned by platform administration');
+        room.isActive = false;
+        room.isPinned = false;
+        await room.save();
+
+        try {
+            const io = getIO();
+            if (io) {
+                const payload = {
+                    roomId: String(room._id),
+                    channelName: room.channelName,
+                    isBanned: true,
+                    reason: room.banReason
+                };
+                io.to(room.channelName).emit('room_force_closed', payload);
+                io.to(room.channelName).emit('room_banned', payload);
+                io.to(`room_${room._id}`).emit('room_banned', payload);
+                io.to(`voice_room_channel:${room.channelName}`).emit('voice_room:force_leave', {
+                    reason: room.banReason,
+                    code: 'ROOM_TERMINATED_BY_ADMIN'
+                });
+            }
+        } catch (sockErr) {
+            console.warn('Socket emit error on room ban:', sockErr);
+        }
+
+        await logAudit(req, 'BAN_ROOM', room.channelName, `Room '${room.title}' banned. Reason: ${room.banReason}`);
+        return sendResponse(res, 200, true, `Room '${room.title}' has been successfully BANNED.`, room);
+    } catch (error: any) {
+        next(new AppError(error.message || 'Error banning room', 500));
+    }
+};
+
+export const unbanRoom = async (req: Request, res: Response, next: NextFunction): Promise<void> => {
+    try {
+        const { id } = req.params;
+        const actor = (req as any).user;
+
+        const room = await Room.findById(id);
+        if (!room) {
+            return sendResponse(res, 404, false, 'Room not found');
+        }
+
+        room.isBanned = false;
+        room.unbannedAt = new Date();
+        room.unbannedBy = actor?.name || String(actor?.id || 'Admin');
+        await room.save();
+
+        await logAudit(req, 'UNBAN_ROOM', room.channelName, `Room '${room.title}' unbanned by ${room.unbannedBy}`);
+        return sendResponse(res, 200, true, `Room '${room.title}' unbanned successfully and restored to Normal.`, room);
+    } catch (error: any) {
+        next(new AppError(error.message || 'Error unbanning room', 500));
     }
 };
 

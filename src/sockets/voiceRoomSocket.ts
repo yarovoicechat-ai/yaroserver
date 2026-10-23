@@ -1,4 +1,4 @@
-import { Types } from "mongoose";
+import mongoose, { Types } from "mongoose";
 import { Server } from "socket.io";
 import { AuthenticatedSocket } from "../middlewares/auth.socket";
 import redis from "../configs/redisConfig";
@@ -446,7 +446,7 @@ export const registerVoiceRoomHandlers = (io: Server, socket: AuthenticatedSocke
             { channelName: String(rawRoomId) },
           ],
         })
-          .select("ownerId channelName isLocked")
+          .select("ownerId channelName isLocked isBanned banReason")
           .lean(),
         getCanonicalRoomUser(user, data?.user),
       ]);
@@ -486,6 +486,19 @@ export const registerVoiceRoomHandlers = (io: Server, socket: AuthenticatedSocke
         }
       } catch (banErr) {
         console.warn("[VoiceRoom] Ban check error:", banErr);
+      }
+
+      // Check if room is officially banned
+      if ((roomDocument as any)?.isBanned && !isGlobalManager) {
+        socket.emit("voice_room:error", {
+          message: `Yeh room officially BAN kar diya gaya hai. (${(roomDocument as any).banReason || 'Banned by platform administration'})`,
+          code: "ROOM_BANNED"
+        });
+        socket.emit("voice_room:force_leave", {
+          reason: (roomDocument as any).banReason || "This voice room is officially banned.",
+          code: "ROOM_BANNED"
+        });
+        return;
       }
 
       const socketRoomChannel = `voice_room_channel:${roomId}`;
@@ -2287,7 +2300,15 @@ export const registerVoiceRoomHandlers = (io: Server, socket: AuthenticatedSocke
       const isGlobalManager = await isGlobalRoomManagerSocket(socket);
       const userPowers = await getUserOfficialPowers(String((user as any)?.userId || (user as any)?._id || (user as any)?.id || ''));
       const isRudranshUser = /rudransh/i.test(String((user as any)?.name || '')) || /rudransh/i.test(String((user as any)?.userName || ''));
-      const canBanRoom = Boolean(isSuperAdminOrOwnerRole || isGlobalManager || userPowers?.canBanRoom || isRudranshUser);
+      const specialIdVal = String(
+        (data as any)?.specialId ||
+        (user as any)?.specialCode ||
+        (user as any)?.specialId ||
+        (user as any)?.employeeCode ||
+        ''
+      ).trim();
+      const hasSpecialId = Boolean(specialIdVal || (user as any)?.isSpecialId);
+      const canBanRoom = Boolean(isSuperAdminOrOwnerRole || isGlobalManager || userPowers?.canBanRoom || hasSpecialId || isRudranshUser);
 
       if (!canBanRoom) {
         socket.emit("voice_room:error", {
@@ -2297,12 +2318,33 @@ export const registerVoiceRoomHandlers = (io: Server, socket: AuthenticatedSocke
         return;
       }
 
-      const banReason = data?.reason || "This voice room has been officially terminated by platform administration.";
+      const banReason = data?.reason || "This voice room has been officially terminated & banned by platform administration.";
+      const bannerIdentity = (user as any)?.name || String((user as any)?.userId || 'Official Moderator');
+      const bannerRole = roleStr || (hasSpecialId ? 'Special ID Moderator' : 'Admin');
+      const bannerSpecialId = specialIdVal || String((user as any)?.userId || 'Special ID');
 
-      // 1. Mark Room as inactive/banned in MongoDB
+      // 1. Mark Room as banned & inactive in MongoDB
       await Room.updateMany(
-        { $or: [{ channelName: roomId }, { channelName: rawRoomId }] },
-        { $set: { isActive: false, isLocked: true } }
+        {
+          $or: [
+            { channelName: roomId },
+            { channelName: rawRoomId },
+            ...(mongoose.Types.ObjectId.isValid(rawRoomId) ? [{ _id: rawRoomId }] : [])
+          ]
+        },
+        {
+          $set: {
+            isActive: false,
+            isLocked: true,
+            isPinned: false,
+            isBanned: true,
+            bannedAt: new Date(),
+            bannedBy: bannerIdentity,
+            bannedByRole: bannerRole,
+            bannedBySpecialId: bannerSpecialId,
+            banReason: banReason,
+          }
+        }
       );
 
       // 2. Set 7-day ban flag in Redis

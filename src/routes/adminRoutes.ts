@@ -152,6 +152,8 @@ import {
     createRoom,
     toggleLockRoom,
     deleteRoom,
+    banRoom,
+    unbanRoom,
     kickUserFromRoom,
     muteUserInRoom,
     getAllBanners,
@@ -197,6 +199,10 @@ router.get('/rooms', verifyToken, getAllRooms);
 router.post('/rooms', verifyToken, createRoom);
 router.delete('/rooms/:id', verifyToken, deleteRoom);
 router.patch('/rooms/:id/lock', verifyToken, toggleLockRoom);
+router.post('/rooms/:id/ban', verifyToken, banRoom);
+router.patch('/rooms/:id/ban', verifyToken, banRoom);
+router.post('/rooms/:id/unban', verifyToken, unbanRoom);
+router.patch('/rooms/:id/unban', verifyToken, unbanRoom);
 router.patch('/rooms/:id/pin', verifyToken, togglePinRoomAdmin);
 router.post('/rooms/:id/pin', verifyToken, togglePinRoomAdmin);
 router.post('/rooms/:id/kick', verifyToken, kickUserFromRoom);
