@@ -103,29 +103,33 @@ export const INITIAL_ENTRY_EFFECTS: Partial<IEntryEffect>[] = [
 
 export class EntryEffectService {
   /**
-   * Seed default entry effects if database is empty.
+   * Dummy effects are completely disabled to ensure only real admin-created entries are used.
    */
   static async seedDefaults() {
-    try {
-      const count = await EntryEffect.countDocuments();
-      if (count === 0) {
-        console.log('[EntryEffectService] Seeding initial entry effects...');
-        await EntryEffect.insertMany(INITIAL_ENTRY_EFFECTS);
-      }
-    } catch (err: any) {
-      console.warn('[EntryEffectService] Seed warning:', err.message);
-    }
+    // Disabled: Only real entrance effects uploaded via Admin Panel are preserved.
+    return;
   }
 
   /**
-   * Fetch all active entry effects.
+   * Fetch all active entry effects (strictly real entries, excluding dummy seeds).
    */
   static async getEntryEffects(userId?: string | Types.ObjectId) {
-    let effects = await EntryEffect.find({ isActive: true }).sort({ sortOrder: 1, price: 1 }).lean();
-    if (!effects || effects.length === 0) {
-      await this.seedDefaults();
-      effects = await EntryEffect.find({ isActive: true }).sort({ sortOrder: 1, price: 1 }).lean();
-    }
+    const DUMMY_NAMES = [
+      'king arrival',
+      'vip phantom',
+      'diamond lord',
+      'legend beast',
+      'star guest',
+      'royal phantom rolls',
+      'golden dragon descent',
+      'cyber hypercar',
+    ];
+    const regexes = DUMMY_NAMES.map(n => new RegExp(`^${n}$`, 'i'));
+    const effects = await EntryEffect.find({
+      isActive: true,
+      name: { $nin: regexes },
+      image: { $not: /unsplash\.com/i },
+    }).sort({ sortOrder: 1, price: 1 }).lean();
 
     let ownedIds: string[] = [];
     let equippedId: string | null = null;
@@ -436,9 +440,54 @@ export class EntryEffectService {
     }
   }
 
+  static async cleanupDummyEffects() {
+    try {
+      const DUMMY_NAMES = [
+        'king arrival',
+        'vip phantom',
+        'diamond lord',
+        'legend beast',
+        'star guest',
+        'royal phantom rolls',
+        'golden dragon descent',
+        'cyber hypercar',
+      ];
+      const regexes = DUMMY_NAMES.map(n => new RegExp(`^${n}$`, 'i'));
+      await EntryEffect.deleteMany({
+        $or: [
+          { name: { $in: regexes } },
+          { image: { $regex: 'unsplash.com', $options: 'i' } },
+        ],
+      });
+      await StoreItem.deleteMany({
+        category: { $in: ['Entry', 'Entry Effect', 'Entry Effects'] },
+        $or: [
+          { name: { $in: regexes } },
+          { imageUrl: { $regex: 'unsplash.com', $options: 'i' } },
+        ],
+      });
+    } catch (e: any) {
+      console.warn('[EntryEffectService] Cleanup dummy warning:', e.message);
+    }
+  }
+
   static async getAllAdminEffects() {
-    await this.seedDefaults();
-    return await EntryEffect.find().sort({ sortOrder: 1, createdAt: -1 });
+    await this.cleanupDummyEffects();
+    const DUMMY_NAMES = [
+      'king arrival',
+      'vip phantom',
+      'diamond lord',
+      'legend beast',
+      'star guest',
+      'royal phantom rolls',
+      'golden dragon descent',
+      'cyber hypercar',
+    ];
+    const regexes = DUMMY_NAMES.map(n => new RegExp(`^${n}$`, 'i'));
+    return await EntryEffect.find({
+      name: { $nin: regexes },
+      image: { $not: /unsplash\.com/i },
+    }).sort({ sortOrder: 1, createdAt: -1 });
   }
 
   static async createEffect(data: any) {
