@@ -619,11 +619,12 @@ router.get('/app-access/users', verifyToken, requireRoles('owner', 'superAdmin',
       const escaped = s.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
       const regex = new RegExp(escaped, 'i');
       const num = Number(s);
-      const isNum = !isNaN(num);
+      const isNum = !isNaN(num) && s !== '';
 
       const orConditions: any[] = [
         { name: regex },
         { userName: regex },
+        { role: regex },
         { email: regex },
         { phoneNumber: regex },
         { meethiId: regex },
@@ -637,10 +638,11 @@ router.get('/app-access/users', verifyToken, requireRoles('owner', 'superAdmin',
         orConditions.push({ userId: num });
       }
 
+      // Safe regex matching on numeric userId converted to string
       orConditions.push({
         $expr: {
           $regexMatch: {
-            input: { $toString: "$userId" },
+            input: { $toString: { $ifNull: ["$userId", ""] } },
             regex: escaped,
             options: "i",
           },
@@ -652,15 +654,20 @@ router.get('/app-access/users', verifyToken, requireRoles('owner', 'superAdmin',
       }
 
       query.$or = orConditions;
-    } else {
-      // By default, show users that currently have isAgency: true or isBd: true
+
       if (filter === 'agency') {
         query.isAgency = true;
       } else if (filter === 'bd') {
         query.isBd = true;
-      } else {
-        query.$or = [{ isAgency: true }, { isBd: true }];
       }
+    } else {
+      // Blank search (no search filter)
+      if (filter === 'agency') {
+        query.isAgency = true;
+      } else if (filter === 'bd') {
+        query.isBd = true;
+      }
+      // If filter === 'all' or empty, list recent active users so admin can browse and assign!
     }
 
     const users = await User.find(query)
