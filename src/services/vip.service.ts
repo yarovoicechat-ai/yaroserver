@@ -110,7 +110,16 @@ export class VipService {
         }
       }
       if (!svip) {
-        svip = (INITIAL_SVIP_TIERS.find((t) => t.slug === String(user.equippedSvipId) || t.name === String(user.equippedSvipId)) as any) || null;
+        const needle = String(user.equippedSvipId).toLowerCase();
+        svip = (INITIAL_SVIP_TIERS.find((t) =>
+          t.slug.toLowerCase() === needle ||
+          t.name.toLowerCase() === needle ||
+          t.name.toLowerCase().includes(needle) ||
+          (needle === 'knight' && t.slug === 'svip-1') ||
+          (needle === 'count' && t.slug === 'svip-2') ||
+          (needle === 'duke' && t.slug === 'svip-3') ||
+          (needle === 'svip-king-of-kings' && t.slug === 'svip-5')
+        ) as any) || null;
       }
     }
 
@@ -651,11 +660,59 @@ export const INITIAL_VIP_PACKAGES = [
 
 export const INITIAL_SVIP_TIERS = [
   {
-    name: 'Knight',
-    slug: 'knight',
+    name: 'VIP+',
+    slug: 'vip-plus',
+    level: 0,
+    description: 'VIP+ Lynx: Blue Aura, faster level progression, and basic nobility entry.',
+    badge: '👑 VIP+',
+    icon: 'diamond',
+    crown: '👑',
+    price: 49000,
+    currency: 'DIAMONDS' as const,
+    durationDays: 30,
+    features: {
+      enableEntryEffect: true,
+      enableEntryTag: true,
+      enableEntryFrame: false,
+      enableAvatarFrame: false,
+      enableMicWave: true,
+      enableChatBubble: true,
+      enableRoomTheme: false,
+      enableNameEffect: true,
+      enableSpecialBadge: true,
+      enableSpecialSound: false,
+      enableParticles: false,
+      enableAntiKick: false,
+    },
+    entryTagText: '👑 VIP+ HAS ENTERED',
+    micWaveConfig: {
+      waveColors: ['#3B82F6', '#1D4ED8'],
+      intensity: 1.1,
+    },
+    chatBubbleConfig: {
+      bubbleName: 'VIP+ Frost Sapphire Bubble',
+      bgGradient: ['#1E3A8A', '#1E40AF'],
+      textColor: '#FFFFFF',
+      borderColor: '#60A5FA',
+    },
+    roomThemeConfig: {
+      themeName: 'Sapphire Realm',
+      bgUrl: '',
+      overlayGradient: ['rgba(30, 58, 138, 0.85)', 'rgba(15, 23, 42, 0.9)'],
+    },
+    nameEffectConfig: {
+      gradient: ['#93C5FD', '#3B82F6'],
+      glowColor: '#3B82F6',
+    },
+    isActive: true,
+    sortOrder: 0,
+  },
+  {
+    name: 'SVIP 1 Knight',
+    slug: 'svip-1',
     level: 1,
-    description: 'Knight of the Realm: Blue Aura, custom mic wave, and profile crest.',
-    badge: '🛡️ KNIGHT',
+    description: 'Knight of the Realm: Blue Aura, custom mic wave, profile crest, and unlocked Avatar Frame.',
+    badge: '🛡️ SVIP 1 KNIGHT',
     icon: 'shield',
     crown: '🛡️',
     price: 99000,
@@ -675,16 +732,17 @@ export const INITIAL_SVIP_TIERS = [
       enableParticles: true,
       enableAntiKick: true,
     },
-    entryTagText: '🛡️ KNIGHT HAS ENTERED',
+    entryTagText: '🛡️ SVIP 1 KNIGHT HAS ENTERED',
+    avatarFrameUrl: '/svip/frames/svip1_frame.png',
     micWaveConfig: {
       waveColors: ['#2563EB', '#3B82F6', '#60A5FA'],
       intensity: 1.2,
     },
     chatBubbleConfig: {
-      bubbleName: 'Knight Sapphire Bubble',
-      bgGradient: ['#1E3A8A', '#1D4ED8'],
+      bubbleName: 'Knight Amber Glass Bubble',
+      bgGradient: ['#3A1F04', '#78350F'],
       textColor: '#FFFFFF',
-      borderColor: '#60A5FA',
+      borderColor: '#F59E0B',
     },
     roomThemeConfig: {
       themeName: 'Sapphire Court',
@@ -699,11 +757,11 @@ export const INITIAL_SVIP_TIERS = [
     sortOrder: 1,
   },
   {
-    name: 'Count',
-    slug: 'count',
+    name: 'SVIP 2 Count',
+    slug: 'svip-2',
     level: 2,
-    description: 'Count of Velvet: Purple royal radiance, custom chat bubble, and visitor stealth.',
-    badge: '👑 COUNT',
+    description: 'Count of Velvet: Purple royal radiance, custom chat bubble, frame, and visitor stealth.',
+    badge: '👑 SVIP 2 COUNT',
     icon: 'diamond',
     crown: '👑',
     price: 180000,
@@ -723,7 +781,8 @@ export const INITIAL_SVIP_TIERS = [
       enableParticles: true,
       enableAntiKick: true,
     },
-    entryTagText: '👑 COUNT ARRIVED WITH ROYAL HONOR',
+    entryTagText: '👑 SVIP 2 COUNT ARRIVED WITH ROYAL HONOR',
+    avatarFrameUrl: '/svip/frames/svip2_frame.png',
     micWaveConfig: {
       waveColors: ['#A855F7', '#7C3AED', '#C084FC'],
       intensity: 1.3,
@@ -747,14 +806,14 @@ export const INITIAL_SVIP_TIERS = [
     sortOrder: 2,
   },
   {
-    name: 'Duke',
-    slug: 'duke',
+    name: 'SVIP 3 Duke',
+    slug: 'svip-3',
     level: 3,
-    description: 'Duke of Gold: Crimson gold wings, luxury particle entrance, and anti-kick immunity.',
-    badge: '👑 DUKE',
+    description: 'Duke of Gold: White Wolf Sovereign Tag, Personal Room Card, and anti-kick immunity.',
+    badge: '👑 SVIP 3 DUKE',
     icon: 'crown-gold',
     crown: '👑👑',
-    price: 360000,
+    price: 350000,
     currency: 'DIAMONDS' as const,
     durationDays: 30,
     features: {
@@ -772,40 +831,43 @@ export const INITIAL_SVIP_TIERS = [
       enableAntiKick: true,
       enableInvisibleVisit: true,
     },
-    entryTagText: '👑 DUKE OF YARO HAS ENTERED',
+    entryTagText: '🐺 SVIP 3 WOLF SOVEREIGN HAS ENTERED',
+    heroBadgeUrl: '/svip/svip3_tag.png',
+    entryAnimationUrl: '/svip/svip3_tag.png',
+    avatarFrameUrl: '/svip/frames/svip3_frame.png',
     micWaveConfig: {
-      waveColors: ['#EF4444', '#F59E0B', '#DC2626'],
-      intensity: 1.5,
+      waveColors: ['#06B6D4', '#0284C7', '#38BDF8'],
+      intensity: 1.4,
     },
     chatBubbleConfig: {
-      bubbleName: 'Duke Crimson Gold Bubble',
-      bgGradient: ['#7F1D1D', '#991B1B'],
+      bubbleName: 'Duke Cyan Crystal Bubble',
+      bgGradient: ['#082F49', '#0369A1'],
       textColor: '#FFFFFF',
-      borderColor: '#F59E0B',
+      borderColor: '#38BDF8',
     },
     roomThemeConfig: {
-      themeName: 'Duke Royal Grand Palace',
+      themeName: 'Duke Personal Wolf Sanctuary',
       bgUrl: '',
-      overlayGradient: ['rgba(127, 29, 29, 0.85)', 'rgba(15, 23, 42, 0.9)'],
+      overlayGradient: ['rgba(8, 47, 73, 0.85)', 'rgba(15, 23, 42, 0.9)'],
     },
     nameEffectConfig: {
-      gradient: ['#FCA5A5', '#EF4444', '#F59E0B'],
-      glowColor: '#EF4444',
+      gradient: ['#7DD3FC', '#06B6D4', '#0284C7'],
+      glowColor: '#06B6D4',
     },
     isActive: true,
     sortOrder: 3,
   },
   {
-    name: 'SVIP King of Kings',
-    slug: 'svip-king-of-kings',
-    level: 5,
-    description: 'Supreme King of Kings: Ultimate luxury gold-purple aura, fire mic waves, and sovereign theme.',
-    badge: '👑👑 KING OF KINGS',
+    name: 'SVIP 4 Monarch',
+    slug: 'svip-4',
+    level: 4,
+    description: 'Tiger Monarch: Roaring White Tiger Gold Badge, VIP 4 Chat Bubble, and Luxury Mic Theme.',
+    badge: '🐯 SVIP 4 TIGER MONARCH',
     icon: 'crown-gold',
     crown: '👑👑👑',
-    price: 1500000,
+    price: 700000,
     currency: 'DIAMONDS' as const,
-    durationDays: 90,
+    durationDays: 30,
     features: {
       enableEntryEffect: true,
       enableEntryTag: true,
@@ -821,7 +883,65 @@ export const INITIAL_SVIP_TIERS = [
       enableAntiKick: true,
       enableInvisibleVisit: true,
     },
-    entryTagText: '👑👑 KING OF KINGS ENTERED THE ROOM',
+    entryTagText: '🐯 SVIP 4 TIGER MONARCH HAS ENTERED',
+    heroBadgeUrl: '/svip/svip4_badge.png',
+    entryAnimationUrl: '/svip/svip4_badge.png',
+    avatarFrameUrl: '/svip/frames/svip4_frame.png',
+    micWaveConfig: {
+      waveColors: ['#EF4444', '#F59E0B', '#DC2626'],
+      intensity: 1.6,
+    },
+    chatBubbleConfig: {
+      bubbleName: 'VIP 4 Imperial Gold Bubble',
+      previewUrl: '/svip/chat_bubble_vip4.png',
+      bgGradient: ['#450A0A', '#7F1D1D'],
+      textColor: '#FFFFFF',
+      borderColor: '#F59E0B',
+    },
+    roomThemeConfig: {
+      themeName: 'Tiger Monarch Golden Palace',
+      bgUrl: '',
+      overlayGradient: ['rgba(127, 29, 29, 0.85)', 'rgba(15, 23, 42, 0.9)'],
+    },
+    nameEffectConfig: {
+      gradient: ['#FCA5A5', '#EF4444', '#F59E0B'],
+      glowColor: '#EF4444',
+    },
+    entrySound: 'fanfare_tiger.mp3',
+    particles: 'fire_sparkles',
+    isActive: true,
+    sortOrder: 4,
+  },
+  {
+    name: 'SVIP 5 Sovereign Supreme',
+    slug: 'svip-5',
+    level: 5,
+    description: 'Supreme Sovereign: Permanent Achievement Badge showcase, Sovereign Theme, and Ultimate Immunity.',
+    badge: '👑👑👑 SVIP 5 SOVEREIGN',
+    icon: 'crown-gold',
+    crown: '👑👑👑👑',
+    price: 1500000,
+    currency: 'DIAMONDS' as const,
+    durationDays: 30,
+    features: {
+      enableEntryEffect: true,
+      enableEntryTag: true,
+      enableEntryFrame: true,
+      enableAvatarFrame: true,
+      enableMicWave: true,
+      enableChatBubble: true,
+      enableRoomTheme: true,
+      enableNameEffect: true,
+      enableSpecialBadge: true,
+      enableSpecialSound: true,
+      enableParticles: true,
+      enableAntiKick: true,
+      enableInvisibleVisit: true,
+    },
+    entryTagText: '👑👑👑 SVIP 5 SOVEREIGN SUPREME HAS ENTERED',
+    heroBadgeUrl: '/svip/svip4_badge.png',
+    entryAnimationUrl: '/svip/svip4_badge.png',
+    avatarFrameUrl: '/svip/frames/svip5_frame.png',
     micWaveConfig: {
       waveColors: ['#FDE047', '#EAB308', '#CA8A04', '#A855F7'],
       intensity: 1.8,
@@ -847,3 +967,4 @@ export const INITIAL_SVIP_TIERS = [
     sortOrder: 5,
   },
 ];
+

@@ -33,7 +33,7 @@ describe('VIP & SVIP Store System, Priorities & Responsive Fitting Tests', () =>
     assert.ok(INITIAL_SVIP_TIERS.length >= 4, 'Must have at least 4 SVIP tiers');
     INITIAL_SVIP_TIERS.forEach((tier) => {
       assert.ok(tier.name, 'SVIP tier must have name');
-      assert.ok(tier.level >= 1, 'SVIP tier must have valid level');
+      assert.ok(tier.level >= 0, 'SVIP tier must have valid level');
       assert.ok(tier.price > 0, 'Price must be positive');
       assert.strictEqual(tier.currency, 'DIAMONDS', 'Currency must be DIAMONDS');
       assert.ok(typeof tier.features.enableEntryEffect === 'boolean');
