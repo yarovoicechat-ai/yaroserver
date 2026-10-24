@@ -116,7 +116,7 @@ export class VipService {
           t.name.toLowerCase() === needle ||
           t.name.toLowerCase().includes(needle) ||
           (needle === 'knight' && t.slug === 'svip-1') ||
-          (needle === 'count' && t.slug === 'svip-2') ||
+          ((needle === 'count' || needle === 'viscount') && t.slug === 'svip-2') ||
           (needle === 'duke' && t.slug === 'svip-3') ||
           (needle === 'svip-king-of-kings' && t.slug === 'svip-5')
         ) as any) || null;

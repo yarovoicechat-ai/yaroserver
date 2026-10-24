@@ -337,10 +337,9 @@ function createKingTierData(
     title: `👑 ${name} Nobility`,
     description: `Prestigious ${name} tier granting daily coins, exclusive assets, and immunity perks.`,
     badge: `👑 ${name.toUpperCase()}`,
-    crown: '👑',
-    heroBadgeUrl: 'https://cdn.yaroapp.in/king/badges/stag_crest.png',
+    heroBadgeUrl: slug === 'viscount' || slug === 'count' ? '/king/viscount_badge.png' : 'https://cdn.yaroapp.in/king/badges/stag_crest.png',
     heroAnimationUrl: '',
-    heroBadgePreviewUrl: '',
+    heroBadgePreviewUrl: slug === 'viscount' || slug === 'count' ? '/king/viscount_badge.png' : '',
     priceCoins,
     originalPriceCoins: originalPrice,
     discountPercent: discount,
@@ -359,7 +358,7 @@ function createKingTierData(
 // 5 Standard King of Kings Tiers (matching screenshot)
 export const DEFAULT_KING_TIERS = [
   createKingTierData('Knight', 'knight', 1, 99000, 150000, 30, 3600, 108000, 7, 4),
-  createKingTierData('Count', 'count', 2, 199000, 300000, 33, 7500, 225000, 8, 6),
+  createKingTierData('Viscount', 'viscount', 2, 199000, 300000, 33, 7500, 225000, 8, 6),
   createKingTierData('Duke', 'duke', 3, 399000, 600000, 33, 15000, 450000, 9, 8),
   createKingTierData('Prince', 'prince', 4, 799000, 1200000, 33, 30000, 900000, 10, 10),
   createKingTierData('King', 'king', 5, 1599000, 2500000, 36, 60000, 1800000, 11, 13),
@@ -399,7 +398,13 @@ export const purchaseKingPlan = async (req: AuthRequest, res: Response) => {
     }
 
     const plan = await KingTier.findOne({
-      $or: [{ _id: planIdOrSlug }, { slug: planIdOrSlug }, { name: planIdOrSlug }],
+      $or: [
+        { _id: planIdOrSlug },
+        { slug: planIdOrSlug },
+        { name: planIdOrSlug },
+        ...(planIdOrSlug === 'count' ? [{ slug: 'viscount' }, { name: 'Viscount' }] : []),
+        ...(planIdOrSlug === 'viscount' ? [{ slug: 'count' }, { name: 'Count' }] : []),
+      ],
       status: 'active',
       isActive: true,
     });
