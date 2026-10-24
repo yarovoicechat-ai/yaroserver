@@ -616,17 +616,42 @@ router.get('/app-access/users', verifyToken, requireRoles('owner', 'superAdmin',
 
     if (search && String(search).trim()) {
       const s = String(search).trim();
+      const escaped = s.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+      const regex = new RegExp(escaped, 'i');
       const num = Number(s);
       const isNum = !isNaN(num);
-      const regex = new RegExp(s.replace(/[-[\]{}()*+?.,\\^$|#\s]/g, '\\\\$&'), 'i');
 
-      query.$or = [
+      const orConditions: any[] = [
         { name: regex },
         { userName: regex },
         { email: regex },
         { phoneNumber: regex },
-        ...(isNum ? [{ userId: num }] : []),
+        { meethiId: regex },
+        { uniqueId: regex },
+        { customDisplayId: regex },
+        { displayId: regex },
+        { employeeCode: regex },
       ];
+
+      if (isNum) {
+        orConditions.push({ userId: num });
+      }
+
+      orConditions.push({
+        $expr: {
+          $regexMatch: {
+            input: { $toString: "$userId" },
+            regex: escaped,
+            options: "i",
+          },
+        },
+      });
+
+      if (mongoose.Types.ObjectId.isValid(s)) {
+        orConditions.push({ _id: new mongoose.Types.ObjectId(s) });
+      }
+
+      query.$or = orConditions;
     } else {
       // By default, show users that currently have isAgency: true or isBd: true
       if (filter === 'agency') {
@@ -639,7 +664,7 @@ router.get('/app-access/users', verifyToken, requireRoles('owner', 'superAdmin',
     }
 
     const users = await User.find(query)
-      .select('userId name userName image avatar role isAgency isBd createdAt')
+      .select('userId meethiId uniqueId customDisplayId displayId name userName image avatar role isAgency isBd createdAt')
       .sort({ updatedAt: -1 })
       .limit(50)
       .lean();
@@ -668,8 +693,18 @@ router.post('/app-access/toggle', verifyToken, requireRoles('owner', 'superAdmin
     if (mongoose.Types.ObjectId.isValid(String(userId))) {
       userDoc = await User.findById(userId);
     }
-    if (!userDoc) {
+    if (!userDoc && !isNaN(Number(userId))) {
       userDoc = await User.findOne({ userId: Number(userId) });
+    }
+    if (!userDoc) {
+      userDoc = await User.findOne({
+        $or: [
+          { meethiId: String(userId) },
+          { uniqueId: String(userId) },
+          { customDisplayId: String(userId) },
+          { userName: String(userId) },
+        ],
+      });
     }
 
     if (!userDoc) {

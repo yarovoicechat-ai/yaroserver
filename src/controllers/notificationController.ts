@@ -47,7 +47,11 @@ export const getMyNotifications = async (req: AuthRequest, res: Response) => {
         const skip = (page - 1) * limit;
         const requestedType = String(req.query.type || '').trim().toLowerCase();
         const allowedTypes = ['system', 'promo', 'transaction', 'call', 'event', 'follow'];
-        const notificationFilter: any = { userId };
+        const notificationFilter: any = {
+            userId,
+            title: { $not: /dummy/i },
+            message: { $not: /dummy/i },
+        };
 
         if (allowedTypes.includes(requestedType)) {
             notificationFilter.type = requestedType;

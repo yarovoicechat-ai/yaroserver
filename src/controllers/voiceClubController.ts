@@ -239,6 +239,7 @@ export const getAllActiveVoiceRooms = async (req: Request, res: Response) => {
         category: r.category || 'Chat 💬',
         mode: r.mode || 'Public',
         isLocked: Boolean((r as any).isLocked || /private\s*\(pin\)/i.test(String((r as any).mode || ''))),
+        hasPin: Boolean((r as any).pinHash || (r as any).isLocked),
         seatCount: r.seatCount || 8,
         isActive: r.isActive,
         isPinned,
