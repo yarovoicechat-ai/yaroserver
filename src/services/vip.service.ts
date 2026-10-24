@@ -938,9 +938,10 @@ export const INITIAL_SVIP_TIERS = [
       enableAntiKick: true,
       enableInvisibleVisit: true,
     },
-    entryTagText: '👑👑👑 SVIP 5 SOVEREIGN SUPREME HAS ENTERED',
-    heroBadgeUrl: '/svip/svip4_badge.png',
-    entryAnimationUrl: '/svip/svip4_badge.png',
+    entryTagText: '🦁👑 SVIP 5 SOVEREIGN SUPREME HAS ENTERED',
+    heroBadgeUrl: '/svip/svip5_badge.png',
+    entryAnimationUrl: '/svip/svip5_badge.png',
+    badgeUrl: '/svip/svip5_badge.png',
     avatarFrameUrl: '/svip/frames/svip5_frame.png',
     micWaveConfig: {
       waveColors: ['#FDE047', '#EAB308', '#CA8A04', '#A855F7'],
