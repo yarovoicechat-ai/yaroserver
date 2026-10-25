@@ -893,7 +893,7 @@ export const listRequests = async (req: AuthRequest, res: Response) => {
             if (app) {
               const voiceDoc = (app.documents || []).find((d: any) =>
                 d.documentType === 'Voice' || d.documentType === 'Audio' ||
-                d.name?.toLowerCase().includes('voice') || d.name?.toLowerCase().includes('audition')
+                (typeof d?.name === 'string' && (d.name.toLowerCase().includes('voice') || d.name.toLowerCase().includes('audition')))
               );
               foundVoice = firstPlayableVoiceUrl(
                 (app.roleData as any)?.voiceAudioUrl,

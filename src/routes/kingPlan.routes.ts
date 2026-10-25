@@ -23,7 +23,9 @@ router.post('/purchase', verifyToken, purchaseKingPlan);
 router.post('/claim-daily', verifyToken, claimDailyKingReward);
 
 // Admin Console CRUD & Reseed
+router.get('/admin', verifyToken, adminRoles, adminListKingPlans);
 router.get('/admin/all', verifyToken, adminRoles, adminListKingPlans);
+router.get('/admin/plans', verifyToken, adminRoles, adminListKingPlans);
 router.post('/admin/create', verifyToken, adminRoles, adminCreateKingPlan);
 router.put('/admin/:id', verifyToken, adminRoles, adminUpdateKingPlan);
 router.patch('/admin/:id', verifyToken, adminRoles, adminUpdateKingPlan);

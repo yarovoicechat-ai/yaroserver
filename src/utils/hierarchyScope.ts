@@ -240,7 +240,7 @@ export class HierarchyScopeService {
 
     if (role === 'owner') return {};
 
-    // Operator: visible only to requests in this Operator's branch (excluding Owner direct referrals)
+    // Operator: visible to requests in this Operator's branch (excluding Owner direct referrals) + direct unassigned applications
     if (role === 'operator') {
       return {
         role: { $ne: 'owner' },
@@ -252,12 +252,14 @@ export class HierarchyScopeService {
           { 'data.hierarchyPath': { $regex: userId } },
           { 'referrer.referrerId': userId },
           { 'roleData.operatorId': userId },
-          { 'roleData.hierarchyPath': { $regex: userId } }
+          { 'roleData.hierarchyPath': { $regex: userId } },
+          { createdBy: { $in: ['public', 'recruitment_sync', '', null] } },
+          { referralUserId: { $in: ['', null, undefined] } }
         ]
       };
     }
 
-    // Super Admin: visible only to requests in this Super Admin's branch
+    // Super Admin: visible to requests in this Super Admin's branch + direct unassigned applications
     if (role === 'superAdmin' || role === 'super-admin') {
       return {
         $or: [
@@ -267,12 +269,14 @@ export class HierarchyScopeService {
           { 'data.hierarchyPath': { $regex: userId } },
           { 'referrer.referrerId': userId },
           { 'roleData.superAdminId': userId },
-          { 'roleData.hierarchyPath': { $regex: userId } }
+          { 'roleData.hierarchyPath': { $regex: userId } },
+          { createdBy: { $in: ['public', 'recruitment_sync', '', null] } },
+          { referralUserId: { $in: ['', null, undefined] } }
         ]
       };
     }
 
-    // Admin: visible only to requests in this Admin's branch
+    // Admin: visible to requests in this Admin's branch + direct unassigned applications
     if (role === 'admin') {
       return {
         $or: [
@@ -282,7 +286,9 @@ export class HierarchyScopeService {
           { 'data.hierarchyPath': { $regex: userId } },
           { 'referrer.referrerId': userId },
           { 'roleData.adminId': userId },
-          { 'roleData.hierarchyPath': { $regex: userId } }
+          { 'roleData.hierarchyPath': { $regex: userId } },
+          { createdBy: { $in: ['public', 'recruitment_sync', '', null] } },
+          { referralUserId: { $in: ['', null, undefined] } }
         ]
       };
     }
