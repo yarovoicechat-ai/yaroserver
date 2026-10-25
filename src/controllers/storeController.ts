@@ -115,8 +115,8 @@ const normalizeStoreCategory = (value: string = '') => {
   if (['mic wave', 'mic waves'].includes(category)) return 'Mic Wave';
   if (['theme', 'themes'].includes(category)) return 'Theme';
   if (['seat skin', 'seat skins'].includes(category)) return 'Seat Skin';
-  if (['vip', 'king of kings'].includes(category)) return 'VIP';
-  if (['badge', 'tag'].includes(category)) return 'Badge';
+  if (['badge', 'badges'].includes(category)) return 'Badge';
+  if (['tag', 'tags'].includes(category)) return 'Tag';
   return value.trim();
 };
 
@@ -1658,9 +1658,14 @@ export const grantAssetToUser = async (req: AuthRequest, res: Response) => {
           imageUrl: asset.imageUrl || asset.image || '',
           expiresAt,
         };
-      } else if (cat === 'Badge' || cat === 'Tag') {
+      } else if (cat === 'Badge') {
         targetUser.equippedBadge = asset.name;
-        targetUser.equippedEntryTag = asset.badgeText || asset.name;
+        targetUser.equippedBadgeAsset = buildCanonicalAsset(asset, expiresAt);
+        targetUser.equippedBadges = [targetUser.equippedBadgeAsset];
+      } else if (cat === 'Tag') {
+        targetUser.equippedTag = asset.name;
+        targetUser.equippedTagAsset = buildCanonicalAsset(asset, expiresAt);
+        targetUser.equippedEntryTag = asset.metadata?.tagText || asset.badgeText || asset.name;
       } else if (cat === 'Mic Wave') {
         targetUser.equippedMicWave = asset.name;
       } else if (cat === 'Tassel') {
@@ -2011,6 +2016,12 @@ export const equipStoreItem = async (req: any, res: Response) => {
         update.equippedVipId = null;
       } else if (requestedCategory === 'Badge') {
         update.equippedBadge = null;
+        update.equippedBadgeAsset = null;
+        update.equippedBadges = [];
+      } else if (requestedCategory === 'Tag') {
+        update.equippedTag = null;
+        update.equippedTagAsset = null;
+        update.equippedEntryTag = '';
       } else if (requestedCategory === 'Vehicle') {
         update.equippedVehicle = null;
         update.equippedVehicleAsset = null;
@@ -2141,7 +2152,12 @@ export const equipStoreItem = async (req: any, res: Response) => {
         update.equippedVipId = catalogItem ? String(catalogItem._id) : itemName;
       } else if (actualCategory === 'Badge') {
         update.equippedBadge = itemName;
-        update.equippedBadges = [itemName];
+        update.equippedBadgeAsset = asset;
+        update.equippedBadges = [asset];
+      } else if (actualCategory === 'Tag') {
+        update.equippedTag = itemName;
+        update.equippedTagAsset = asset;
+        update.equippedEntryTag = asset.metadata?.tagText || catalogItem?.badgeText || itemName;
       } else if (actualCategory === 'Vehicle') {
         update.equippedVehicle = itemName;
         update.equippedVehicleAsset = asset;
@@ -2156,7 +2172,7 @@ export const equipStoreItem = async (req: any, res: Response) => {
     }
 
     const user = await User.findByIdAndUpdate(userId, { $set: update }, { new: true })
-      .select('equippedFrame equippedFrameAsset equippedMicWave equippedChatBubble equippedChatBubbleAsset equippedEntry equippedEntryAsset equippedTassel equippedTasselAsset equippedEntrance equippedEntranceAsset equippedVipId equippedSvipId equippedBadge equippedBadges equippedRoomTheme equippedVehicle equippedVehicleAsset equippedCustomId equippedProfileBorder equippedProfileBorderAsset');
+      .select('equippedFrame equippedFrameAsset equippedMicWave equippedChatBubble equippedChatBubbleAsset equippedEntry equippedEntryAsset equippedTassel equippedTasselAsset equippedEntrance equippedEntranceAsset equippedVipId equippedSvipId equippedBadge equippedBadgeAsset equippedBadges equippedTag equippedTagAsset equippedEntryTag equippedRoomTheme equippedVehicle equippedVehicleAsset equippedCustomId equippedProfileBorder equippedProfileBorderAsset');
 
     if (!user) {
       return sendResponse(res, 404, false, 'User not found');

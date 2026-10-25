@@ -50,7 +50,10 @@ export interface UserInterface extends Document {
   equippedEntryEffect?: Types.ObjectId | null;
   equippedEntryTag?: string;
   equippedBadge?: any;
+  equippedBadgeAsset?: any;
   equippedBadges?: any[];
+  equippedTag?: string | null;
+  equippedTagAsset?: any;
   ownedEntryEffects?: Types.ObjectId[];
   equippedVipId?: string | null;
   equippedVipExpiresAt?: Date | null;
