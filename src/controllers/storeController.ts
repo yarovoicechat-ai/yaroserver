@@ -213,13 +213,16 @@ const syncStoreVipPackage = async (item: any) => {
 const buildCanonicalAsset = (item: any, expiresAt?: Date | null) => {
   const plain = typeof item?.toObject === 'function' ? item.toObject() : item;
   const metadata = plain?.metadata || {};
+  const img = plain?.imageUrl || plain?.image || '';
+  const anim = plain?.animationUrl || (/\.(svga|gif|webp|mp4)/i.test(img) ? img : '');
   return {
     id: String(plain?._id || plain?.id || ''),
     itemId: String(plain?._id || plain?.id || ''),
     name: plain?.name || '',
     category: plain?.category || '',
-    imageUrl: plain?.imageUrl || '',
-    animationUrl: plain?.animationUrl || '',
+    imageUrl: img,
+    image: img,
+    animationUrl: anim,
     previewColor: plain?.previewColor || metadata.previewColor || '',
     bgColors: plain?.bgColors || metadata.bgColors || [],
     icon: plain?.icon || metadata.icon || '',

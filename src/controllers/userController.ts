@@ -1610,12 +1610,21 @@ export const getUserProfile = async (req: AuthRequest, res: Response) => {
     }
 
     const effective = await IdentityResolverService.resolveEffectiveIdentity(user);
+    const resolvedCustomId =
+      effective?.customDisplayId ||
+      user.customDisplayId ||
+      user.equippedCustomId ||
+      user.uniqueId ||
+      null;
     const enrichedUser = {
       ...user,
       followersCount: user.followersCount ?? (Array.isArray(user.followers) ? user.followers.length : 0),
       followingCount: user.followingCount ?? (Array.isArray(user.following) ? user.following.length : 0),
       visitorsCount: user.visitorsCount ?? 0,
-      displayId: effective?.displayId || String(user.userId),
+      displayId: effective?.displayId || resolvedCustomId || String(user.userId),
+      customDisplayId: resolvedCustomId,
+      uniqueId: resolvedCustomId,
+      equippedCustomId: resolvedCustomId,
       isOfficial: effective?.isOfficial || false,
       officialBadge: effective?.officialBadge || null,
       uniqueIdBadge: effective?.uniqueIdBadge || null,
@@ -1774,13 +1783,22 @@ export const getPublicUserProfile = async (req: AuthRequest, res: Response) => {
         ).exec().catch(() => {});
       }
     }
+    const resolvedCustomId =
+      effective?.customDisplayId ||
+      user.customDisplayId ||
+      user.equippedCustomId ||
+      user.uniqueId ||
+      null;
     const enrichedUser = {
       ...user,
       isFollowing,
       followersCount: user.followersCount ?? (Array.isArray(user.followers) ? user.followers.length : 0),
       followingCount: user.followingCount ?? (Array.isArray(user.following) ? user.following.length : 0),
       visitorsCount: user.visitorsCount ?? 0,
-      displayId: effective?.displayId || String(user.userId),
+      displayId: effective?.displayId || resolvedCustomId || String(user.userId),
+      customDisplayId: resolvedCustomId,
+      uniqueId: resolvedCustomId,
+      equippedCustomId: resolvedCustomId,
       isOfficial: effective?.isOfficial || false,
       officialBadge: effective?.officialBadge || null,
       uniqueIdBadge: effective?.uniqueIdBadge || null,

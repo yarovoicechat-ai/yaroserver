@@ -151,16 +151,21 @@ export class IdentityResolverService {
     }
 
     // 2. Custom Display ID & Unique ID Badge Resolution
-    const customIdEntitlement = activeEntitlements.find(e => e.type === 'custom_display_id');
-    const uniqueBadgeEntitlement = activeEntitlements.find(e => e.type === 'unique_id_badge');
+    const customIdEntitlement = activeEntitlements.find(e =>
+      e.type === 'custom_display_id' || e.type === 'unique_id' || e.type === 'custom_id'
+    );
+    const uniqueBadgeEntitlement = activeEntitlements.find(e =>
+      e.type === 'unique_id_badge' ||
+      (e.type === 'unique_id' && (e.config?.badgeIconUrl || e.config?.badgeUrl || e.config?.badgeName))
+    );
 
     let customDisplayId: string | null = null;
     if (!isOfficial) {
       if (customIdEntitlement && customIdEntitlement.config?.displayId) {
-        customDisplayId = String(customIdEntitlement.config.displayId);
+        customDisplayId = String(customIdEntitlement.config.displayId).trim();
         effectiveDisplayId = customDisplayId;
-      } else if (userDoc.equippedCustomId) {
-        customDisplayId = String(userDoc.equippedCustomId);
+      } else if (userDoc.equippedCustomId || userDoc.customDisplayId || userDoc.uniqueId || userDoc.customId) {
+        customDisplayId = String(userDoc.equippedCustomId || userDoc.customDisplayId || userDoc.uniqueId || userDoc.customId).trim();
         effectiveDisplayId = customDisplayId;
       }
     }
@@ -168,17 +173,17 @@ export class IdentityResolverService {
     let uniqueIdBadge = uniqueBadgeEntitlement
       ? {
           badgeName: uniqueBadgeEntitlement.config?.badgeName || 'VIP ID',
-          badgeIconUrl: uniqueBadgeEntitlement.config?.badgeIconUrl || '',
+          badgeIconUrl: uniqueBadgeEntitlement.config?.badgeIconUrl || uniqueBadgeEntitlement.config?.badgeUrl || '',
           glowColor: uniqueBadgeEntitlement.config?.glowColor || '#F59E0B',
           borderGradient: uniqueBadgeEntitlement.config?.borderGradient || ['#F59E0B', '#D97706'],
-          animationType: uniqueBadgeEntitlement.config?.animationType || 'pulse',
-          vipLevel: Number(uniqueBadgeEntitlement.config?.vipLevel || 0),
+          animationType: uniqueBadgeEntitlement.config?.animationType || 'svga',
+          vipLevel: Number(uniqueBadgeEntitlement.config?.vipLevel || 1),
         }
       : null;
 
-    if (!uniqueIdBadge && (customDisplayId || userDoc.equippedCustomId)) {
+    if (!uniqueIdBadge && (customDisplayId || userDoc.equippedCustomId || userDoc.uniqueId)) {
       const inventoryList = Array.isArray(userDoc.storeInventory) ? userDoc.storeInventory : [];
-      const targetId = String(customDisplayId || userDoc.equippedCustomId || '').trim();
+      const targetId = String(customDisplayId || userDoc.equippedCustomId || userDoc.uniqueId || '').trim();
       const uniqueInv = inventoryList.find((it: any) => {
         const cat = String(it.category || it.type || '').toLowerCase().trim();
         if (/frame|theme|bubble|tassel|wave|skin|entry|vehicle/i.test(cat)) return false;
@@ -187,7 +192,12 @@ export class IdentityResolverService {
         const matchesId = Boolean(targetId && itemDisplayId && targetId === itemDisplayId);
         return isBadgeCategory || matchesId;
       });
-      const badgeIconUrl = String(uniqueInv?.metadata?.badgeIconUrl || uniqueInv?.metadata?.badgeUrl || (['unique id', 'unique_id', 'badge', 'custom id'].includes(String(uniqueInv?.category || '').toLowerCase()) ? (uniqueInv?.animationUrl || uniqueInv?.imageUrl) : '') || '').trim();
+      const badgeIconUrl = String(
+        uniqueInv?.metadata?.badgeIconUrl ||
+        uniqueInv?.metadata?.badgeUrl ||
+        (['unique id', 'unique_id', 'badge', 'custom id'].includes(String(uniqueInv?.category || '').toLowerCase()) ? (uniqueInv?.animationUrl || uniqueInv?.imageUrl) : '') ||
+        ''
+      ).trim();
       if (badgeIconUrl && !/frame/i.test(badgeIconUrl)) {
         uniqueIdBadge = {
           badgeName: uniqueInv?.metadata?.badgeName || 'VIP ID',

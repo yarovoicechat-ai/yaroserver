@@ -765,9 +765,15 @@ export const registerVoiceRoomHandlers = (io: Server, socket: AuthenticatedSocke
           onlineCount: Object.keys(state.onlineUsers).length,
           announcementSent: true,
         });
+      }
 
-        // Broadcast Entry Effect to the voice room
-        EntryEffectService.broadcastEntry(roomId, userData).catch((err: any) => {
+      // Broadcast Entry Effect to the voice room and directly to joiner
+      if (!isStealth) {
+        EntryEffectService.broadcastEntry(roomId, userData).then((entryPayload) => {
+          if (entryPayload && socket.connected) {
+            socket.emit("entry:effect", entryPayload);
+          }
+        }).catch((err: any) => {
           console.warn("[VoiceRoom] Entry effect broadcast warning:", err?.message);
         });
       }

@@ -103,6 +103,9 @@ export interface UserInterface extends Document {
   equippedVehicle?: string | null;
   equippedVehicleAsset?: any;
   equippedCustomId?: string | null;
+  customDisplayId?: string | null;
+  uniqueId?: string | null;
+  displayId?: string | null;
   equippedProfileBorder?: string | null;
   equippedProfileBorderAsset?: any;
   employeeCode?: string;

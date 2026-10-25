@@ -334,26 +334,45 @@ export class EntryEffectService {
       }
 
       const vipExperience = await VipService.resolveVipExperience(source).catch(() => ({ isVip: false } as any));
-      // Resolve only the actually equipped entrance. Never show a stock car.
-      let entranceEffect: any = source.equippedEntranceAsset || null;
+      let entranceEffect: any = source.equippedEntranceAsset || source.equippedVehicleAsset || null;
       if (!entranceEffect) {
-        const entranceName = source.equippedEntrance;
+        const entranceName = source.equippedEntrance || source.equippedVehicle;
         const fromInv = entranceName ? dbUser?.storeInventory?.find((i: any) =>
-          (i.category === 'Entrance' || i.category === 'Ride' || i.category === 'Profile Entry') &&
+          ['Entrance', 'entrance', 'Ride', 'ride', 'Vehicle', 'vehicle', 'Profile Entry', 'profile entry'].includes(i.category) &&
           i.name === entranceName
         ) : null;
-        entranceEffect = fromInv ? {
-          name: fromInv.name,
-          animationUrl: fromInv.animationUrl || '',
-          image: fromInv.imageUrl || fromInv.image || '',
-          metadata: fromInv.metadata || {},
-          expiresAt: fromInv.expiresAt,
-        } : null;
+        if (fromInv) {
+          entranceEffect = {
+            id: fromInv.id || fromInv._id,
+            name: fromInv.name,
+            animationUrl: fromInv.animationUrl || (/\.(svga|gif|webp|mp4)/i.test(fromInv.imageUrl || fromInv.image || '') ? (fromInv.imageUrl || fromInv.image) : ''),
+            imageUrl: fromInv.imageUrl || fromInv.image || '',
+            image: fromInv.imageUrl || fromInv.image || '',
+            metadata: fromInv.metadata || {},
+            expiresAt: fromInv.expiresAt,
+          };
+        } else if (entranceName) {
+          const catalogItem = await StoreItem.findOne({
+            category: { $in: ['Entrance', 'entrance', 'Ride', 'ride', 'Vehicle', 'vehicle', 'Profile Entry', 'profile entry'] },
+            name: entranceName,
+          }).lean();
+          if (catalogItem) {
+            entranceEffect = {
+              id: catalogItem._id,
+              name: catalogItem.name,
+              animationUrl: catalogItem.animationUrl || (/\.(svga|gif|webp|mp4)/i.test(catalogItem.imageUrl || '') ? catalogItem.imageUrl : ''),
+              imageUrl: catalogItem.imageUrl || (catalogItem as any).image || '',
+              image: catalogItem.imageUrl || (catalogItem as any).image || '',
+              bannerColors: catalogItem.bgColors || ['#06B6D4', '#0E7490'],
+              metadata: catalogItem.metadata || {},
+            };
+          }
+        }
       }
 
       // Resolve current panel settings even for assets equipped before an edit.
       const refreshAsset = async (asset: any, categories: string[]) => {
-        if (!entryIsActive(asset)) return null;
+        if (!asset) return null;
         const id = asset.itemId || asset.id || asset._id;
         const catalog = await StoreItem.findOne({
           category: { $in: categories },
@@ -363,13 +382,20 @@ export class EntryEffectService {
           ],
         }).lean();
         if (!catalog) return asset;
-        return { ...asset, animationUrl: catalog.animationUrl, isActive: catalog.isActive,
+        const anim = catalog.animationUrl || (/\.(svga|gif|webp|mp4)/i.test(catalog.imageUrl || '') ? catalog.imageUrl : asset.animationUrl);
+        return {
+          ...asset,
+          animationUrl: anim || asset.animationUrl || '',
+          imageUrl: catalog.imageUrl || asset.imageUrl || '',
+          image: catalog.imageUrl || asset.image || '',
+          isActive: catalog.isActive,
           duration: catalog.metadata?.duration || asset.duration,
           bannerColors: catalog.bgColors?.length ? catalog.bgColors : asset.bannerColors,
-          metadata: { ...(asset.metadata || {}), ...(catalog.metadata || {}) } };
+          metadata: { ...(asset.metadata || {}), ...(catalog.metadata || {}) }
+        };
       };
-      entryEffect = await refreshAsset(entryEffect, ['Entry', 'Entry Effect', 'Entry Effects']);
-      entranceEffect = await refreshAsset(entranceEffect, ['Entrance', 'Ride', 'Profile Entry']);
+      entryEffect = await refreshAsset(entryEffect, ['Entry', 'entry', 'Entry Effect', 'entry effect', 'Entry Effects', 'entry effects']);
+      entranceEffect = await refreshAsset(entranceEffect, ['Entrance', 'entrance', 'Ride', 'ride', 'Vehicle', 'vehicle', 'Profile Entry', 'profile entry']);
       // VIP membership never fabricates a ride. Plain joins use the same banner.
       const roomEntryEffect = roomEntryAsset(entryEffect);
       entranceEffect = roomEntryAsset(entranceEffect);

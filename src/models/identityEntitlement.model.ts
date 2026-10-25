@@ -4,6 +4,8 @@ export type EntitlementType =
   | 'official_id'
   | 'unique_id_badge'
   | 'custom_display_id'
+  | 'unique_id'
+  | 'custom_id'
   | 'animated_name'
   | 'name_color'
   | 'vip_tier'
@@ -80,6 +82,8 @@ const IdentityEntitlementSchema = new Schema<IIdentityEntitlement>(
         'official_id',
         'unique_id_badge',
         'custom_display_id',
+        'unique_id',
+        'custom_id',
         'animated_name',
         'name_color',
         'vip_tier',
