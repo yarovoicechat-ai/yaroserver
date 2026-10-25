@@ -42,7 +42,7 @@ test('VIP without entry gets plain arrival; entrance-only and current panel sett
     assert.ok(plain);
     assert.equal(plain.hasEntry, false, 'DB unequip must override stale socket cosmetics');
     assert.equal(plain.entry, null);
-    assert.equal(plain.entrance, null);
+    assert.equal(plain.entrance?.isDefault, true);
     assert.equal(plain.tagText, 'entered the room');
 
     account = { ...account, equippedEntranceAsset: { name: 'Bike', animationUrl: 'bike.svga' } };

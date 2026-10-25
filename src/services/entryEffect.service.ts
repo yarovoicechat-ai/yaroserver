@@ -394,10 +394,22 @@ export class EntryEffectService {
       };
       entryEffect = await refreshAsset(entryEffect, ['Entry', 'entry', 'Entry Effect', 'entry effect', 'Entry Effects', 'entry effects']);
       entranceEffect = await refreshAsset(entranceEffect, ['Entrance', 'entrance', 'Ride', 'ride', 'Vehicle', 'vehicle', 'Profile Entry', 'profile entry']);
-      // VIP membership never fabricates a ride. Plain joins use the same banner.
       const roomEntryEffect = roomEntryAsset(entryEffect);
-      entranceEffect = roomEntryAsset(entranceEffect);
-      const hasEquippedEntry = Boolean(roomEntryEffect || entranceEffect);
+      let activeEntrance = roomEntryAsset(entranceEffect);
+      if (!activeEntrance) {
+        activeEntrance = {
+          id: 'default_entrance',
+          name: 'Default Entrance',
+          isDefault: true,
+          imageUrl: '/uploads/default_entrance_banner.png',
+          bannerColors: ['#854D0E', '#B45309', '#78350F'],
+          metadata: {
+            comingText: 'enter the room',
+            isDefault: true,
+          },
+        };
+      }
+      const hasEquippedEntry = Boolean(roomEntryEffect || (activeEntrance && !activeEntrance.isDefault));
       const tagText = hasEquippedEntry ? 'is coming' : 'entered the room';
       const entryId = `entry_${Date.now()}_${Math.random().toString(36).substr(2, 6)}`;
       const payload = {
@@ -423,7 +435,7 @@ export class EntryEffectService {
         entry: roomEntryEffect,
         effect: roomEntryEffect,
         tassel: null,
-        entrance: entranceEffect,
+        entrance: activeEntrance,
         vipExperience: vipExperience.isVip ? vipExperience : null,
         tagText,
         timestamp: Date.now(),
