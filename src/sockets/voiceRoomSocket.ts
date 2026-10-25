@@ -1438,13 +1438,42 @@ export const registerVoiceRoomHandlers = (io: Server, socket: AuthenticatedSocke
 
       const socketRoomChannel = `voice_room_channel:${roomId}`;
       const identity = await IdentityResolverService.resolveEffectiveIdentity(user?.id || user?.userId);
+      const dbSender = senderId ? await User.findOne({ userId: senderId }).lean() : null;
+      const hostId = String(state.hostUser?.userId || state.hostUser?._id || state.hostUser?.id || "");
+      const isOwner = Boolean(hostId && hostId === senderId);
+      const isStaffUser = Boolean(
+        dbSender?.role === 'admin' ||
+        dbSender?.role === 'superAdmin' ||
+        (dbSender as any)?.isStaff ||
+        (dbSender as any)?.isGlobalRoomManager
+      );
+      const isSvipUser = Boolean(dbSender?.equippedSvipId || (dbSender as any)?.isSvip || data.message?.isSvip);
+      const isVipUser = Boolean(dbSender?.equippedVipId || (dbSender as any)?.isVip || data.message?.isVip);
+
       const msg = {
         ...data.message,
         nameEffect: identity?.nameEffect || null,
         id: data.message.id || ("msg-" + Date.now() + "-" + Math.random().toString(36).substr(2, 4)),
         senderId,
-        chatBubble: (socket as any).voiceUser?.equippedChatBubbleAsset || (socket as any).voiceUser?.equippedChatBubble || (user as any)?.equippedChatBubbleAsset || (user as any)?.equippedChatBubble || data.message.chatBubble || null,
-        chatBubbleId: (socket as any).voiceUser?.equippedChatBubble || (user as any)?.equippedChatBubble || data.message.chatBubbleId || null,
+        wealthLevel: (dbSender as any)?.wealthLevel || dbSender?.level || data.message?.wealthLevel || data.message?.level || 1,
+        charmLevel: (dbSender as any)?.charmLevel ?? data.message?.charmLevel ?? 0,
+        level: (dbSender as any)?.wealthLevel || dbSender?.level || data.message?.level || 1,
+        isOwner: isOwner || Boolean(data.message?.isOwner),
+        userRole: isOwner ? 'owner' : (isStaffUser ? 'staff' : (data.message?.userRole || 'user')),
+        isStaff: isStaffUser || Boolean(data.message?.isStaff),
+        isSvip: isSvipUser,
+        isVip: isVipUser,
+        svipLevel: dbSender?.svipLevel || (dbSender?.equippedSvipId ? 1 : null) || data.message?.svipLevel || (isSvipUser ? 1 : null),
+        vipLevel: (dbSender as any)?.vipLevel || (dbSender?.equippedVipId ? 1 : null) || data.message?.vipLevel || (isVipUser ? 1 : null),
+        equippedTag: dbSender?.equippedTag || data.message?.equippedTag || null,
+        equippedTagAsset: dbSender?.equippedTagAsset || data.message?.equippedTagAsset || null,
+        equippedBadge: dbSender?.equippedBadge || data.message?.equippedBadge || null,
+        equippedBadgeAsset: dbSender?.equippedBadgeAsset || data.message?.equippedBadgeAsset || null,
+        equippedBadges: Array.isArray(dbSender?.equippedBadges) && dbSender.equippedBadges.length
+          ? dbSender.equippedBadges
+          : (Array.isArray(data.message?.equippedBadges) ? data.message.equippedBadges : []),
+        chatBubble: (socket as any).voiceUser?.equippedChatBubbleAsset || (socket as any).voiceUser?.equippedChatBubble || (dbSender as any)?.equippedChatBubbleAsset || (dbSender as any)?.equippedChatBubble || data.message.chatBubble || null,
+        chatBubbleId: (socket as any).voiceUser?.equippedChatBubble || (dbSender as any)?.equippedChatBubble || data.message.chatBubbleId || null,
         timestamp: Date.now(),
       };
 
