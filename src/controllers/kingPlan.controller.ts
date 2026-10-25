@@ -1,4 +1,5 @@
 import { Request, Response } from 'express';
+import { isValidObjectId } from 'mongoose';
 import { KingTier, IKingRewardItem, IKingPrivilegeItem } from '../models/kingTier.model';
 import { User } from '../models/user.model';
 import { IdentityEntitlement } from '../models/identityEntitlement.model';
@@ -11,13 +12,13 @@ import { Logger } from '../utils/logger';
 // 11 Standard Reward Assets from Screenshot
 export const STANDARD_KING_REWARDS: IKingRewardItem[] = [
   {
-    key: 'daily_free_coins',
-    title: 'Daily free coins',
-    description: 'Claim free bonus coins every 24 hours directly inside the app.',
+    key: 'activation_bonus',
+    title: 'Activation bonus',
+    description: 'Bonus coins credited once on paid activation; privileges last for 30 days.',
     icon: 'cash',
     previewUrl: 'https://cdn.yaroapp.in/king/rewards/daily_coins.png',
     animationUrl: '',
-    value: '+3,600/days',
+    value: 'One-time bonus',
     isEnabled: true,
     sortOrder: 1,
   },
@@ -321,7 +322,7 @@ function createKingTierData(
 ) {
   const rewards = STANDARD_KING_REWARDS.map((r, idx) => ({
     ...r,
-    value: r.key === 'daily_free_coins' ? `+${dailyCoins.toLocaleString()}/days` : r.value,
+    value: r.key === 'activation_bonus' ? `+${totalReturn.toLocaleString()} once` : r.value,
     isEnabled: idx < rewardsUnlockedCount,
   }));
 
@@ -335,7 +336,7 @@ function createKingTierData(
     slug,
     tierLevel: level,
     title: `👑 ${name} Nobility`,
-    description: `Prestigious ${name} tier granting daily coins, exclusive assets, and immunity perks.`,
+    description: `Prestigious ${name} tier granting a one-time activation bonus, exclusive assets, and immunity perks.`,
     badge: `👑 ${name.toUpperCase()}`,
     heroBadgeUrl: slug === 'viscount' || slug === 'count' ? '/king/viscount_badge.png' : 'https://cdn.yaroapp.in/king/badges/stag_crest.png',
     heroAnimationUrl: '',
@@ -357,10 +358,10 @@ function createKingTierData(
 
 // 5 Standard King of Kings Tiers (matching screenshot)
 export const DEFAULT_KING_TIERS = [
-  createKingTierData('Knight', 'knight', 1, 99000, 150000, 30, 3600, 108000, 7, 4),
-  createKingTierData('Viscount', 'viscount', 2, 199000, 300000, 33, 7500, 225000, 8, 6),
-  createKingTierData('Duke', 'duke', 3, 399000, 600000, 33, 15000, 450000, 9, 8),
-  createKingTierData('Prince', 'prince', 4, 799000, 1200000, 33, 30000, 900000, 10, 10),
+  createKingTierData('Viscount', 'viscount', 1, 99000, 150000, 30, 3600, 108000, 7, 4),
+  createKingTierData('Count', 'count', 2, 199000, 300000, 33, 7500, 225000, 8, 6),
+  createKingTierData('Marquis', 'marquis', 3, 399000, 600000, 33, 15000, 450000, 9, 8),
+  createKingTierData('Duke', 'duke', 4, 799000, 1200000, 33, 30000, 900000, 10, 10),
   createKingTierData('King', 'king', 5, 1599000, 2500000, 36, 60000, 1800000, 11, 13),
 ];
 
@@ -381,7 +382,7 @@ export const getPublishedKingPlans = async (_req: Request, res: Response) => {
 
     return sendResponse(res, 200, true, 'King of Kings tiers fetched successfully', {
       total: plans.length,
-      plans,
+      plans: plans.map(plan => ({...plan, name: ['Viscount', 'Count', 'Marquis', 'Duke', 'King'][plan.tierLevel - 1] || plan.name, title: (['Viscount', 'Count', 'Marquis', 'Duke', 'King'][plan.tierLevel - 1] || plan.name) + ' Nobility'})),
     });
   } catch (error: any) {
     return sendResponse(res, 500, false, error.message || 'Failed to fetch King of Kings plans');
@@ -390,7 +391,7 @@ export const getPublishedKingPlans = async (_req: Request, res: Response) => {
 
 export const purchaseKingPlan = async (req: AuthRequest, res: Response) => {
   try {
-    const { planIdOrSlug } = req.body;
+    const planIdOrSlug = req.body.planIdOrSlug || req.body.tierKey;
     const userId = req.user?.id || (req.user as any)?._id;
 
     if (!planIdOrSlug) {
@@ -399,11 +400,9 @@ export const purchaseKingPlan = async (req: AuthRequest, res: Response) => {
 
     const plan = await KingTier.findOne({
       $or: [
-        { _id: planIdOrSlug },
+        ...(isValidObjectId(planIdOrSlug) ? [{ _id: planIdOrSlug }] : []),
         { slug: planIdOrSlug },
         { name: planIdOrSlug },
-        ...(planIdOrSlug === 'count' ? [{ slug: 'viscount' }, { name: 'Viscount' }] : []),
-        ...(planIdOrSlug === 'viscount' ? [{ slug: 'count' }, { name: 'Count' }] : []),
       ],
       status: 'active',
       isActive: true,
@@ -430,11 +429,13 @@ export const purchaseKingPlan = async (req: AuthRequest, res: Response) => {
       );
     }
 
+    // Credit the configured membership bonus once in the same atomic paid activation.
+    const bonusCoins = Math.max(0, plan.totalReturnCoins || 0);
     // Deduct coins and equip King of Kings tier
     const updatedUser = await User.findOneAndUpdate(
       { _id: userId, coins: { $gte: cost } },
       {
-        $inc: { coins: -cost },
+        $inc: { coins: bonusCoins - cost },
         $set: {
           equippedKingTierId: plan.slug,
           equippedKingTierName: plan.name,
@@ -489,6 +490,7 @@ export const purchaseKingPlan = async (req: AuthRequest, res: Response) => {
         planSlug: plan.slug,
         tierLevel: plan.tierLevel,
         priceCoins: cost,
+        bonusCoins,
         durationDays: plan.durationDays,
         expiresAt,
       },
@@ -506,6 +508,7 @@ export const purchaseKingPlan = async (req: AuthRequest, res: Response) => {
       entitlement,
       effectiveIdentity,
       remainingCoins: updatedUser.coins,
+      bonusCoins,
     });
   } catch (error: any) {
     await Logger('purchaseKingPlan', error);
@@ -513,42 +516,9 @@ export const purchaseKingPlan = async (req: AuthRequest, res: Response) => {
   }
 };
 
-export const claimDailyKingReward = async (req: AuthRequest, res: Response) => {
-  try {
-    const userId = req.user?.id || (req.user as any)?._id;
-    const user = await User.findById(userId);
-    if (!user) return sendResponse(res, 404, false, 'User not found');
-
-    if (!(user as any).equippedKingTierId) {
-      return sendResponse(res, 400, false, 'You do not have an active King of Kings membership');
-    }
-
-    const plan = await KingTier.findOne({ slug: (user as any).equippedKingTierId });
-    if (!plan || !plan.dailyCoins) {
-      return sendResponse(res, 400, false, 'No daily coins configured for your tier');
-    }
-
-    const todayStr = new Date().toISOString().split('T')[0];
-    if ((user as any).lastKingClaimDate === todayStr) {
-      return sendResponse(res, 400, false, 'Daily coins already claimed today! Check back tomorrow.');
-    }
-
-    const updated = await User.findByIdAndUpdate(
-      userId,
-      {
-        $inc: { coins: plan.dailyCoins },
-        $set: { lastKingClaimDate: todayStr },
-      },
-      { new: true }
-    );
-
-    return sendResponse(res, 200, true, `Claimed ${plan.dailyCoins.toLocaleString()} free daily coins! 🪙`, {
-      dailyCoins: plan.dailyCoins,
-      totalCoins: updated?.coins,
-    });
-  } catch (error: any) {
-    return sendResponse(res, 500, false, error.message || 'Failed to claim daily reward');
-  }
+// Compatibility response for older clients: repeat daily payouts are no longer supported.
+export const claimDailyKingReward = async (_req: AuthRequest, res: Response) => {
+  return sendResponse(res, 410, false, 'Daily rewards are no longer available. Bonus coins are credited once on paid activation.');
 };
 
 /* =========================================================================

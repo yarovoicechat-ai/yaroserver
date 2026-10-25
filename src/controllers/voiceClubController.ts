@@ -203,15 +203,25 @@ export const getAllActiveVoiceRooms = async (req: Request, res: Response) => {
       const displayRoomId = uniqueId || r.channelName;
 
       let badgeUrl = String((r as any).badgeUrl || (r as any).badgeIconUrl || '').trim();
+      if (/frame/i.test(badgeUrl)) badgeUrl = '';
       let uniqueIdBadge = (r as any).uniqueIdBadge || null;
+      if (uniqueIdBadge?.badgeIconUrl && /frame/i.test(uniqueIdBadge.badgeIconUrl)) {
+        uniqueIdBadge = null;
+      }
       if (!badgeUrl && owner) {
         const inventoryList = Array.isArray(owner.storeInventory) ? owner.storeInventory : [];
-        const uniqueInv = inventoryList.find((it: any) =>
-          ['unique_id', 'custom_id', 'id'].includes(String(it.category || it.type || '').toLowerCase()) ||
-          String(it.metadata?.uniqueDisplayId || it.metadata?.displayId || '') === String(owner.customDisplayId || owner.equippedCustomId || uniqueId)
-        );
-        badgeUrl = String(uniqueInv?.metadata?.badgeIconUrl || uniqueInv?.animationUrl || uniqueInv?.imageUrl || '').trim();
-        if (badgeUrl) {
+        const targetId = String(owner.customDisplayId || owner.equippedCustomId || uniqueId || '').trim();
+        const uniqueInv = inventoryList.find((it: any) => {
+          const cat = String(it.category || it.type || '').toLowerCase().trim();
+          if (/frame|theme|bubble|tassel|wave|skin|entry|vehicle/i.test(cat)) return false;
+          const isBadgeCategory = ['unique id', 'unique_id', 'custom id', 'custom_id', 'badge', 'id'].includes(cat);
+          const itemDisplayId = String(it.metadata?.uniqueDisplayId || it.metadata?.displayId || it.uniqueId || '').trim();
+          const matchesId = Boolean(targetId && itemDisplayId && targetId === itemDisplayId);
+          return isBadgeCategory || matchesId;
+        });
+        const candidateBadgeUrl = String(uniqueInv?.metadata?.badgeIconUrl || uniqueInv?.metadata?.badgeUrl || (['unique id', 'unique_id', 'badge', 'custom id'].includes(String(uniqueInv?.category || '').toLowerCase()) ? (uniqueInv?.animationUrl || uniqueInv?.imageUrl) : '') || '').trim();
+        if (candidateBadgeUrl && !/frame/i.test(candidateBadgeUrl)) {
+          badgeUrl = candidateBadgeUrl;
           uniqueIdBadge = {
             badgeName: uniqueInv?.metadata?.badgeName || 'VIP ID',
             badgeIconUrl: badgeUrl,
@@ -298,15 +308,25 @@ export const getMyVoiceRoom = async (req: any, res: Response) => {
     const displayRoomId = ownerUniqueId || room.channelName;
 
     let badgeUrl = String((room as any).badgeUrl || (room as any).badgeIconUrl || '').trim();
+    if (/frame/i.test(badgeUrl)) badgeUrl = '';
     let uniqueIdBadge = (room as any).uniqueIdBadge || null;
+    if (uniqueIdBadge?.badgeIconUrl && /frame/i.test(uniqueIdBadge.badgeIconUrl)) {
+      uniqueIdBadge = null;
+    }
     if (!badgeUrl && owner) {
       const inventoryList = Array.isArray(owner.storeInventory) ? owner.storeInventory : (Array.isArray(user.storeInventory) ? user.storeInventory : []);
-      const uniqueInv = inventoryList.find((it: any) =>
-        ['unique_id', 'custom_id', 'id'].includes(String(it.category || it.type || '').toLowerCase()) ||
-        String(it.metadata?.uniqueDisplayId || it.metadata?.displayId || '') === String(owner.customDisplayId || user.customDisplayId || owner.equippedCustomId || user.equippedCustomId || ownerUniqueId)
-      );
-      badgeUrl = String(uniqueInv?.metadata?.badgeIconUrl || uniqueInv?.animationUrl || uniqueInv?.imageUrl || '').trim();
-      if (badgeUrl) {
+      const targetId = String(owner.customDisplayId || user.customDisplayId || owner.equippedCustomId || user.equippedCustomId || ownerUniqueId || '').trim();
+      const uniqueInv = inventoryList.find((it: any) => {
+        const cat = String(it.category || it.type || '').toLowerCase().trim();
+        if (/frame|theme|bubble|tassel|wave|skin|entry|vehicle/i.test(cat)) return false;
+        const isBadgeCategory = ['unique id', 'unique_id', 'custom id', 'custom_id', 'badge', 'id'].includes(cat);
+        const itemDisplayId = String(it.metadata?.uniqueDisplayId || it.metadata?.displayId || it.uniqueId || '').trim();
+        const matchesId = Boolean(targetId && itemDisplayId && targetId === itemDisplayId);
+        return isBadgeCategory || matchesId;
+      });
+      const candidateBadgeUrl = String(uniqueInv?.metadata?.badgeIconUrl || uniqueInv?.metadata?.badgeUrl || (['unique id', 'unique_id', 'badge', 'custom id'].includes(String(uniqueInv?.category || '').toLowerCase()) ? (uniqueInv?.animationUrl || uniqueInv?.imageUrl) : '') || '').trim();
+      if (candidateBadgeUrl && !/frame/i.test(candidateBadgeUrl)) {
+        badgeUrl = candidateBadgeUrl;
         uniqueIdBadge = {
           badgeName: uniqueInv?.metadata?.badgeName || 'VIP ID',
           badgeIconUrl: badgeUrl,

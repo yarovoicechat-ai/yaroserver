@@ -177,19 +177,26 @@ export class IdentityResolverService {
 
     if (!uniqueIdBadge && (customDisplayId || userDoc.equippedCustomId)) {
       const inventoryList = Array.isArray(userDoc.storeInventory) ? userDoc.storeInventory : [];
-      const uniqueInv = inventoryList.find((it: any) =>
-        ['unique_id', 'custom_id', 'id'].includes(String(it.category || it.type || '').toLowerCase()) ||
-        String(it.metadata?.uniqueDisplayId || it.metadata?.displayId || '') === String(customDisplayId || userDoc.equippedCustomId)
-      );
-      const badgeIconUrl = uniqueInv?.metadata?.badgeIconUrl || uniqueInv?.animationUrl || uniqueInv?.imageUrl || '';
-      uniqueIdBadge = {
-        badgeName: uniqueInv?.metadata?.badgeName || 'VIP ID',
-        badgeIconUrl: String(badgeIconUrl || '').trim(),
-        glowColor: '#F59E0B',
-        borderGradient: ['#F59E0B', '#D97706'],
-        animationType: 'svga',
-        vipLevel: 1,
-      };
+      const targetId = String(customDisplayId || userDoc.equippedCustomId || '').trim();
+      const uniqueInv = inventoryList.find((it: any) => {
+        const cat = String(it.category || it.type || '').toLowerCase().trim();
+        if (/frame|theme|bubble|tassel|wave|skin|entry|vehicle/i.test(cat)) return false;
+        const isBadgeCategory = ['unique id', 'unique_id', 'custom id', 'custom_id', 'badge', 'id'].includes(cat);
+        const itemDisplayId = String(it.metadata?.uniqueDisplayId || it.metadata?.displayId || it.uniqueId || '').trim();
+        const matchesId = Boolean(targetId && itemDisplayId && targetId === itemDisplayId);
+        return isBadgeCategory || matchesId;
+      });
+      const badgeIconUrl = String(uniqueInv?.metadata?.badgeIconUrl || uniqueInv?.metadata?.badgeUrl || (['unique id', 'unique_id', 'badge', 'custom id'].includes(String(uniqueInv?.category || '').toLowerCase()) ? (uniqueInv?.animationUrl || uniqueInv?.imageUrl) : '') || '').trim();
+      if (badgeIconUrl && !/frame/i.test(badgeIconUrl)) {
+        uniqueIdBadge = {
+          badgeName: uniqueInv?.metadata?.badgeName || 'VIP ID',
+          badgeIconUrl: badgeIconUrl,
+          glowColor: '#F59E0B',
+          borderGradient: ['#F59E0B', '#D97706'],
+          animationType: 'svga',
+          vipLevel: 1,
+        };
+      }
     }
 
     // 3. VIP / SVIP Resolution (incorporating existing VipService)

@@ -7,6 +7,7 @@ import { getCachedSettings } from '../controllers/settingsController';
 import { broadcastGiftSuccess } from './gift.socket';
 import { LevelService } from '../services/level.service';
 import { RoomTaskService } from '../services/roomTask.service';
+import { RoomContributionService } from '../services/roomContribution.service';
 import {
   CreateCategoryDTO,
   CreateGiftDTO,
@@ -619,7 +620,7 @@ export class GiftService {
       console.warn('[GiftService] Level EXP award error:', levelErr?.message);
     }
 
-    // Record Room Tasks & Room Support Progress
+    // Record Room Tasks, Room Support Progress, Daily/Weekly/Monthly Contributions, and Fan Club EXP
     if (roomId) {
       try {
         await RoomTaskService.recordGiftActivity(
@@ -630,6 +631,16 @@ export class GiftService {
         );
       } catch (taskErr: any) {
         console.warn('[GiftService] Room task activity recording error:', taskErr?.message);
+      }
+
+      try {
+        await RoomContributionService.recordContribution(
+          String(roomId),
+          String(sender._id),
+          totalDiamonds
+        );
+      } catch (contribErr: any) {
+        console.warn('[GiftService] Room contribution recording error:', contribErr?.message);
       }
     }
 

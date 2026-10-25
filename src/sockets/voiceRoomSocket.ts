@@ -358,15 +358,25 @@ export const getVoiceRoomState = async (roomId: string, defaultSeatsCount = 8, h
             if (!parsed.displayRoomId) parsed.displayRoomId = resolvedUnique || canonicalId;
 
             let resolvedBadgeUrl = String(mRoom?.badgeUrl || mRoom?.badgeIconUrl || "").trim();
+            if (/frame/i.test(resolvedBadgeUrl)) resolvedBadgeUrl = "";
             let resolvedUniqueBadge = mRoom?.uniqueIdBadge || null;
+            if (resolvedUniqueBadge?.badgeIconUrl && /frame/i.test(resolvedUniqueBadge.badgeIconUrl)) {
+              resolvedUniqueBadge = null;
+            }
             if (!resolvedBadgeUrl && ownerDoc) {
               const inv = Array.isArray(ownerDoc.storeInventory) ? ownerDoc.storeInventory : [];
-              const uInv = inv.find((it: any) =>
-                ['unique_id', 'custom_id', 'id'].includes(String(it.category || it.type || '').toLowerCase()) ||
-                String(it.metadata?.uniqueDisplayId || it.metadata?.displayId || '') === String(ownerDoc.customDisplayId || ownerDoc.equippedCustomId || resolvedUnique)
-              );
-              resolvedBadgeUrl = String(uInv?.metadata?.badgeIconUrl || uInv?.animationUrl || uInv?.imageUrl || "").trim();
-              if (resolvedBadgeUrl) {
+              const targetId = String(ownerDoc.customDisplayId || ownerDoc.equippedCustomId || resolvedUnique || "").trim();
+              const uInv = inv.find((it: any) => {
+                const cat = String(it.category || it.type || "").toLowerCase().trim();
+                if (/frame|theme|bubble|tassel|wave|skin|entry|vehicle/i.test(cat)) return false;
+                const isBadgeCategory = ['unique id', 'unique_id', 'custom id', 'custom_id', 'badge', 'id'].includes(cat);
+                const itemDisplayId = String(it.metadata?.uniqueDisplayId || it.metadata?.displayId || it.uniqueId || "").trim();
+                const matchesId = Boolean(targetId && itemDisplayId && targetId === itemDisplayId);
+                return isBadgeCategory || matchesId;
+              });
+              const candidateBadgeUrl = String(uInv?.metadata?.badgeIconUrl || uInv?.metadata?.badgeUrl || (['unique id', 'unique_id', 'badge', 'custom id'].includes(String(uInv?.category || '').toLowerCase()) ? (uInv?.animationUrl || uInv?.imageUrl) : "") || "").trim();
+              if (candidateBadgeUrl && !/frame/i.test(candidateBadgeUrl)) {
+                resolvedBadgeUrl = candidateBadgeUrl;
                 resolvedUniqueBadge = {
                   badgeName: uInv?.metadata?.badgeName || "VIP ID",
                   badgeIconUrl: resolvedBadgeUrl,

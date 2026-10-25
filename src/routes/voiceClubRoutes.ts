@@ -23,6 +23,13 @@ import {
   toggleAutoSendSupport,
 } from '../controllers/roomTaskController';
 
+import {
+  getRoomContributors,
+  getFanClubDetails,
+  joinRoomFanClub,
+  recordFanClubStayHeartbeat,
+} from '../controllers/roomCommunityController';
+
 const router = Router();
 
 router.get('/config', getVoiceClubConfig);
@@ -37,6 +44,14 @@ router.post('/create-or-update', verifyToken, createOrUpdateMyVoiceRoom);
 router.post('/rooms/:id/close', verifyToken, closeVoiceRoom);
 router.get('/rooms/:id/agora-token', verifyToken, getVoiceRoomToken);
 router.post('/rooms/:id/agora-token', verifyToken, getVoiceRoomToken);
+
+// Room Contributors & Leaderboard (Daily, Weekly, Monthly)
+router.get('/rooms/:id/contributors', verifyToken, getRoomContributors);
+
+// Room Fan Club Endpoints
+router.get('/rooms/:id/fan-club', verifyToken, getFanClubDetails);
+router.post('/rooms/:id/fan-club/join', verifyToken, joinRoomFanClub);
+router.post('/rooms/:id/fan-club/stay', verifyToken, recordFanClubStayHeartbeat);
 
 // Room Admins Management
 router.get('/rooms/:id/admins', verifyToken, getRoomAdmins);
