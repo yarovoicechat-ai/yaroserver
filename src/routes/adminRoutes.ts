@@ -256,6 +256,18 @@ router.post('/host-levels', verifyToken, createLevel);
 router.patch('/host-levels/:id', verifyToken, updateLevel);
 router.delete('/host-levels/:id', verifyToken, deleteLevel);
 
+// ============ Unique ID Requests (Level Perk Approvals) ============
+import {
+  listUniqueIdRequests,
+  approveUniqueIdRequest,
+  rejectUniqueIdRequest,
+  checkUniqueIdAvailability,
+} from '../controllers/uniqueIdRequest.controller';
+router.get('/unique-id-requests', verifyToken, listUniqueIdRequests);
+router.get('/unique-id-requests/check/:requestedId', verifyToken, checkUniqueIdAvailability);
+router.post('/unique-id-requests/:id/approve', verifyToken, approveUniqueIdRequest);
+router.post('/unique-id-requests/:id/reject', verifyToken, rejectUniqueIdRequest);
+
 // ============ Default Bio App Management ============
 import { getAdminDefaultBios, createDefaultBio, updateDefaultBio, deleteDefaultBio } from '../controllers/defaultBioController';
 router.get('/default-bios', verifyToken, getAdminDefaultBios);

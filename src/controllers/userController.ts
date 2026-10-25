@@ -1624,6 +1624,7 @@ export const getUserProfile = async (req: AuthRequest, res: Response) => {
       svipLevel: effective?.svipLevel || 0,
       vipBadge: effective?.vipBadge || '',
       equippedFrame: effective?.avatarFrame || user.equippedFrame || null,
+      nameEffect: effective?.nameEffect || null,
       effectiveIdentity: effective,
     };
     return sendResponse(res, 200, true, "Profile fetched successfully", enrichedUser);

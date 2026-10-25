@@ -1,3 +1,4 @@
+import { GiftTransaction } from '../gift/gift.model';
 import { v4 as uuidv4 } from 'uuid';
 import dayjs from 'dayjs';
 import agoraToken from 'agora-token';
@@ -1192,8 +1193,14 @@ export const getRanking = async (req: AuthRequest, res: Response) => {
       match.createdAt = { $gte: startDate.toDate() };
     }
 
-    const participantField = metric === "diamonds" ? "$userId" : "$hostId";
-    const ranking = await CoinsTransaction.aggregate([
+    // Gift sending is recorded in GiftTransaction, independently of call logs.
+    if (metric === "diamonds") {
+      match.status = { $in: ['SUCCESS', 'COMPLETED'] };
+      delete match.type;
+    }
+    const participantField = metric === "diamonds" ? "$senderId" : "$hostId";
+    const rankingModel = metric === "diamonds" ? GiftTransaction : CoinsTransaction;
+    const ranking = await rankingModel.aggregate([
       { $match: match },
       {
         $addFields: {
@@ -1226,7 +1233,7 @@ export const getRanking = async (req: AuthRequest, res: Response) => {
             },
           },
           coins: { $sum: { $ifNull: ["$hostEarning", 0] } },
-          diamonds: { $sum: { $ifNull: ["$coinsSpent", 0] } },
+          diamonds: { $sum: { $cond: [{ $gt: ["$totalDiamonds", 0] }, "$totalDiamonds", { $ifNull: ["$totalPrice", 0] }] } },
         },
       },
       {
@@ -1238,6 +1245,7 @@ export const getRanking = async (req: AuthRequest, res: Response) => {
         },
       },
       { $unwind: "$user" },
+      { $match: { [metric]: { $gt: 0 } } },
       { $sort: { [metric]: -1, _id: 1 } },
       {
         $project: {

@@ -1,3 +1,5 @@
+import { IdentityResolverService } from './identityResolver.service';
+import { entryIsActive, roomEntryAsset } from '../utils/roomEntryRules';
 import mongoose, { Types } from 'mongoose';
 import { EntryEffect, IEntryEffect } from '../models/entryEffect.model';
 import { User } from '../models/user.model';
@@ -277,8 +279,10 @@ export class EntryEffectService {
         }
       }
 
+      const source = dbUser || user;
+      const identity = await IdentityResolverService.resolveEffectiveIdentity(source);
       // Resolve equipped Entry Effect
-      let entryEffect: any = dbUser?.equippedEntryAsset || user?.equippedEntryAsset || null;
+      let entryEffect: any = source.equippedEntryAsset || null;
       if (!entryEffect && dbUser?.equippedEntryEffect) {
         const eff = dbUser.equippedEntryEffect as any;
         entryEffect = {
@@ -292,10 +296,12 @@ export class EntryEffectService {
           image: eff.image || eff.imageUrl || '',
           animationUrl: eff.animationUrl || '',
           sound: eff.sound || '',
+          metadata: eff.metadata || {},
+          isActive: eff.isActive,
         };
       }
-      if (!entryEffect && (dbUser?.equippedEntry || user?.equippedEntryAsset || user?.equippedEntry)) {
-        const entryName = dbUser?.equippedEntry || user?.equippedEntry?.name || user?.equippedEntry;
+      if (!entryEffect && (source.equippedEntry)) {
+        const entryName = source.equippedEntry;
         let fromInv = dbUser?.storeInventory?.find((i: any) =>
           (i.category === 'Entry' || i.category === 'Entry Effect' || i.category === 'Entry Effects') &&
           i.name === entryName
@@ -307,12 +313,12 @@ export class EntryEffectService {
           }).lean();
           if (!catalogEffect) {
             catalogEffect = await StoreItem.findOne({
-              category: { $in: ['Entry', 'Entry Effect', 'Entry Effects', 'Entrance'] },
+              category: { $in: ['Entry', 'Entry Effect', 'Entry Effects'] },
               name: entryName,
             }).lean();
           }
         }
-        entryEffect = user?.equippedEntryAsset || {
+        entryEffect = {
           id: catalogEffect?._id || fromInv?._id || ('store_entry_' + Date.now()),
           name: entryName || 'VIP Grand Entry',
           animationType: catalogEffect?.animationType || catalogEffect?.metadata?.animationType || 'FULL_SCREEN',
@@ -322,65 +328,16 @@ export class EntryEffectService {
           icon: catalogEffect?.icon || '👑',
           image: catalogEffect?.image || catalogEffect?.imageUrl || fromInv?.imageUrl || fromInv?.image || '',
           animationUrl: catalogEffect?.animationUrl || fromInv?.animationUrl || '',
+          metadata: catalogEffect?.metadata || fromInv?.metadata || {},
+          expiresAt: fromInv?.expiresAt,
         };
       }
 
-      const vipExperience = await VipService.resolveVipExperience(dbUser || user);
-      if (!entryEffect && vipExperience.isVip) {
-        const vipVisual = vipExperience.entryFrame || vipExperience.roomTheme?.bgUrl || '';
-        entryEffect = {
-          id: `vip-entry:${dbUser?.equippedVipId || dbUser?.equippedSvipId || 'vip'}`,
-          name: vipExperience.isKingOfKings
-            ? 'King of Kings Full-Screen Entry'
-            : `${vipExperience.badge || 'VIP'} Entry`,
-          animationType: 'FULL_SCREEN',
-          tagText: vipExperience.entryTag || (vipExperience.isKingOfKings ? 'KING OF KINGS HAS ENTERED' : 'VIP HAS ENTERED'),
-          bannerColors: vipExperience.nameEffect?.gradient?.length
-            ? vipExperience.nameEffect.gradient
-            : ['#F59E0B', '#7C2D12'],
-          duration: vipExperience.isKingOfKings ? 5200 : 4200,
-          icon: vipExperience.crown || 'VIP',
-          image: vipVisual,
-          animationUrl: vipVisual,
-          sound: vipExperience.sound || '',
-        };
-      }
-
-      // Keep store covers in the catalog only. Room clients should receive the
-      // actual animation URL, never a static cover as a playable entry asset.
-      const roomEntryEffect = entryEffect ? { ...entryEffect } : null;
-      if (roomEntryEffect) {
-        delete roomEntryEffect.image;
-        delete roomEntryEffect.imageUrl;
-        delete roomEntryEffect.coverImageUrl;
-      }
-
-      // Check if user has an active equipped entry or VIP/KOK arrival experience.
-      const hasEquippedEntry = Boolean(entryEffect);
-      if (!hasEquippedEntry) {
-        // User is not using an entry effect, skip full entry orchestration
-        return null;
-      }
-
-      // Resolve only the actually equipped tassel. Never fabricate a fallback item.
-      let tasselEffect: any = dbUser?.equippedTasselAsset || user?.equippedTasselAsset || null;
-      if (!tasselEffect) {
-        const tasselName = dbUser?.equippedTassel || user?.equippedTassel;
-        const fromInv = tasselName ? dbUser?.storeInventory?.find((i: any) =>
-          (i.category === 'Tassel' || i.category === 'Tassels') &&
-          i.name === tasselName
-        ) : null;
-        tasselEffect = fromInv ? {
-          name: fromInv.name,
-          animationUrl: fromInv.animationUrl || '',
-          image: fromInv.imageUrl || fromInv.image || '',
-        } : null;
-      }
-
+      const vipExperience = await VipService.resolveVipExperience(source).catch(() => ({ isVip: false } as any));
       // Resolve only the actually equipped entrance. Never show a stock car.
-      let entranceEffect: any = dbUser?.equippedEntranceAsset || user?.equippedEntranceAsset || null;
+      let entranceEffect: any = source.equippedEntranceAsset || null;
       if (!entranceEffect) {
-        const entranceName = dbUser?.equippedEntrance || user?.equippedEntrance;
+        const entranceName = source.equippedEntrance;
         const fromInv = entranceName ? dbUser?.storeInventory?.find((i: any) =>
           (i.category === 'Entrance' || i.category === 'Ride' || i.category === 'Profile Entry') &&
           i.name === entranceName
@@ -389,10 +346,35 @@ export class EntryEffectService {
           name: fromInv.name,
           animationUrl: fromInv.animationUrl || '',
           image: fromInv.imageUrl || fromInv.image || '',
+          metadata: fromInv.metadata || {},
+          expiresAt: fromInv.expiresAt,
         } : null;
       }
 
-      const tagText = entryEffect?.tagText || dbUser?.equippedEntryTag || 'VIP ENTRY';
+      // Resolve current panel settings even for assets equipped before an edit.
+      const refreshAsset = async (asset: any, categories: string[]) => {
+        if (!entryIsActive(asset)) return null;
+        const id = asset.itemId || asset.id || asset._id;
+        const catalog = await StoreItem.findOne({
+          category: { $in: categories },
+          $or: [
+            ...(id && Types.ObjectId.isValid(String(id)) ? [{ _id: id }] : []),
+            { name: asset.name || '' },
+          ],
+        }).lean();
+        if (!catalog) return asset;
+        return { ...asset, animationUrl: catalog.animationUrl, isActive: catalog.isActive,
+          duration: catalog.metadata?.duration || asset.duration,
+          bannerColors: catalog.bgColors?.length ? catalog.bgColors : asset.bannerColors,
+          metadata: { ...(asset.metadata || {}), ...(catalog.metadata || {}) } };
+      };
+      entryEffect = await refreshAsset(entryEffect, ['Entry', 'Entry Effect', 'Entry Effects']);
+      entranceEffect = await refreshAsset(entranceEffect, ['Entrance', 'Ride', 'Profile Entry']);
+      // VIP membership never fabricates a ride. Plain joins use the same banner.
+      const roomEntryEffect = roomEntryAsset(entryEffect);
+      entranceEffect = roomEntryAsset(entranceEffect);
+      const hasEquippedEntry = Boolean(roomEntryEffect || entranceEffect);
+      const tagText = hasEquippedEntry ? 'is coming' : 'entered the room';
       const entryId = `entry_${Date.now()}_${Math.random().toString(36).substr(2, 6)}`;
       const payload = {
         entryId,
@@ -406,16 +388,18 @@ export class EntryEffectService {
           name: dbUser?.name || user.name,
           avatar: dbUser?.image || user.avatar || user.image,
           level: dbUser?.level || user.level || 1,
+          wealthLevel: source.wealthLevel || source.level || 1,
+          nameEffect: identity?.nameEffect || source.nameEffect || vipExperience.nameEffect || null,
           equippedFrame: dbUser?.equippedFrameAsset || dbUser?.equippedFrame || user.equippedFrameAsset || user.equippedFrame || null,
           equippedFrameAsset: dbUser?.equippedFrameAsset || user.equippedFrameAsset || null,
         },
-        hasEntry: true,
+        hasEntry: hasEquippedEntry,
         entry: roomEntryEffect,
         effect: roomEntryEffect,
-        tassel: tasselEffect,
+        tassel: null,
         entrance: entranceEffect,
         vipExperience: vipExperience.isVip ? vipExperience : null,
-        tagText: tagText || vipExperience.entryTag || 'VIP ENTRY',
+        tagText,
         timestamp: Date.now(),
       };
 
@@ -428,9 +412,7 @@ export class EntryEffectService {
         // io.to(...).to(...) deduplicates sockets in multiple rooms so each client receives exactly once
         io.to(`voice_room_channel:${roomId}`).to(`room:${roomId}`).emit('entry:effect', payload);
 
-        if (vipExperience.isVip) {
-          io.to(`voice_room_channel:${roomId}`).to(`room:${roomId}`).emit('room:vip-entry', payload);
-        }
+
       }
 
       return payload;
@@ -516,7 +498,7 @@ export class EntryEffectService {
       isActive: data.isActive !== undefined ? Boolean(data.isActive) : true,
       duration: Number(data.duration) || 3000,
       sortOrder: Number(data.sortOrder) || 0,
-      metadata: data.metadata || {},
+      metadata: { ...(data.metadata || {}), showAvatar: data.metadata?.showAvatar === true, comingText: String(data.metadata?.comingText || 'is coming').slice(0, 80) },
     });
 
     // Auto-sync into StoreItem catalog under 'Entry' category so it immediately shows in the mobile app Store
@@ -537,9 +519,11 @@ export class EntryEffectService {
         isActive: effect.isActive,
         sortOrder: effect.sortOrder,
         metadata: {
+          ...(effect.metadata || {}),
           effectId: String(effect._id),
           banner: data.tagText || '👑 VIP HAS ENTERED',
           animationType: effect.animationType,
+          duration: effect.duration,
         },
       });
     } catch (err: any) {
@@ -576,6 +560,7 @@ export class EntryEffectService {
     if (data.isActive !== undefined) effect.isActive = Boolean(data.isActive);
     if (data.duration !== undefined) effect.duration = Number(data.duration);
     if (data.sortOrder !== undefined) effect.sortOrder = Number(data.sortOrder);
+    if (data.metadata !== undefined) effect.metadata = { ...(effect.metadata || {}), ...data.metadata };
 
     await effect.save();
 
@@ -591,7 +576,7 @@ export class EntryEffectService {
             imageUrl: effect.image,
             animationUrl: effect.animationUrl,
             isActive: effect.isActive,
-            'metadata.banner': effect.tagText,
+            metadata: { ...(effect.metadata || {}), effectId: String(effect._id), banner: effect.tagText, animationType: effect.animationType, duration: effect.duration },
           },
         }
       );

@@ -128,159 +128,37 @@ export class RoomContributionService {
     const { weekKey, startMonday, endSunday } = getISTWeekRange(0);
     const monthKey = getISTMonthKey(istNow);
 
-    let rawContributors: Array<{ userId: string; points: number }> = [];
-
-    if (period === 'daily') {
-      // Find today's contributions
-      const dailyDocs = await RoomContribution.find({
-        $or: [{ roomId: cleanRoomId }, { roomId: String(roomId).trim() }],
-        dateKey,
-        diamonds: { $gt: 0 },
-      })
-        .sort({ diamonds: -1 })
-        .limit(100)
-        .lean();
-
-      rawContributors = dailyDocs.map((doc) => ({
-        userId: String(doc.userId),
-        points: doc.diamonds,
-      }));
-
-      // Fallback to GiftTransaction if no RoomContribution records yet today
-      if (rawContributors.length === 0) {
-        const startOfDay = new Date(istNow);
-        startOfDay.setHours(0, 0, 0, 0);
-        // Convert IST back to UTC for Mongo query
-        const utcStartOfDay = new Date(startOfDay.getTime() - 5.5 * 3600000);
-
-        const txDocs = await GiftTransaction.aggregate([
-          {
-            $match: {
-              $or: [{ roomId: cleanRoomId }, { roomId: String(roomId).trim() }],
-              status: { $in: ['SUCCESS', 'COMPLETED'] },
-              createdAt: { $gte: utcStartOfDay },
-            },
-          },
-          {
-            $group: {
-              _id: '$senderId',
-              totalDiamonds: { $sum: '$totalDiamonds' },
-            },
-          },
-          { $sort: { totalDiamonds: -1 } },
-          { $limit: 100 },
-        ]);
-
-        rawContributors = txDocs.map((tx) => ({
-          userId: String(tx._id),
-          points: tx.totalDiamonds,
-        }));
-      }
-    } else if (period === 'weekly') {
-      // Aggregate across all days of the current week
-      const weeklyDocs = await RoomContribution.aggregate([
-        {
-          $match: {
-            $or: [{ roomId: cleanRoomId }, { roomId: String(roomId).trim() }],
-            weekKey,
-            diamonds: { $gt: 0 },
-          },
-        },
-        {
-          $group: {
-            _id: '$userId',
-            totalDiamonds: { $sum: '$diamonds' },
-          },
-        },
-        { $sort: { totalDiamonds: -1 } },
-        { $limit: 100 },
-      ]);
-
-      rawContributors = weeklyDocs.map((doc) => ({
-        userId: String(doc._id),
-        points: doc.totalDiamonds,
-      }));
-
-      // Fallback to GiftTransaction if needed
-      if (rawContributors.length === 0) {
-        const utcStartOfWeek = new Date(startMonday.getTime() - 5.5 * 3600000);
-        const txDocs = await GiftTransaction.aggregate([
-          {
-            $match: {
-              $or: [{ roomId: cleanRoomId }, { roomId: String(roomId).trim() }],
-              status: { $in: ['SUCCESS', 'COMPLETED'] },
-              createdAt: { $gte: utcStartOfWeek },
-            },
-          },
-          {
-            $group: {
-              _id: '$senderId',
-              totalDiamonds: { $sum: '$totalDiamonds' },
-            },
-          },
-          { $sort: { totalDiamonds: -1 } },
-          { $limit: 100 },
-        ]);
-
-        rawContributors = txDocs.map((tx) => ({
-          userId: String(tx._id),
-          points: tx.totalDiamonds,
-        }));
-      }
-    } else {
-      // Monthly aggregation
-      const monthlyDocs = await RoomContribution.aggregate([
-        {
-          $match: {
-            $or: [{ roomId: cleanRoomId }, { roomId: String(roomId).trim() }],
-            monthKey,
-            diamonds: { $gt: 0 },
-          },
-        },
-        {
-          $group: {
-            _id: '$userId',
-            totalDiamonds: { $sum: '$diamonds' },
-          },
-        },
-        { $sort: { totalDiamonds: -1 } },
-        { $limit: 100 },
-      ]);
-
-      rawContributors = monthlyDocs.map((doc) => ({
-        userId: String(doc._id),
-        points: doc.totalDiamonds,
-      }));
-
-      // Fallback to GiftTransaction if needed
-      if (rawContributors.length === 0) {
-        const startOfMonth = new Date(istNow.getFullYear(), istNow.getMonth(), 1, 0, 0, 0, 0);
-        const utcStartOfMonth = new Date(startOfMonth.getTime() - 5.5 * 3600000);
-
-        const txDocs = await GiftTransaction.aggregate([
-          {
-            $match: {
-              $or: [{ roomId: cleanRoomId }, { roomId: String(roomId).trim() }],
-              status: { $in: ['SUCCESS', 'COMPLETED'] },
-              createdAt: { $gte: utcStartOfMonth },
-            },
-          },
-          {
-            $group: {
-              _id: '$senderId',
-              totalDiamonds: { $sum: '$totalDiamonds' },
-            },
-          },
-          { $sort: { totalDiamonds: -1 } },
-          { $limit: 100 },
-        ]);
-
-        rawContributors = txDocs.map((tx) => ({
-          userId: String(tx._id),
-          points: tx.totalDiamonds,
-        }));
-      }
-    }
+    // Read committed gifts directly: counters may miss a successful send.
+    const start = new Date(istNow);
+    start.setHours(0, 0, 0, 0);
+    if (period === 'weekly') start.setTime(startMonday.getTime());
+    if (period === 'monthly') start.setDate(1);
+    const end = new Date(start);
+    if (period === 'daily') end.setDate(end.getDate() + 1);
+    else if (period === 'weekly') end.setDate(end.getDate() + 7);
+    else end.setMonth(end.getMonth() + 1);
+    const toUTC = (date: Date) => new Date(
+      date.getTime() - date.getTimezoneOffset() * 60000 - 5.5 * 3600000
+    );
+    const txDocs = await GiftTransaction.aggregate([
+      { $match: {
+        roomId: { $in: [...new Set([cleanRoomId, String(roomId).trim()])] },
+        status: { $in: ['SUCCESS', 'COMPLETED'] },
+        createdAt: { $gte: toUTC(start), $lt: toUTC(end) },
+      } },
+      { $group: {
+        _id: '$senderId',
+        totalDiamonds: { $sum: { $cond: [
+          { $gt: ['$totalDiamonds', 0] }, '$totalDiamonds', '$totalPrice',
+        ] } },
+      } },
+      { $match: { totalDiamonds: { $gt: 0 } } },
+      { $sort: { totalDiamonds: -1, _id: 1 } },
+      { $limit: 100 },
+    ]);
+    const rawContributors = txDocs.map((tx) => ({
+      userId: String(tx._id), points: Number(tx.totalDiamonds),
+    }));
 
     // Populate user profiles
     const userIds = rawContributors

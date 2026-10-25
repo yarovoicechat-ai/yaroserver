@@ -12,75 +12,12 @@ import sendResponse from '../utils/reponse';
 import { AuthRequest } from '../middlewares/authorize.middleware';
 import { Logger } from '../utils/logger';
 
-// Default pre-seeded animated name styles
-const DEFAULT_NAME_EFFECTS = [
-  {
-    name: 'Imperial Gold Shimmer',
-    slug: 'imperial-gold-shimmer',
-    category: 'animated_name',
-    description: 'Luxurious dynamic gold gradient with animated shimmer and radiant glow',
-    config: {
-      colors: ['#FFE259', '#FFA751', '#FFD700'],
-      gradientDirection: 'horizontal',
-      animationType: 'gradient_scroll',
-      animationSpeed: 1.2,
-      glowColor: '#F59E0B',
-      shadowColor: 'rgba(245, 158, 11, 0.4)',
-      prefixBadge: '👑',
-    },
-    previewBg: 'gold',
-    eligibleTiers: ['all', 'vip', 'svip'],
-    priceDiamonds: 5000,
-    isPurchasable: true,
-    status: 'active',
-    validityDays: 30,
-    sortOrder: 1,
-  },
-  {
-    name: 'Cyberpunk Neon Pulse',
-    slug: 'cyberpunk-neon-pulse',
-    category: 'animated_name',
-    description: 'Electric cyan and violet neon pulse with intense glowing aura',
-    config: {
-      colors: ['#00F2FE', '#4FACFE', '#A855F7'],
-      gradientDirection: 'horizontal',
-      animationType: 'neon',
-      animationSpeed: 1.5,
-      glowColor: '#00F2FE',
-      shadowColor: 'rgba(0, 242, 254, 0.5)',
-      prefixBadge: '⚡',
-    },
-    previewBg: 'neon',
-    eligibleTiers: ['all', 'vip', 'svip'],
-    priceDiamonds: 8000,
-    isPurchasable: true,
-    status: 'active',
-    validityDays: 30,
-    sortOrder: 2,
-  },
-  {
-    name: 'Velvet Royal Rainbow',
-    slug: 'velvet-royal-rainbow',
-    category: 'animated_name',
-    description: 'Full-spectrum smooth rainbow cycling effect for top gifters and VIPs',
-    config: {
-      colors: ['#FF0080', '#7928CA', '#0070F3', '#00DFD8'],
-      gradientDirection: 'horizontal',
-      animationType: 'rainbow',
-      animationSpeed: 1.0,
-      glowColor: '#EC4899',
-      shadowColor: 'rgba(236, 72, 153, 0.4)',
-      prefixBadge: '🌈',
-    },
-    previewBg: 'royal',
-    eligibleTiers: ['svip', 'king'],
-    priceDiamonds: 15000,
-    isPurchasable: true,
-    status: 'active',
-    validityDays: 30,
-    sortOrder: 3,
-  },
-];
+import { NAME_EFFECT_PRESETS, nameEffectExpiry } from '../utils/nameEffectPresets';
+import { publishNameEffectUpdate } from '../services/nameEffectUpdate.service';
+
+const ensureNameEffectPresets = () => IdentityEffect.bulkWrite(NAME_EFFECT_PRESETS.map(preset => ({
+  updateOne: { filter: { slug: preset.slug }, update: { $setOnInsert: preset }, upsert: true },
+})));
 
 /* =========================================================================
    PUBLIC / USER ENDPOINTS
@@ -135,14 +72,10 @@ export const searchUsersWithIdentity = async (req: any, res: Response) => {
 
 export const getIdentityCatalog = async (_req: Request, res: Response) => {
   try {
-    // Seed effects if empty
-    const effectCount = await IdentityEffect.countDocuments();
-    if (effectCount === 0) {
-      await IdentityEffect.insertMany(DEFAULT_NAME_EFFECTS);
-    }
+    await ensureNameEffectPresets();
 
     const [nameEffects, svipTiers, vipPackages] = await Promise.all([
-      IdentityEffect.find({ status: 'active' }).sort({ sortOrder: 1 }).lean(),
+      IdentityEffect.find({ status: 'active', isPurchasable: true, category: { $in: ['animated_name', 'name_color'] } }).sort({ sortOrder: 1 }).lean(),
       SvipTier.find({ isActive: true }).sort({ level: 1 }).lean(),
       VipId.find({ isActive: true }).sort({ vipLevel: 1 }).lean(),
     ]);
@@ -915,11 +848,8 @@ export const updateUniqueIdDetails = async (req: AuthRequest, res: Response) => 
 
 export const listNameEffects = async (_req: Request, res: Response) => {
   try {
-    const count = await IdentityEffect.countDocuments({ category: 'animated_name' });
-    if (count === 0) {
-      await IdentityEffect.insertMany(DEFAULT_NAME_EFFECTS);
-    }
-    const effects = await IdentityEffect.find({ category: { $ne: 'unique_badge' } }).sort({ sortOrder: 1 }).lean();
+    await ensureNameEffectPresets();
+    const effects = await IdentityEffect.find({ category: { $in: ['animated_name', 'name_color'] } }).sort({ sortOrder: 1 }).lean();
     return sendResponse(res, 200, true, 'Name effects fetched', { effects });
   } catch (error: any) {
     return sendResponse(res, 500, false, error.message || 'Failed to list name effects');
@@ -981,7 +911,11 @@ export const deleteNameEffect = async (req: AuthRequest, res: Response) => {
 export const grantNameEffectToUser = async (req: AuthRequest, res: Response) => {
   try {
     const { userIdentifier, effectSlug, durationDays = 30 } = req.body;
-    const effect = await IdentityEffect.findOne({ slug: effectSlug, status: 'active' });
+    let expiresAt: Date;
+    try { expiresAt = nameEffectExpiry(durationDays); }
+    catch (error: any) { return sendResponse(res, 400, false, error.message); }
+    if (!String(userIdentifier || '').trim()) return sendResponse(res, 400, false, 'Target user ID is required');
+    const effect = await IdentityEffect.findOne({ slug: effectSlug, status: 'active', category: { $in: ['animated_name', 'name_color'] } });
     if (!effect) return sendResponse(res, 404, false, 'Identity effect not found or inactive');
 
     const targetUser = await User.findOne({
@@ -996,11 +930,11 @@ export const grantNameEffectToUser = async (req: AuthRequest, res: Response) => 
     if (!targetUser) return sendResponse(res, 404, false, 'Target user not found');
 
     const startsAt = new Date();
-    const expiresAt = new Date(startsAt.getTime() + durationDays * 24 * 60 * 60 * 1000);
+
 
     // Deactivate previous name effect
     await IdentityEntitlement.updateMany(
-      { userId: targetUser.userId, type: 'animated_name', status: 'active' },
+      { userId: targetUser.userId, type: { $in: ['animated_name', 'name_color'] }, status: 'active' },
       { $set: { status: 'expired' } }
     );
 
@@ -1024,6 +958,13 @@ export const grantNameEffectToUser = async (req: AuthRequest, res: Response) => 
       grantReason: `Granted ${effect.name} by admin`,
     });
 
+    await IdentityAuditLog.create({
+      action: 'grant_entitlement', targetUserId: targetUser.userId, targetUserObjectId: targetUser._id,
+      targetUserName: targetUser.name, entitlementType: 'animated_name',
+      details: { entitlementId: entitlement._id, effectSlug: effect.slug, durationDays },
+      performedBy: entitlement.grantedBy,
+    });
+    await publishNameEffectUpdate(targetUser);
     return sendResponse(res, 201, true, `Animated Name "${effect.name}" granted successfully!`, entitlement);
   } catch (error: any) {
     return sendResponse(res, 500, false, error.message || 'Failed to grant name effect');
@@ -1175,6 +1116,9 @@ export const revokeEntitlement = async (req: AuthRequest, res: Response) => {
       },
     });
 
+    if (['animated_name', 'name_color'].includes(item.type)) {
+      await publishNameEffectUpdate(item.userObjectId);
+    }
     return sendResponse(res, 200, true, 'Entitlement revoked successfully');
   } catch (error: any) {
     return sendResponse(res, 500, false, error.message || 'Failed to revoke entitlement');

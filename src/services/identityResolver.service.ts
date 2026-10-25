@@ -56,6 +56,7 @@ export interface EffectiveUserIdentity {
     shadowColor?: string;
     speed: number;
     prefixBadge?: string;
+    expiresAt?: Date | null;
   };
 
   // Dynamic Privileges List
@@ -243,7 +244,7 @@ export class IdentityResolverService {
       e => e.type === 'animated_name' || e.type === 'name_color'
     );
 
-    let nameEffect = {
+    let nameEffect: EffectiveUserIdentity['nameEffect'] = {
       enabled: false,
       colors: ['#FFFFFF'],
       gradientDirection: 'horizontal',
@@ -258,6 +259,7 @@ export class IdentityResolverService {
       const cfg = animatedNameEntitlement.config;
       nameEffect = {
         enabled: true,
+        expiresAt: animatedNameEntitlement.expiresAt,
         colors: cfg.colors?.length ? cfg.colors : ['#FDE047', '#EAB308'],
         gradientDirection: cfg.gradientDirection || 'horizontal',
         animationType: cfg.animationType || 'gradient_scroll',

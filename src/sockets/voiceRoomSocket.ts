@@ -1,3 +1,4 @@
+import { IdentityResolverService } from '../services/identityResolver.service';
 import mongoose, { Types } from "mongoose";
 import { Server } from "socket.io";
 import { AuthenticatedSocket } from "../middlewares/auth.socket";
@@ -268,6 +269,7 @@ const getCanonicalRoomUser = async (socketUser: any, fallback: any = {}) => {
         .lean()
     : null;
   const source: any = dbUser || socketUser || {};
+  const identity = await IdentityResolverService.resolveEffectiveIdentity(source);
   const id = String(source?._id || source?.id || "");
   const avatar =
     source?.image ||
@@ -283,6 +285,7 @@ const getCanonicalRoomUser = async (socketUser: any, fallback: any = {}) => {
     userId: String(source?.userId || socketUser?.userId || "guest"),
     numericUserId: Number(source?.userId || fallback?.userId || 0),
     name: String(source?.name || fallback?.name || "Guest"),
+    nameEffect: identity?.nameEffect || null,
     avatar: String(avatar),
     image: String(avatar),
     gender: source?.gender || fallback?.gender || "male",
@@ -1419,8 +1422,10 @@ export const registerVoiceRoomHandlers = (io: Server, socket: AuthenticatedSocke
       }
 
       const socketRoomChannel = `voice_room_channel:${roomId}`;
+      const identity = await IdentityResolverService.resolveEffectiveIdentity(user?.id || user?.userId);
       const msg = {
         ...data.message,
+        nameEffect: identity?.nameEffect || null,
         id: data.message.id || ("msg-" + Date.now() + "-" + Math.random().toString(36).substr(2, 4)),
         senderId,
         chatBubble: (socket as any).voiceUser?.equippedChatBubbleAsset || (socket as any).voiceUser?.equippedChatBubble || (user as any)?.equippedChatBubbleAsset || (user as any)?.equippedChatBubble || data.message.chatBubble || null,

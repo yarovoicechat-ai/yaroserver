@@ -1632,12 +1632,16 @@ export const grantAssetToUser = async (req: AuthRequest, res: Response) => {
           previewColor: asset.previewColor || '#8B5CF6',
           expiresAt,
         };
-      } else if (cat === 'Entry' || cat === 'Entrance') {
+      } else if (cat === 'Entrance') {
+        targetUser.equippedEntrance = asset.name;
+        targetUser.equippedEntranceAsset = buildCanonicalAsset(asset, expiresAt);
+      } else if (cat === 'Entry') {
         targetUser.equippedEntry = asset.name;
         targetUser.equippedEntryAsset = {
           name: asset.name,
           imageUrl: asset.imageUrl || asset.image || '',
           animationUrl: asset.animationUrl || '',
+          metadata: asset.metadata || {},
           expiresAt,
         };
       } else if (cat === 'Chat Bubble') {
@@ -1859,14 +1863,7 @@ export const buyStoreItem = async (req: any, res: Response) => {
       update.$set = {
         ...(update.$set || {}),
         equippedEntry: item.name,
-        equippedEntryAsset: {
-          name: item.name,
-          imageUrl: item.imageUrl || (item as any).image || '',
-          animationUrl: item.animationUrl || '',
-          tagText: item.tag || (item as any).metadata?.tag || 'VIP ENTRY',
-          bannerColors: (item as any).bannerColors || ['#7C3AED', '#4C1D95'],
-          expiresAt,
-        },
+        equippedEntryAsset: buildCanonicalAsset(item, expiresAt),
       };
     }
 
@@ -1889,12 +1886,7 @@ export const buyStoreItem = async (req: any, res: Response) => {
       update.$set = {
         ...(update.$set || {}),
         equippedEntrance: item.name,
-        equippedEntranceAsset: {
-          name: item.name,
-          imageUrl: item.imageUrl || (item as any).image || '',
-          animationUrl: item.animationUrl || '',
-          expiresAt,
-        },
+        equippedEntranceAsset: buildCanonicalAsset(item, expiresAt),
       };
     }
 
@@ -2072,6 +2064,7 @@ export const equipStoreItem = async (req: any, res: Response) => {
             name: itemName,
             imageUrl: ownedItem.imageUrl || '',
             animationUrl: ownedItem.animationUrl || '',
+            metadata: ownedItem.metadata || {},
             source: ownedItem.source || 'level',
             expiresAt: ownedItem.expiresAt,
           };

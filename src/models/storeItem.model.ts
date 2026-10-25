@@ -14,6 +14,7 @@ export type StoreCategory =
   | 'Mic Waves'
   | 'Frames'
   | 'Frame'
+  | 'Entrance'
   | 'Entry'
   | 'Entry Effect'
   | 'Profile Card'
@@ -84,6 +85,7 @@ const StoreItemSchema = new Schema<IStoreItem>(
         'Mic Waves',
         'Frames',
         'Frame',
+        'Entrance',
         'Entry',
         'Entry Effect',
         'Profile Card',
