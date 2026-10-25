@@ -16,11 +16,18 @@ export async function automateEmployeeCreationOnApproval(applicationId: string) 
             return { success: false, message: 'Application is not approved or not found' };
         }
 
-        // Check if user account already exists by email
-        let user = await User.findOne({
-            email: app.applicant.email.toLowerCase(),
-            role: { $in: PANEL_ACCOUNT_ROLES },
-        });
+        // Check if user account already exists by Yaro ID / userId or email
+        const rawYaroId = app.applicant?.yaroId || app.applicant?.userId || (app.roleData as any)?.yaroId || (app.roleData as any)?.userId;
+        let user: any = null;
+        if (rawYaroId && !isNaN(Number(rawYaroId))) {
+            user = await User.findOne({ userId: Number(rawYaroId) });
+        }
+        if (!user) {
+            user = await User.findOne({
+                email: app.applicant.email.toLowerCase(),
+                role: { $in: PANEL_ACCOUNT_ROLES },
+            });
+        }
 
         if (!user) {
             const newUserId = await generateUniqueId();

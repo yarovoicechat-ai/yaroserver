@@ -146,9 +146,18 @@ export class HierarchyScopeService {
       return { isDeleted: false };
     }
 
-    // 2. Operator: Global operational visibility (All lower roles across all networks)
+    // 2. Operator: Branch-isolated operational visibility
     if (role === 'operator') {
-      return { role: { $ne: 'owner' }, isDeleted: false };
+      return {
+        role: { $ne: 'owner' },
+        $or: [
+          { operatorId: userId },
+          { referrerId: userId },
+          { hierarchyPath: { $regex: userId } },
+          { _id: userId }
+        ],
+        isDeleted: false
+      };
     }
 
     // 3. Super Admin: Restricted strictly to own hierarchy branch
@@ -177,7 +186,33 @@ export class HierarchyScopeService {
       };
     }
 
-    // 5. Agency: Restricted strictly to own network & hosts
+    // 5. BD Leader: Restricted strictly to own hierarchy branch
+    if (role === 'bdLeader' || role === 'bd-leader') {
+      return {
+        $or: [
+          { bdLeaderId: userId },
+          { referrerId: userId },
+          { hierarchyPath: { $regex: userId } },
+          { _id: userId }
+        ],
+        isDeleted: false
+      };
+    }
+
+    // 6. BD: Restricted strictly to own hierarchy branch
+    if (role === 'bd') {
+      return {
+        $or: [
+          { bdId: userId },
+          { referrerId: userId },
+          { hierarchyPath: { $regex: userId } },
+          { _id: userId }
+        ],
+        isDeleted: false
+      };
+    }
+
+    // 7. Agency: Restricted strictly to own network & hosts
     if (role === 'agency') {
       return {
         $or: [
@@ -190,51 +225,119 @@ export class HierarchyScopeService {
       };
     }
 
-    // 6. Host, Seller, CS: Own record only
+    // 8. Host, Seller, CS: Own record only
     return { _id: userId, isDeleted: false };
   }
 
   /**
    * Build EMS Request Scope Filter
+   * Enforces strict branch isolation: forms filled under one branch are strictly invisible
+   * to other agencies, BDs, BD Leaders, Admins, Super Admins, or Operators.
    */
   static buildRequestScope(user: { id: string; role: string }): Record<string, any> {
     const role = user.role;
     const userId = user.id.toString();
 
     if (role === 'owner') return {};
-    if (role === 'operator') return { role: { $ne: 'owner' } };
 
+    // Operator: visible only to requests in this Operator's branch (excluding Owner direct referrals)
+    if (role === 'operator') {
+      return {
+        role: { $ne: 'owner' },
+        $or: [
+          { referralUserId: userId },
+          { createdBy: userId },
+          { 'data.operatorId': userId },
+          { 'data.parentOperator': userId },
+          { 'data.hierarchyPath': { $regex: userId } },
+          { 'referrer.referrerId': userId },
+          { 'roleData.operatorId': userId },
+          { 'roleData.hierarchyPath': { $regex: userId } }
+        ]
+      };
+    }
+
+    // Super Admin: visible only to requests in this Super Admin's branch
     if (role === 'superAdmin' || role === 'super-admin') {
       return {
         $or: [
           { referralUserId: userId },
+          { createdBy: userId },
           { 'data.superAdminId': userId },
-          { createdBy: userId }
+          { 'data.hierarchyPath': { $regex: userId } },
+          { 'referrer.referrerId': userId },
+          { 'roleData.superAdminId': userId },
+          { 'roleData.hierarchyPath': { $regex: userId } }
         ]
       };
     }
 
+    // Admin: visible only to requests in this Admin's branch
     if (role === 'admin') {
       return {
         $or: [
           { referralUserId: userId },
+          { createdBy: userId },
           { 'data.adminId': userId },
-          { createdBy: userId }
+          { 'data.hierarchyPath': { $regex: userId } },
+          { 'referrer.referrerId': userId },
+          { 'roleData.adminId': userId },
+          { 'roleData.hierarchyPath': { $regex: userId } }
         ]
       };
     }
 
+    // BD Leader: visible only to requests in this BD Leader's branch
+    if (role === 'bdLeader' || role === 'bd-leader') {
+      return {
+        $or: [
+          { referralUserId: userId },
+          { createdBy: userId },
+          { 'data.bdLeaderId': userId },
+          { 'data.hierarchyPath': { $regex: userId } },
+          { 'referrer.referrerId': userId },
+          { 'roleData.bdLeaderId': userId },
+          { 'roleData.hierarchyPath': { $regex: userId } }
+        ]
+      };
+    }
+
+    // BD: visible only to requests in this BD's branch
+    if (role === 'bd') {
+      return {
+        $or: [
+          { referralUserId: userId },
+          { createdBy: userId },
+          { 'data.bdId': userId },
+          { 'data.hierarchyPath': { $regex: userId } },
+          { 'referrer.referrerId': userId },
+          { 'roleData.bdId': userId },
+          { 'roleData.hierarchyPath': { $regex: userId } }
+        ]
+      };
+    }
+
+    // Agency: visible only to requests in this Agency's branch
     if (role === 'agency') {
       return {
         $or: [
           { referralUserId: userId },
+          { createdBy: userId },
           { 'data.agencyId': userId },
-          { createdBy: userId }
+          { 'data.hierarchyPath': { $regex: userId } },
+          { 'referrer.referrerId': userId },
+          { 'roleData.agencyId': userId },
+          { 'roleData.hierarchyPath': { $regex: userId } }
         ]
       };
     }
 
-    return { createdBy: userId };
+    return {
+      $or: [
+        { createdBy: userId },
+        { referralUserId: userId }
+      ]
+    };
   }
 
   /**

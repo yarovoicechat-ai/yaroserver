@@ -80,8 +80,7 @@ export interface UserInterface extends Document {
     canLockAnySeat?: boolean;
     isGlobalRoomManager?: boolean;
   };
-  isAgency?: boolean;
-  isBd?: boolean;
+    isBd?: boolean;
   isActive?: boolean;
   isBusy?: boolean;
   hostTypes?: string[];
@@ -156,6 +155,8 @@ export interface UserInterface extends Document {
   superAdminId?: Types.ObjectId;
   adminId?: Types.ObjectId;
   agencyId?: Types.ObjectId;
+  bdLeaderId?: Types.ObjectId;
+  bdId?: Types.ObjectId;
   specialCode?: string;
   orgId?: Types.ObjectId;
   branchId?: Types.ObjectId;
@@ -200,4 +201,19 @@ export interface UserInterface extends Document {
     grantKey?: string;
   }>;
   levelRewardClaims?: string[];
+  isHost?: boolean;
+  hostStatus?: string;
+  isApprovedHost?: boolean;
+  isHostApproved?: boolean;
+  hostingApproved?: boolean;
+  isAgency?: boolean;
+  isAgencyOwner?: boolean;
+  hasAgency?: boolean;
+  isBD?: boolean;
+  isBdLeader?: boolean;
+  hasAppOption?: boolean;
+  hasAppAccess?: boolean;
+  appRole?: string;
+  appFeatures?: Record<string, any>;
+  yaroId?: string;
 }

@@ -44,6 +44,8 @@ export interface IRecruitmentApplication extends Document {
         city?: string;
         address?: string;
         experienceYears?: string;
+        yaroId?: string;
+        userId?: number;
     };
     roleData: Record<string, any>;
     documents: IDocumentItem[];
@@ -85,7 +87,9 @@ const RecruitmentApplicationSchema = new Schema<IRecruitmentApplication>({
         country: { type: String, default: 'India' },
         city: { type: String, default: '' },
         address: { type: String, default: '' },
-        experienceYears: { type: String, default: '' }
+        experienceYears: { type: String, default: '' },
+        yaroId: { type: String, default: '', index: true },
+        userId: { type: Number, index: true },
     },
     roleData: { type: Schema.Types.Mixed, default: {} },
     documents: [{

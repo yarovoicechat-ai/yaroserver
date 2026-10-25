@@ -9,6 +9,8 @@ import { automateEmployeeCreationOnApproval } from '../services/employeeLifecycl
 import { generateStrongPassword } from './emsController';
 import { HierarchyScopeService } from '../utils/hierarchyScope';
 import { firstPlayableVoiceUrl } from '../utils/voiceMedia';
+import { ROLE_APPROVAL_CONFIG, normalizeRoleKey, canActOnRequest } from '../utils/emsApprovalRules';
+import { isYaroIdMandatoryRole, applyInAppRoleOption } from '../utils/appRoleService';
 
 const RECRUITMENT_ROLE_RANK: Record<string, number> = {
     owner: 0,
@@ -170,6 +172,46 @@ export const submitApplication = async (req: Request, res: Response) => {
             return sendResponse(res, 400, false, `An active application for ${role.toUpperCase()} already exists with this email.`);
         }
 
+        // MANDATORY: Yaro ID is mandatory for BD, BD Leader, Agency, and Host applications
+        const normRole = (role || '').toLowerCase().replace(/[^a-z0-9]/g, '');
+        const isYaroMandatory = isYaroIdMandatoryRole(normRole);
+        const rawYaroId = (body.yaroId || body.userId || body.meethiChatId || body.mithiChatId || roleSpecificFields.yaroId || roleSpecificFields.userId || roleSpecificFields.meethiChatId || roleSpecificFields.meethiLiveId || '').toString().trim();
+
+        let linkedUser: any = null;
+        if (isYaroMandatory) {
+            if (!rawYaroId) {
+                return sendResponse(res, 400, false, `Yaro ID is mandatory for ${role.toUpperCase()} application. Please enter your registered Yaro User ID.`);
+            }
+
+            const yaroNum = Number(rawYaroId);
+            linkedUser = await User.findOne({
+                $or: [
+                    { userId: !isNaN(yaroNum) ? yaroNum : -1 },
+                    { meethiId: rawYaroId },
+                    { employeeCode: rawYaroId },
+                    { specialCode: rawYaroId },
+                ],
+                isDeleted: { $ne: true }
+            });
+
+            if (!linkedUser && rawYaroId.length === 24) {
+                linkedUser = await User.findById(rawYaroId);
+            }
+
+            if (!linkedUser) {
+                return sendResponse(res, 400, false, `Invalid Yaro ID: No active account found for Yaro ID "${rawYaroId}". Please provide a valid registered Yaro User ID.`);
+            }
+        } else if (rawYaroId) {
+            const yaroNum = Number(rawYaroId);
+            linkedUser = await User.findOne({
+                $or: [
+                    { userId: !isNaN(yaroNum) ? yaroNum : -1 },
+                    { meethiId: rawYaroId },
+                ],
+                isDeleted: { $ne: true }
+            });
+        }
+
         // MANDATORY: Referral code is required for all role applications
         const codeToValidate = (referralCode || body.referrer || body.invitedBy || '').toString().trim();
         if (!codeToValidate) {
@@ -190,12 +232,12 @@ export const submitApplication = async (req: Request, res: Response) => {
                 { userName: codeRegex }
             ],
             isDeleted: { $ne: true }
-        }).select('_id name role employeeCode referralCode specialCode');
+        }).select('_id name role employeeCode referralCode specialCode ownerId operatorId superAdminId adminId bdLeaderId bdId agencyId hierarchyPath');
 
         if (!senior) {
             if (cleanCodeToValidate.startsWith('OS') || cleanCodeToValidate.startsWith('OWN')) {
                 senior = await User.findOne({ role: 'owner', isDeleted: { $ne: true } })
-                    .select('_id name role employeeCode referralCode specialCode');
+                    .select('_id name role employeeCode referralCode specialCode ownerId operatorId superAdminId adminId bdLeaderId bdId agencyId hierarchyPath');
                 if (!senior) {
                     senior = {
                         _id: '650000000000000000000001',
@@ -206,22 +248,22 @@ export const submitApplication = async (req: Request, res: Response) => {
                 }
             } else if (cleanCodeToValidate.startsWith('OPR')) {
                 senior = await User.findOne({ role: 'operator', isDeleted: { $ne: true } })
-                    .select('_id name role employeeCode referralCode specialCode');
+                    .select('_id name role employeeCode referralCode specialCode ownerId operatorId superAdminId adminId bdLeaderId bdId agencyId hierarchyPath');
             } else if (cleanCodeToValidate.startsWith('SA')) {
                 senior = await User.findOne({ role: { $in: ['superAdmin', 'super-admin'] }, isDeleted: { $ne: true } })
-                    .select('_id name role employeeCode referralCode specialCode');
+                    .select('_id name role employeeCode referralCode specialCode ownerId operatorId superAdminId adminId bdLeaderId bdId agencyId hierarchyPath');
             } else if (cleanCodeToValidate.startsWith('ADM')) {
                 senior = await User.findOne({ role: 'admin', isDeleted: { $ne: true } })
-                    .select('_id name role employeeCode referralCode specialCode');
+                    .select('_id name role employeeCode referralCode specialCode ownerId operatorId superAdminId adminId bdLeaderId bdId agencyId hierarchyPath');
             } else if (cleanCodeToValidate.startsWith('AGY')) {
                 senior = await User.findOne({ role: 'agency', isDeleted: { $ne: true } })
-                    .select('_id name role employeeCode referralCode specialCode');
+                    .select('_id name role employeeCode referralCode specialCode ownerId operatorId superAdminId adminId bdLeaderId bdId agencyId hierarchyPath');
             } else if (cleanCodeToValidate.startsWith('BDL')) {
                 senior = await User.findOne({ role: 'bd-leader', isDeleted: { $ne: true } })
-                    .select('_id name role employeeCode referralCode specialCode');
+                    .select('_id name role employeeCode referralCode specialCode ownerId operatorId superAdminId adminId bdLeaderId bdId agencyId hierarchyPath');
             } else if (cleanCodeToValidate.startsWith('BD')) {
                 senior = await User.findOne({ role: 'bd', isDeleted: { $ne: true } })
-                    .select('_id name role employeeCode referralCode specialCode');
+                    .select('_id name role employeeCode referralCode specialCode ownerId operatorId superAdminId adminId bdLeaderId bdId agencyId hierarchyPath');
             }
         }
 
@@ -246,6 +288,16 @@ export const submitApplication = async (req: Request, res: Response) => {
         } else {
             return sendResponse(res, 400, false, 'Invalid or inactive referral code.');
         }
+
+        // Resolve complete upstream ancestry for strict branch isolation
+        const seniorOwnerId = senior.ownerId || (senior.role === 'owner' ? senior._id : undefined);
+        const seniorOperatorId = senior.operatorId || (senior.role === 'operator' ? senior._id : undefined);
+        const seniorSuperAdminId = senior.superAdminId || (['superAdmin', 'super-admin'].includes(senior.role) ? senior._id : undefined);
+        const seniorAdminId = senior.adminId || (senior.role === 'admin' ? senior._id : undefined);
+        const seniorBdLeaderId = senior.bdLeaderId || (['bdLeader', 'bd-leader'].includes(senior.role) ? senior._id : undefined);
+        const seniorBdId = senior.bdId || (senior.role === 'bd' ? senior._id : undefined);
+        const seniorAgencyId = senior.agencyId || (senior.role === 'agency' ? senior._id : undefined);
+        const seniorHierarchyPath = `${senior.hierarchyPath || ''}/${senior._id}`.replace(/\/+/g, '/');
 
         // Parse documents
         let parsedDocs: Array<{ name: string; documentType: string; url: string }> = [];
@@ -276,9 +328,23 @@ export const submitApplication = async (req: Request, res: Response) => {
                 country: country || 'India',
                 city: city || '',
                 address: address || '',
-                experienceYears: experienceYears || ''
+                experienceYears: experienceYears || '',
+                yaroId: linkedUser ? String(linkedUser.userId) : (rawYaroId || undefined),
+                userId: linkedUser ? linkedUser.userId : (Number(rawYaroId) || undefined),
             },
-            roleData: roleSpecificFields,
+            roleData: {
+                ...roleSpecificFields,
+                yaroId: linkedUser ? String(linkedUser.userId) : (rawYaroId || undefined),
+                userId: linkedUser ? linkedUser.userId : (Number(rawYaroId) || undefined),
+                ownerId: seniorOwnerId ? String(seniorOwnerId) : undefined,
+                operatorId: seniorOperatorId ? String(seniorOperatorId) : undefined,
+                superAdminId: seniorSuperAdminId ? String(seniorSuperAdminId) : undefined,
+                adminId: seniorAdminId ? String(seniorAdminId) : undefined,
+                bdLeaderId: seniorBdLeaderId ? String(seniorBdLeaderId) : undefined,
+                bdId: seniorBdId ? String(seniorBdId) : undefined,
+                agencyId: seniorAgencyId ? String(seniorAgencyId) : undefined,
+                hierarchyPath: seniorHierarchyPath,
+            },
             documents: parsedDocs,
             referrer: referrerData,
             reviewNotes: [{
@@ -324,16 +390,19 @@ export const submitApplication = async (req: Request, res: Response) => {
                 );
 
                 const generatedPassword = generateStrongPassword(applicantName, applicantPhone, applicantEmail);
+                const targetWorkflowConfig = ROLE_APPROVAL_CONFIG[normalizeRoleKey(role)];
+                const workflowSteps = targetWorkflowConfig ? [...targetWorkflowConfig.steps] : [];
 
                 await RequestModel.create({
                     requestType,
                     role,
-                    workflowSteps: role === 'agency' ? ['Admin Review', 'Super Admin Review', 'Operator / Owner Approval'] : (role === 'host' ? ['Stage 1: Operator Review', 'Stage 2: Owner Approval'] : []),
+                    workflowSteps,
                     passwordBeforeApproval: generatedPassword,
                     referralCode: referrerData?.code || referralCode || '',
                     referralUserId: referrerData?.referrerId ? referrerData.referrerId.toString() : '',
                     referralOwner: referrerData?.referrerName || '',
                     referralRole: referrerData?.referrerRole || '',
+                    generatedUserId: linkedUser ? linkedUser.userId : (rawYaroId && !isNaN(Number(rawYaroId)) ? Number(rawYaroId) : undefined),
                     data: {
                         name: applicantName,
                         email: applicantEmail.toLowerCase(),
@@ -345,10 +414,20 @@ export const submitApplication = async (req: Request, res: Response) => {
                         city: city || '',
                         address: address || '',
                         experience: experienceYears || '',
+                        yaroId: linkedUser ? String(linkedUser.userId) : (rawYaroId || undefined),
+                        userId: linkedUser ? linkedUser.userId : (rawYaroId && !isNaN(Number(rawYaroId)) ? Number(rawYaroId) : undefined),
                         referralCode: referrerData?.code || referralCode || '',
                         invitedBy: referrerData?.referrerName || (referralCode ? `Referral Code: ${referralCode}` : 'Direct Recruitment Portal'),
-                        parentOperator: referrerData?.code || '',
-                        parentOwner: referrerData?.code || '',
+                        parentOperator: seniorOperatorId ? String(seniorOperatorId) : (referrerData?.code || ''),
+                        parentOwner: seniorOwnerId ? String(seniorOwnerId) : (referrerData?.code || ''),
+                        ownerId: seniorOwnerId ? String(seniorOwnerId) : undefined,
+                        operatorId: seniorOperatorId ? String(seniorOperatorId) : undefined,
+                        superAdminId: seniorSuperAdminId ? String(seniorSuperAdminId) : undefined,
+                        adminId: seniorAdminId ? String(seniorAdminId) : undefined,
+                        bdLeaderId: seniorBdLeaderId ? String(seniorBdLeaderId) : undefined,
+                        bdId: seniorBdId ? String(seniorBdId) : undefined,
+                        agencyId: seniorAgencyId ? String(seniorAgencyId) : undefined,
+                        hierarchyPath: seniorHierarchyPath,
                         mithiChatId: applicationId,
                         meethiChatId: applicationId,
                         resume: resumeDoc?.url || '',
@@ -362,7 +441,7 @@ export const submitApplication = async (req: Request, res: Response) => {
                         specialCode: roleSpecificFields.specialCode || roleSpecificFields.adminCode || roleSpecificFields.superAdminCode || roleSpecificFields.operatorCode || '',
                         ...roleSpecificFields
                     },
-                    status: role === 'host' ? RequestStatus.UNDER_REVIEW : RequestStatus.PENDING,
+                    status: RequestStatus.PENDING,
                     createdBy: referrerData?.referrerId || 'public_recruitment',
                     createdByRole: referrerData?.referrerRole || 'public'
                 });
@@ -398,50 +477,24 @@ export const getAdminApplications = async (req: Request, res: Response) => {
         }
 
         const currentUser = (req as any).user;
-        if (currentUser?.role === 'operator') {
-            const ownerInfo = await HierarchyScopeService.getOwnerReferralInfo();
-            const exclusionFilter = HierarchyScopeService.buildOwnerReferralExclusionFilter('operator', 'recruitment', ownerInfo);
-            if (Object.keys(exclusionFilter).length > 0) {
-                Object.assign(query, exclusionFilter);
-            }
-        }
-
-        if (currentUser && !['owner', 'operator'].includes(currentUser.role)) {
-            const currentUserId = currentUser._id || currentUser.id;
-            const currentUserIdStr = currentUserId ? currentUserId.toString() : null;
-
-            const rawCodes = [
-                currentUser.referralCode,
-                currentUser.employeeCode,
-                currentUser.specialCode,
-                currentUser.meethiId
-            ];
-            const validCodes = rawCodes.map(c => (c || '').toString().trim()).filter(c => c.length > 0);
-
-            const userScopeOr: any[] = [];
-
-            if (currentUserIdStr) {
-                userScopeOr.push({ 'referrer.referrerId': currentUserId });
-                userScopeOr.push({ 'referrer.referrerId': currentUserIdStr });
+        if (currentUser) {
+            const currentUserIdStr = (currentUser._id || currentUser.id || '').toString();
+            if (currentUser.role === 'operator') {
+                const ownerInfo = await HierarchyScopeService.getOwnerReferralInfo();
+                const exclusionFilter = HierarchyScopeService.buildOwnerReferralExclusionFilter('operator', 'recruitment', ownerInfo);
+                if (Object.keys(exclusionFilter).length > 0) {
+                    Object.assign(query, exclusionFilter);
+                }
             }
 
-            if (validCodes.length > 0) {
-                const codeRegexes = validCodes.map(c => new RegExp(`^${c.replace(/[-[\]{}()*+?.,\\^$|#\s]/g, '\\$&')}$`, 'i'));
-                userScopeOr.push({ 'referrer.code': { $in: codeRegexes } });
-                userScopeOr.push({ 'roleData.referralCode': { $in: codeRegexes } });
-            }
+            const scopeFilter = HierarchyScopeService.buildRequestScope({
+                id: currentUserIdStr,
+                role: currentUser.role || 'user'
+            });
 
-            const userName = (currentUser.name || '').trim();
-            if (userName && userName.length > 2 && !['public', 'system', 'external referral', 'direct recruitment portal'].includes(userName.toLowerCase())) {
-                const safeNameRegex = new RegExp(`^${userName.replace(/[-[\]{}()*+?.,\\^$|#\s]/g, '\\$&')}$`, 'i');
-                userScopeOr.push({ 'referrer.referrerName': safeNameRegex });
-            }
-
-            if (userScopeOr.length > 0) {
-                query.$or = userScopeOr;
-                query['referrer.referrerId'] = { $exists: true, $ne: null };
-            } else {
-                query._id = null;
+            if (Object.keys(scopeFilter).length > 0) {
+                query.$and = query.$and || [];
+                query.$and.push(scopeFilter);
             }
         }
 
@@ -530,6 +583,16 @@ export const updateApplicationStatus = async (req: Request, res: Response) => {
             }
         }
 
+        if (status === 'approved') {
+            const actionEval = canActOnRequest(
+                { id: currentUser?._id || currentUser?.id, role: currentUser?.role },
+                application
+            );
+            if (!actionEval.canAct) {
+                return sendResponse(res, 403, false, actionEval.reason || 'Verification failure: Unauthorized to approve this application.');
+            }
+        }
+
         const prevStatus = application.status;
         application.status = status;
 
@@ -556,8 +619,32 @@ export const updateApplicationStatus = async (req: Request, res: Response) => {
             customNote: note
         }).catch(() => {});
 
-        // Automate Employee Creation on Approval
+        // Automate Employee Creation & In-App Role Option on Approval
         if (status === 'approved') {
+            const shouldEnableAppAccess = req.body.enableAppAccess !== undefined
+                ? Boolean(req.body.enableAppAccess)
+                : (req.body.grantAppOption !== undefined ? Boolean(req.body.grantAppOption) : true);
+
+            try {
+                const targetYaroId = application.applicant?.yaroId || application.applicant?.userId || (application.roleData as any)?.yaroId || (application.roleData as any)?.userId;
+                const userQuery: any[] = [];
+                if (targetYaroId && !isNaN(Number(targetYaroId))) {
+                    userQuery.push({ userId: Number(targetYaroId) });
+                    userQuery.push({ meethiId: String(targetYaroId) });
+                }
+                if (application.applicant?.email) {
+                    userQuery.push({ email: application.applicant.email.toLowerCase() });
+                }
+                if (userQuery.length > 0) {
+                    const targetUser = await User.findOne({ $or: userQuery });
+                    if (targetUser) {
+                        await applyInAppRoleOption(targetUser, application.role, { enableAppAccess: shouldEnableAppAccess });
+                    }
+                }
+            } catch (roleOptErr) {
+                await Logger('updateApplicationStatusRoleOptionError', roleOptErr);
+            }
+
             automateEmployeeCreationOnApproval(application.applicationId).catch(() => {});
         }
 

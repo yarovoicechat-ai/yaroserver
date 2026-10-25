@@ -25,7 +25,14 @@ import {
 } from '../utils/requestResponseSanitizer';
 import redis from '../configs/redisConfig';
 import { LockUnavailableError, withDistributedLock } from '../utils/distributedLock';
-import { getAdminOperatorApprovalStage, isAdminOperatorApprovalRequest } from '../utils/emsApprovalRules';
+import {
+  getAdminOperatorApprovalStage,
+  isAdminOperatorApprovalRequest,
+  canActOnRequest,
+  ROLE_APPROVAL_CONFIG,
+  normalizeRoleKey
+} from '../utils/emsApprovalRules';
+import { isYaroIdMandatoryRole, applyInAppRoleOption } from '../utils/appRoleService';
 
 const canManagePermissionTarget = async (
   actor: NonNullable<AuthRequest['user']>,
@@ -577,16 +584,41 @@ export const createRequest = async (req: AuthRequest, res: Response) => {
     if (rt.includes('super admin')) detectedRole = 'superAdmin';
     else if (rt.includes('admin')) detectedRole = 'admin';
     else if (rt.includes('operator')) detectedRole = 'operator';
+    else if (rt.includes('bd-leader') || rt.includes('bd leader') || rt.includes('bdleader')) detectedRole = 'bdLeader';
+    else if (rt.includes('bd')) detectedRole = 'bd';
     else if (rt.includes('seller') || rt.includes('coin')) detectedRole = 'coinSeller';
     else if (rt.includes('support') || rt.includes('customer service') || rt.includes('cs request')) detectedRole = 'customerSupport';
     else if (rt.includes('agency')) detectedRole = 'agency';
     else if (rt.includes('host')) detectedRole = 'host';
 
+    // Mandatory Yaro ID validation for BD, BD Leader, Agency, and Host
+    let linkedUser: any = null;
+    if (isYaroIdMandatoryRole(detectedRole)) {
+      const rawYaroId = data.yaroId || data.userId || data.meethiChatId || data.meethiId;
+      if (!rawYaroId || String(rawYaroId).trim() === '') {
+        return sendResponse(res, 400, false, `Yaro User ID is mandatory for ${requestType} registration.`);
+      }
+      const parsedUserId = Number(rawYaroId);
+      const userFilter: any[] = [{ meethiId: String(rawYaroId).trim() }];
+      if (!isNaN(parsedUserId)) {
+        userFilter.push({ userId: parsedUserId });
+      }
+      linkedUser = await User.findOne({ $or: userFilter });
+      if (!linkedUser) {
+        return sendResponse(res, 404, false, `Yaro User ID "${rawYaroId}" does not exist. Please provide a valid registered Yaro ID.`);
+      }
+      data.yaroId = String(linkedUser.userId);
+      data.userId = linkedUser.userId;
+    }
+
     // Resolve workflow config
     const workflow = await Workflow.findOne({ requestType, isActive: true });
     let steps: string[] = workflow ? workflow.steps.map((s: any) => typeof s === 'string' ? s : (s.title || s.roleRequired)) : [];
-    if ((!steps || steps.length === 0) && (detectedRole === 'agency' || rt.includes('agency'))) {
-      steps = ['Admin Review', 'Super Admin Review', 'Operator / Owner Approval'];
+    if (!steps || steps.length === 0) {
+      const config = ROLE_APPROVAL_CONFIG[normalizeRoleKey(detectedRole)];
+      if (config) {
+        steps = [...config.steps];
+      }
     }
     // NEVER auto-approve — all requests must go through manual review
     const autoApprove = false;
@@ -597,6 +629,7 @@ export const createRequest = async (req: AuthRequest, res: Response) => {
     const newRequest = await RequestModel.create({
       requestType,
       role: detectedRole,
+      generatedUserId: linkedUser ? linkedUser.userId : (data.userId && !isNaN(Number(data.userId)) ? Number(data.userId) : undefined),
       data: { ...data },
       workflowSteps: steps,
       currentStepIndex: 0,
@@ -767,68 +800,24 @@ export const listRequests = async (req: AuthRequest, res: Response) => {
 
     const andConditions: any[] = [{ role: { $ne: 'owner' } }];
 
-    // Strict referral/creator scoping: non-owner and non-operator users can ONLY see requests from their referral link/tree. Direct/Public recruitment applications are visible ONLY to owner and operator.
+    // Strict branch isolation: requests are strictly visible only to their referral/parent hierarchy branch
     const currentUser = req.user;
-    if (currentUser?.role === 'operator') {
-      const ownerInfo = await HierarchyScopeService.getOwnerReferralInfo();
-      const exclusionFilter = HierarchyScopeService.buildOwnerReferralExclusionFilter('operator', 'request', ownerInfo);
-      if (Object.keys(exclusionFilter).length > 0) {
-        andConditions.push(exclusionFilter);
-      }
-    }
-
-    if (currentUser && !['owner', 'operator'].includes(currentUser.role || '')) {
-      const currentUserId = (currentUser as any)._id || (currentUser as any).id;
-      const currentUserIdStr = currentUserId ? currentUserId.toString() : null;
-
-      const rawCodes = [
-        (currentUser as any).referralCode,
-        (currentUser as any).employeeCode,
-        (currentUser as any).specialCode,
-        (currentUser as any).meethiId
-      ];
-      const validCodes = rawCodes.map(c => (c || '').toString().trim()).filter(c => c.length > 0);
-
-      const referralScopeOr: any[] = [];
-
-      if (currentUserIdStr) {
-        referralScopeOr.push({ createdBy: currentUserId });
-        referralScopeOr.push({ createdBy: currentUserIdStr });
-        referralScopeOr.push({ referralUserId: currentUserIdStr });
-      }
-      const visibleTeam = await User.find(
-        HierarchyScopeService.buildUserScope({
-          id: currentUserIdStr || '',
-          role: currentUser.role,
-        })
-      ).select('_id').lean();
-      const visibleIds = visibleTeam.map((member) => String(member._id));
-      if (visibleIds.length > 0) {
-        referralScopeOr.push({ referralUserId: { $in: visibleIds } });
-        referralScopeOr.push({ createdBy: { $in: visibleIds } });
+    if (currentUser) {
+      if (currentUser.role === 'operator') {
+        const ownerInfo = await HierarchyScopeService.getOwnerReferralInfo();
+        const exclusionFilter = HierarchyScopeService.buildOwnerReferralExclusionFilter('operator', 'request', ownerInfo);
+        if (Object.keys(exclusionFilter).length > 0) {
+          andConditions.push(exclusionFilter);
+        }
       }
 
-      if (validCodes.length > 0) {
-        const codeRegexes = validCodes.map(c => new RegExp(`^${c.replace(/[-[\]{}()*+?.,\\^$|#\s]/g, '\\$&')}$`, 'i'));
-        referralScopeOr.push({ referralCode: { $in: codeRegexes } });
-        referralScopeOr.push({ 'data.referralCode': { $in: codeRegexes } });
-        referralScopeOr.push({ 'data.parentSuperAdminCode': { $in: codeRegexes } });
-        referralScopeOr.push({ 'data.parentAdminCode': { $in: codeRegexes } });
-      }
+      const scopeFilter = HierarchyScopeService.buildRequestScope({
+        id: (currentUser.id || (currentUser as any)._id || '').toString(),
+        role: currentUser.role || 'user'
+      });
 
-      const userName = (currentUser.name || '').trim();
-      if (userName && userName.length > 2 && !['public', 'system', 'external referral', 'direct recruitment portal'].includes(userName.toLowerCase())) {
-        const safeNameRegex = new RegExp(`^${userName.replace(/[-[\]{}()*+?.,\\^$|#\s]/g, '\\$&')}$`, 'i');
-        referralScopeOr.push({ referralOwner: safeNameRegex });
-      }
-
-      if (referralScopeOr.length > 0) {
-        andConditions.push({ $or: referralScopeOr });
-        // Exclude all un-referred public recruitment direct applications for superAdmin/admin/agency/customerSupport/seller
-        andConditions.push({ createdBy: { $ne: 'public_recruitment' } });
-        andConditions.push({ createdByRole: { $ne: 'public' } });
-      } else {
-        andConditions.push({ _id: null });
+      if (Object.keys(scopeFilter).length > 0) {
+        andConditions.push(scopeFilter);
       }
     }
 
@@ -1229,104 +1218,24 @@ const approveRequestLocked = async (req: AuthRequest, res: Response) => {
       return sendResponse(res, 409, false, 'Cancelled or expired requests cannot be approved.');
     }
 
-    const roleToken = targetRequestRole.replace(/[^a-z0-9]/g, '');
-    const isAgencyRequest = roleToken === 'agency' || roleToken === 'agencyrequest';
-    const isHostRequest = targetRequestRole.includes('host');
-    const isAdminOperatorApproval = isAdminOperatorApprovalRequest(requestObj);
-
-    // Check if host application is bound to an Agency (Agency Host Application)
-    const hasAgencyBinding = Boolean(
-      requestObj.data?.agencyId ||
-      requestObj.data?.agencyCode ||
-      requestObj.data?.agency ||
-      requestObj.data?.agencyName ||
-      requestObj.data?.agencyObjectId ||
-      (requestObj.referralCode && requestObj.referralRole === 'agency') ||
-      requestObj.createdByRole === 'agency'
-    );
-    const isAgencyHost = isHostRequest && hasAgencyBinding;
-    const isDirectHost = isHostRequest && !hasAgencyBinding;
-
-    if (isAdminOperatorApproval) {
-      const approvalStage = getAdminOperatorApprovalStage(requestObj);
-      requestObj.workflowSteps = ['Stage 1: Admin Approval', 'Stage 2: Operator Final Approval'];
-      requestObj.currentStepIndex = approvalStage.index;
-      if (actor.role !== approvalStage.role) {
-        return sendResponse(
-          res,
-          403,
-          false,
-          approvalStage.index === 0
-            ? 'Stage 1 approval requires an Admin. The Operator gives final approval after that.'
-            : 'Stage 2 final approval requires an Operator after Admin approval.'
-        );
-      }
-    } else if (isAgencyRequest) {
-      if (!requestObj.workflowSteps || requestObj.workflowSteps.length < 3) {
-        requestObj.workflowSteps = ['Admin Review', 'Super Admin Review', 'Operator / Owner Approval'];
-      }
-
-      const isExecutive = actor.role === 'operator' || actor.role === 'owner';
-      if (!isExecutive) {
-        if (requestObj.currentStepIndex === 0) {
-          if (!['admin', 'superAdmin'].includes(actor.role)) {
-            return sendResponse(res, 403, false, 'Stage 1 (Admin Review) for Agency requests requires Admin, Super Admin, Operator, or Owner role.');
-          }
-        } else if (requestObj.currentStepIndex === 1) {
-          if (actor.role !== 'superAdmin') {
-            return sendResponse(res, 403, false, 'Stage 2 (Super Admin Review) for Agency requests requires Super Admin, Operator, or Owner role.');
-          }
-        } else if (requestObj.currentStepIndex >= 2) {
-          return sendResponse(res, 403, false, 'Final Stage 3 Approval for Agency requests requires Operator or Owner role.');
-        }
-      }
-    } else if (isHostRequest) {
-      if (!requestObj.workflowSteps || requestObj.workflowSteps.length < 2) {
-        requestObj.workflowSteps = isDirectHost
-          ? ['Stage 1: Operator Review', 'Stage 2: Owner Approval']
-          : ['Stage 1: Agency / Operator Review', 'Stage 2: Owner Approval'];
-      }
-
-      if (isDirectHost) {
-        // Direct Host Apply (from App / Public Form): NO Agency role involved!
-        if (actor.role === 'agency') {
-          return sendResponse(res, 403, false, 'Direct Host applications cannot be reviewed or approved by Agency accounts.');
-        }
-        if (!['operator', 'owner', 'superAdmin', 'admin'].includes(actor.role)) {
-          return sendResponse(res, 403, false, 'Approval for Direct Host requests requires Operator, Super Admin, Admin, or Owner role.');
-        }
-      } else {
-        // Agency Host Apply (Applied via Agency Form / Agency Code):
-        if (!['agency', 'operator', 'owner', 'superAdmin', 'admin'].includes(actor.role)) {
-          return sendResponse(res, 403, false, 'Approval for Agency Host requests requires Agency, Operator, Super Admin, Admin, or Owner role.');
-        }
-      }
-    } else {
-      // Enterprise Request Approval Ownership Matrix for non-agency & non-host requests
-      const approvalOwnershipMatrix: Record<string, { review: string; approve: string }> = {
-        'super-admin': { review: 'operator', approve: 'owner' },
-        'superAdmin': { review: 'operator', approve: 'owner' },
-        'admin': { review: 'superAdmin', approve: 'operator' },
-        'coinSeller': { review: 'operator', approve: 'owner' },
-        'seller': { review: 'operator', approve: 'owner' },
-        'customerSupport': { review: 'superAdmin', approve: 'operator' },
-      };
-
-      const matchingRoleKey = Object.keys(approvalOwnershipMatrix).find(k => targetRequestRole.includes(k.toLowerCase())) || 'admin';
-      const ownership = approvalOwnershipMatrix[matchingRoleKey];
-
-      if (actor.role !== 'owner' && actor.role !== 'operator' && actor.role !== 'superAdmin') {
-        const requiredRole = requestObj.currentStepIndex === 0 ? ownership.review : ownership.approve;
-        if (actor.role !== requiredRole) {
-          return sendResponse(
-            res,
-            403,
-            false,
-            `Verification failure: ${requestObj.currentStepIndex === 0 ? 'Review' : 'Final Approval'} for '${matchingRoleKey}' requests requires '${requiredRole}' role.`
-          );
-        }
+    const normRole = normalizeRoleKey(requestObj.role || requestObj.requestType);
+    if (!requestObj.workflowSteps || requestObj.workflowSteps.length === 0) {
+      const config = ROLE_APPROVAL_CONFIG[normRole];
+      if (config) {
+        requestObj.workflowSteps = [...config.steps];
       }
     }
+
+    const actionEvaluation = canActOnRequest(
+      { id: actor.id, role: actor.role },
+      requestObj
+    );
+
+    if (!actionEvaluation.canAct) {
+      return sendResponse(res, 403, false, actionEvaluation.reason || 'Verification failure: Unauthorized to approve this request.');
+    }
+
+    const isDirectApproval = actionEvaluation.isDirectApproval;
 
     // Record approval stamp
     requestObj.approvedBy = requestObj.approvedBy || [];
@@ -1337,13 +1246,17 @@ const approveRequestLocked = async (req: AuthRequest, res: Response) => {
       comments: comments || 'Approved',
     });
 
+    const currentStepNum = (requestObj.currentStepIndex || 0) + 1;
+    const totalStepsNum = (requestObj.workflowSteps || []).length;
+    const approvalRemarks = comments || (isDirectApproval ? `Direct Approval by ${actor.role}` : `Stage ${currentStepNum} Approved`);
+
     // Add timeline entry
     requestObj.timeline.push({
       action: 'Approved',
       actor: (actor as any).name || actor.role,
       actorRole: actor.role,
       date: new Date(),
-      remarks: comments || (isAgencyRequest && (actor.role === 'operator' || actor.role === 'owner') ? 'Executive Direct Approval & Agency Activated' : 'Application approved'),
+      remarks: approvalRemarks,
     });
 
     // Audit Log
@@ -1352,66 +1265,25 @@ const approveRequestLocked = async (req: AuthRequest, res: Response) => {
       actor.role,
       'Approval',
       (requestObj as any)._id.toString(),
-      `Approved stage ${requestObj.currentStepIndex + 1}/${requestObj.workflowSteps.length} for request: ${requestObj.requestType}`
+      `Approved stage ${currentStepNum}/${totalStepsNum || 1} for request: ${requestObj.requestType}`
     );
 
     // Advance to next step or finalize
     let generatedCredentials: { email: string; password: string; specialCode: string; roleCode: string } | null = null;
-    if (isAdminOperatorApproval) {
-      if (actor.role === 'operator') {
-        requestObj.status = RequestStatus.APPROVED;
-        requestObj.approvedDate = new Date();
-        requestObj.currentStepIndex = 1;
-        generatedCredentials = await finalizeUserApproval(requestObj, actor);
-      } else {
-        requestObj.currentStepIndex = 1;
-        requestObj.status = RequestStatus.UNDER_REVIEW;
-      }
-    } else if (isAgencyRequest) {
-      const isExecutive = actor.role === 'operator' || actor.role === 'owner';
-      if (isExecutive || requestObj.currentStepIndex + 1 >= requestObj.workflowSteps.length) {
-        requestObj.status = RequestStatus.APPROVED;
-        requestObj.approvedDate = new Date();
-        requestObj.currentStepIndex = requestObj.workflowSteps.length - 1;
-        generatedCredentials = await finalizeUserApproval(requestObj, actor);
-      } else {
-        if (actor.role === 'superAdmin' && requestObj.currentStepIndex === 0) {
-          requestObj.currentStepIndex = 2; // Move to final stage if Super Admin approves
-        } else {
-          requestObj.currentStepIndex += 1;
-        }
-        requestObj.status = RequestStatus.UNDER_REVIEW;
-      }
-    } else if (isHostRequest) {
-      // Host Request Approval Progression:
-      // 1) Owner Approval at ANY stage (direct or after Operator) -> DONE (APPROVED)
-      // 2) Operator Approval at Stage 1 (when 2 stages exist) -> Move to Stage 2 (UNDER_REVIEW)
-      // 3) Final Stage Approval -> DONE (APPROVED)
-      const isOwnerApproval = actor.role === 'owner';
-      const isLastStage = requestObj.currentStepIndex + 1 >= requestObj.workflowSteps.length || requestObj.workflowSteps.length === 0;
+    const isLastStage = (requestObj.currentStepIndex || 0) + 1 >= (requestObj.workflowSteps || []).length || (requestObj.workflowSteps || []).length === 0;
 
-      if (isOwnerApproval || isLastStage || (actor.role === 'operator' && requestObj.currentStepIndex >= 1)) {
-        requestObj.status = RequestStatus.APPROVED;
-        requestObj.approvedDate = new Date();
-        requestObj.currentStepIndex = Math.max(0, requestObj.workflowSteps.length - 1);
-        generatedCredentials = await finalizeUserApproval(requestObj, actor);
-      } else {
-        requestObj.currentStepIndex += 1;
-        requestObj.status = RequestStatus.UNDER_REVIEW;
-      }
+    const shouldEnableAppAccess = req.body.enableAppAccess !== undefined
+      ? Boolean(req.body.enableAppAccess)
+      : (req.body.grantAppOption !== undefined ? Boolean(req.body.grantAppOption) : true);
+
+    if (isDirectApproval || isLastStage) {
+      requestObj.status = RequestStatus.APPROVED;
+      requestObj.approvedDate = new Date();
+      requestObj.currentStepIndex = Math.max(0, (requestObj.workflowSteps || []).length - 1);
+      generatedCredentials = await finalizeUserApproval(requestObj, actor, { enableAppAccess: shouldEnableAppAccess });
     } else {
-      const isOwnerApproval = actor.role === 'owner';
-      const isLastStage = requestObj.currentStepIndex + 1 >= requestObj.workflowSteps.length || requestObj.workflowSteps.length === 0;
-
-      if (isOwnerApproval || isLastStage) {
-        requestObj.status = RequestStatus.APPROVED;
-        requestObj.approvedDate = new Date();
-        requestObj.currentStepIndex = Math.max(0, requestObj.workflowSteps.length - 1);
-        generatedCredentials = await finalizeUserApproval(requestObj, actor);
-      } else {
-        requestObj.currentStepIndex += 1;
-        requestObj.status = RequestStatus.UNDER_REVIEW;
-      }
+      requestObj.currentStepIndex = (requestObj.currentStepIndex || 0) + 1;
+      requestObj.status = RequestStatus.UNDER_REVIEW;
     }
 
     await requestObj.save();
@@ -1545,7 +1417,8 @@ export const rejectRequest = async (req: AuthRequest, res: Response) => {
 // Returns the plain-text credentials so the frontend can display them in the approval dialog
 export const finalizeUserApproval = async (
   requestObj: IRequest,
-  finalApprover?: any
+  finalApprover?: any,
+  options?: { enableAppAccess?: boolean }
 ): Promise<{ email: string; password: string; specialCode: string; roleCode: string }> => {
   const { requestType, data, passwordBeforeApproval } = requestObj;
 
@@ -1615,6 +1488,8 @@ export const finalizeUserApproval = async (
   let operatorId: any = undefined;
   let superAdminId: any = undefined;
   let adminId: any = undefined;
+  let bdLeaderId: any = undefined;
+  let bdId: any = undefined;
   let agencyId: any = undefined;
 
   // Resolve hierarchy based on referral/parent links
@@ -1638,15 +1513,29 @@ export const finalizeUserApproval = async (
     parentRole = referrerUser.role;
     ownerId = referrerUser.ownerId || (referrerUser.role === 'owner' ? referrerUser._id : undefined);
     operatorId = referrerUser.operatorId || (referrerUser.role === 'operator' ? referrerUser._id : undefined);
-    superAdminId = referrerUser.superAdminId || (referrerUser.role === 'superAdmin' ? referrerUser._id : undefined);
+    superAdminId = referrerUser.superAdminId || (['superAdmin', 'super-admin'].includes(referrerUser.role) ? referrerUser._id : undefined);
     adminId = referrerUser.adminId || (referrerUser.role === 'admin' ? referrerUser._id : undefined);
+    bdLeaderId = referrerUser.bdLeaderId || (['bdLeader', 'bd-leader'].includes(referrerUser.role) ? referrerUser._id : undefined);
+    bdId = referrerUser.bdId || (referrerUser.role === 'bd' ? referrerUser._id : undefined);
     agencyId = referrerUser.agencyId || (referrerUser.role === 'agency' ? referrerUser._id : undefined);
     if (referrerUser.role === 'owner') ownerId = referrerUser._id;
     if (referrerUser.role === 'operator') operatorId = referrerUser._id;
-    if (referrerUser.role === 'superAdmin') superAdminId = referrerUser._id;
+    if (referrerUser.role === 'superAdmin' || referrerUser.role === 'super-admin') superAdminId = referrerUser._id;
     if (referrerUser.role === 'admin') adminId = referrerUser._id;
+    if (referrerUser.role === 'bdLeader' || referrerUser.role === 'bd-leader') bdLeaderId = referrerUser._id;
+    if (referrerUser.role === 'bd') bdId = referrerUser._id;
     if (referrerUser.role === 'agency') agencyId = referrerUser._id;
   }
+
+  // Fallback to data fields if set on request
+  ownerId = ownerId || data.ownerId;
+  operatorId = operatorId || data.operatorId;
+  superAdminId = superAdminId || data.superAdminId;
+  adminId = adminId || data.adminId;
+  bdLeaderId = bdLeaderId || data.bdLeaderId;
+  bdId = bdId || data.bdId;
+  agencyId = agencyId || data.agencyId;
+  const userHierarchyPath = (referrerUser ? `${referrerUser.hierarchyPath || ''}/${referrerUser._id}` : (data.hierarchyPath || '')).replace(/\/+/g, '/');
 
   // Generate immutable Enterprise Referral Code & Link for supported roles
   const rolePrefixMap: Record<string, { prefix: string; path: string }> = {
@@ -1675,9 +1564,14 @@ export const finalizeUserApproval = async (
 
   const audioRecordingUrl = data.audio || data.voiceAudioUrl || data.audioUrl || data.voiceUrl || data.voice || data.introAudio || '';
 
-  // Check if existing user exists by email, phone, userId, or meethiId
+  // Check if existing user exists by yaroId/userId, email, phone, or meethiId
   let existingUser = null;
-  if (userEmail) {
+  const rawTargetYaroId = data.yaroId || data.userId || (requestObj as any).generatedUserId;
+  if (rawTargetYaroId && !isNaN(Number(rawTargetYaroId))) {
+    existingUser = await User.findOne({ userId: Number(rawTargetYaroId) });
+  }
+
+  if (!existingUser && userEmail) {
     existingUser = await User.findOne({ email: userEmail });
   }
 
@@ -1730,10 +1624,13 @@ export const finalizeUserApproval = async (
     if (referralLink && !existingUser.referralLink) existingUser.referralLink = referralLink;
     if (loginUrl) existingUser.loginUrl = loginUrl;
     if (agencyId) existingUser.agencyId = agencyId;
+    if (bdId) existingUser.bdId = bdId;
+    if (bdLeaderId) existingUser.bdLeaderId = bdLeaderId;
     if (ownerId) existingUser.ownerId = ownerId;
     if (operatorId) existingUser.operatorId = operatorId;
     if (adminId) existingUser.adminId = adminId;
     if (superAdminId) existingUser.superAdminId = superAdminId;
+    if (userHierarchyPath) existingUser.hierarchyPath = userHierarchyPath;
     existingUser.emsRequestId = (requestObj as any)._id;
     await existingUser.save();
     newUser = existingUser;
@@ -1772,7 +1669,10 @@ export const finalizeUserApproval = async (
       operatorId,
       superAdminId,
       adminId,
+      bdLeaderId,
+      bdId,
       agencyId,
+      hierarchyPath: userHierarchyPath,
       documents: Array.isArray(data.documents)
         ? data.documents.map((d: any) => (typeof d === 'string' ? d : (d?.url || d?.uri || JSON.stringify(d)))).filter(Boolean)
         : (data.documents ? [typeof data.documents === 'string' ? data.documents : (data.documents.url || JSON.stringify(data.documents))] : []),
@@ -1851,6 +1751,10 @@ export const finalizeUserApproval = async (
   ).catch((err) => {
     console.warn('Notice updating user permissions during approval:', err.message);
   });
+
+  // Apply in-app role options / portal privileges if enabled
+  const enableAppAccess = options?.enableAppAccess !== false;
+  await applyInAppRoleOption(newUser, targetRole, { enableAppAccess });
 
   // Update request with generated user data
   requestObj.userId = newUser.userId;
