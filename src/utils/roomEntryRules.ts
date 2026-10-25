@@ -18,22 +18,16 @@ export const resolveAnimationUrl = (asset: any): string => {
 export const entryIsActive = (asset: any, now = Date.now()): boolean => {
   if (!asset || typeof asset !== 'object' || asset.isActive === false) return false;
   if (asset.expiresAt && !(new Date(asset.expiresAt).getTime() > now)) return false;
-  const anim = resolveAnimationUrl(asset);
-  const img = asset.imageUrl || asset.image || asset.url || '';
-  return Boolean(anim || img || asset.name);
+  return Boolean(resolveAnimationUrl(asset));
 };
 
 export const roomEntryAsset = (asset: any) => {
   if (!entryIsActive(asset)) return null;
   const anim = resolveAnimationUrl(asset);
-  const img = asset.imageUrl || asset.image || asset.url || asset.coverImageUrl || '';
+  const { image, imageUrl, coverImageUrl, ...playable } = asset;
   return {
-    ...asset,
-    id: asset.id || asset._id || asset.itemId || asset.name || '',
-    name: asset.name || 'Entrance Effect',
-    animationUrl: anim || asset.animationUrl || '',
-    imageUrl: img,
-    image: img,
+    ...playable,
+    animationUrl: anim,
     bannerColors: Array.isArray(asset.bannerColors) && asset.bannerColors.length >= 2
       ? asset.bannerColors
       : Array.isArray(asset.bgColors) && asset.bgColors.length >= 2

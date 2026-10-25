@@ -252,19 +252,20 @@ const canonicalRoomAsset = (item: any, expiresAt?: Date | null) => {
 };
 
 const getCanonicalRoomUser = async (socketUser: any, fallback: any = {}) => {
-  const targetId = socketUser?.id || socketUser?._id;
-  const targetUserId = socketUser?.userId;
+  const targetId = socketUser?._id || socketUser?.id;
+  const targetUserId = socketUser?.userId || fallback?.userId;
+  const numUserId = Number(targetUserId);
   const query =
-    targetId && Types.ObjectId.isValid(String(targetId))
+    targetId && Types.ObjectId.isValid(String(targetId)) && String(targetId).length === 24
       ? { _id: targetId }
-      : targetUserId && !isNaN(Number(targetUserId))
-        ? { userId: Number(targetUserId) }
+      : !isNaN(numUserId) && numUserId > 0
+        ? { userId: numUserId }
         : null;
 
   const dbUser: any = query
     ? await User.findOne(query)
         .select(
-          "userId name image avatar gender level equippedFrame equippedFrameAsset equippedEntry equippedEntryAsset equippedEntryEffect equippedEntryTag equippedEntrance equippedEntranceAsset equippedTassel equippedTasselAsset equippedBadge equippedBadges equippedChatBubble equippedChatBubbleAsset equippedVipId equippedSvipId isGlobalRoomManager officialPowers",
+          "userId name image avatar gender level wealthLevel wealthExp charmLevel charmExp customDisplayId uniqueId storeInventory equippedVehicle equippedVehicleAsset equippedFrame equippedFrameAsset equippedEntry equippedEntryAsset equippedEntryEffect equippedEntryTag equippedEntrance equippedEntranceAsset equippedTassel equippedTasselAsset equippedBadge equippedBadges equippedChatBubble equippedChatBubbleAsset equippedVipId equippedSvipId isGlobalRoomManager officialPowers",
         )
         .lean()
     : null;
@@ -290,6 +291,10 @@ const getCanonicalRoomUser = async (socketUser: any, fallback: any = {}) => {
     image: String(avatar),
     gender: source?.gender || fallback?.gender || "male",
     level: source?.level || 1,
+    wealthLevel: source?.wealthLevel || source?.level || 1,
+    customDisplayId: source?.customDisplayId || source?.uniqueId || null,
+    uniqueId: source?.uniqueId || source?.customDisplayId || null,
+    storeInventory: source?.storeInventory || [],
     equippedFrame: source?.equippedFrameAsset || source?.equippedFrame || null,
     equippedFrameAsset: source?.equippedFrameAsset || null,
     equippedEntry: source?.equippedEntryAsset || source?.equippedEntry || null,
@@ -298,6 +303,8 @@ const getCanonicalRoomUser = async (socketUser: any, fallback: any = {}) => {
     equippedEntryTag: source?.equippedEntryTag || null,
     equippedEntrance: source?.equippedEntranceAsset || source?.equippedEntrance || null,
     equippedEntranceAsset: source?.equippedEntranceAsset || null,
+    equippedVehicle: source?.equippedVehicleAsset || source?.equippedVehicle || null,
+    equippedVehicleAsset: source?.equippedVehicleAsset || null,
     equippedTassel: source?.equippedTasselAsset || source?.equippedTassel || null,
     equippedTasselAsset: source?.equippedTasselAsset || null,
     equippedBadge: source?.equippedBadge || null,
@@ -664,16 +671,18 @@ export const registerVoiceRoomHandlers = (io: Server, socket: AuthenticatedSocke
       if (!Array.isArray(state.bannedChatUsers)) state.bannedChatUsers = [];
       if (!Array.isArray(state.mutedUsers)) state.mutedUsers = [];
       let shouldBroadcastJoin = !wasOnline;
-      if (!wasOnline && userData.userId) {
+      if (userData.userId) {
         try {
           const firstJoinForUser = await redis.set(
             `voice_room_join_event:${roomId}:${userData.userId}`,
             String(Date.now()),
             "EX",
-            4,
+            1,
             "NX",
           );
-          shouldBroadcastJoin = firstJoinForUser === "OK";
+          if (firstJoinForUser === "OK") {
+            shouldBroadcastJoin = true;
+          }
         } catch (joinLockErr) {
           console.warn("[VoiceRoom] Join deduplication warning:", joinLockErr);
         }

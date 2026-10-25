@@ -261,21 +261,19 @@ export class EntryEffectService {
     if (!roomId || !user) return null;
 
     try {
+      const idCandidates = [user.userId, user.numericUserId, user._id, user.id].filter(Boolean);
       let dbUser: any = null;
-      const lookupId = user._id || user.id || user.userId;
-      if (lookupId) {
-        if (Types.ObjectId.isValid(String(lookupId)) && String(lookupId).length === 24) {
-          dbUser = await User.findById(lookupId).populate('equippedEntryEffect').lean();
+      for (const cand of idCandidates) {
+        const str = String(cand).trim();
+        if (!str || str.startsWith('join:')) continue;
+        if (Types.ObjectId.isValid(str) && str.length === 24) {
+          dbUser = await User.findById(str).populate('equippedEntryEffect').lean();
+          if (dbUser) break;
         }
-        if (!dbUser) {
-          const numId = Number(lookupId);
-          dbUser = await User.findOne({
-            $or: [
-              ...(isNaN(numId) ? [] : [{ userId: numId }]),
-              { userId: String(lookupId) },
-              ...(Types.ObjectId.isValid(String(lookupId)) && String(lookupId).length === 24 ? [{ _id: lookupId }] : []),
-            ],
-          }).populate('equippedEntryEffect').lean();
+        const num = Number(str);
+        if (!isNaN(num) && num > 0) {
+          dbUser = await User.findOne({ userId: num }).populate('equippedEntryEffect').lean();
+          if (dbUser) break;
         }
       }
 
@@ -414,7 +412,9 @@ export class EntryEffectService {
           name: dbUser?.name || user.name,
           avatar: dbUser?.image || user.avatar || user.image,
           level: dbUser?.level || user.level || 1,
-          wealthLevel: source.wealthLevel || source.level || 1,
+          wealthLevel: source.wealthLevel || dbUser?.wealthLevel || source.level || 1,
+          customDisplayId: source.customDisplayId || dbUser?.customDisplayId || null,
+          uniqueId: source.uniqueId || dbUser?.uniqueId || null,
           nameEffect: identity?.nameEffect || source.nameEffect || vipExperience.nameEffect || null,
           equippedFrame: dbUser?.equippedFrameAsset || dbUser?.equippedFrame || user.equippedFrameAsset || user.equippedFrame || null,
           equippedFrameAsset: dbUser?.equippedFrameAsset || user.equippedFrameAsset || null,
