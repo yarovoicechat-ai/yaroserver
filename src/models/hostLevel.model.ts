@@ -1,6 +1,6 @@
 import mongoose, { Schema, model, Document } from "mongoose";
 
-export type HostLevelRewardType = 'frame' | 'entry';
+export type HostLevelRewardType = 'frame' | 'entry' | 'badge' | 'tag' | 'vehicle' | 'micWave' | 'theme';
 
 export interface IHostLevelReward {
     type: HostLevelRewardType;
@@ -16,12 +16,16 @@ export interface IHostLevel extends Document {
     minCalls: number;       // Total calls required to reach this level
     minMinutes: number;     // Total call minutes required
     coinPerMinute: number;  // Commission: coins per minute host earns at this level
+    badgeIcon?: string;     // Badge icon / image URL
+    badgeAnimation?: string;// Badge animation / SVGA URL
+    levelTag?: string;      // Optional nickname / level tag text
+    image?: string;         // Level cover image
     expiresAt?: Date;       // Optional expiration date for temporary levels
     rewards: IHostLevelReward[];
 }
 
 const HostLevelRewardSchema = new Schema<IHostLevelReward>({
-    type: { type: String, enum: ['frame', 'entry'], required: true },
+    type: { type: String, enum: ['frame', 'entry', 'badge', 'tag', 'vehicle', 'micWave', 'theme'], required: true },
     name: { type: String, required: true, trim: true },
     imageUrl: { type: String, default: '' },
     animationUrl: { type: String, default: '' },
@@ -35,6 +39,10 @@ const HostLevelSchema = new Schema<IHostLevel>(
         minCalls: { type: Number, default: 0 },
         minMinutes: { type: Number, default: 0 },
         coinPerMinute: { type: Number, default: 1 },
+        badgeIcon: { type: String, default: '' },
+        badgeAnimation: { type: String, default: '' },
+        levelTag: { type: String, default: '' },
+        image: { type: String, default: '' },
         expiresAt: { type: Date },
         rewards: { type: [HostLevelRewardSchema], default: [] },
     },

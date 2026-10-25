@@ -4,8 +4,10 @@ import sendResponse from '../utils/reponse';
 import AppError from '../utils/errorHandler';
 import { Logger } from '../utils/logger';
 
+const ALLOWED_REWARD_TYPES = ['frame', 'entry', 'badge', 'tag', 'vehicle', 'micWave', 'theme'];
+
 const normalizeRewards = (rewards: any) => (Array.isArray(rewards) ? rewards : [])
-    .filter((reward: any) => ['frame', 'entry'].includes(reward?.type) && String(reward?.name || '').trim())
+    .filter((reward: any) => ALLOWED_REWARD_TYPES.includes(reward?.type) && String(reward?.name || '').trim())
     .map((reward: any) => ({
         type: reward.type,
         name: String(reward.name).trim(),
@@ -35,7 +37,7 @@ export const getLevels = async (req: Request, res: Response, next: NextFunction)
 // CREATE a new level
 export const createLevel = async (req: Request, res: Response, next: NextFunction): Promise<void> => {
     try {
-        const { level, name, minCalls, minMinutes, coinPerMinute, image, rewards } = req.body;
+        const { level, name, minCalls, minMinutes, coinPerMinute, image, badgeIcon, badgeAnimation, levelTag, rewards } = req.body;
 
         if (!level || !name || coinPerMinute === undefined) {
             return next(new AppError('level, name, and coinPerMinute are required', 400));
@@ -52,7 +54,10 @@ export const createLevel = async (req: Request, res: Response, next: NextFunctio
             minCalls: minCalls || 0,
             minMinutes: minMinutes || 0,
             coinPerMinute,
-            image,
+            image: image || '',
+            badgeIcon: badgeIcon || '',
+            badgeAnimation: badgeAnimation || '',
+            levelTag: levelTag || '',
             rewards: normalizeRewards(rewards),
         });
 
@@ -67,11 +72,23 @@ export const createLevel = async (req: Request, res: Response, next: NextFunctio
 export const updateLevel = async (req: Request, res: Response, next: NextFunction): Promise<void> => {
     try {
         const { id } = req.params;
-        const { name, minCalls, minMinutes, coinPerMinute, image, rewards } = req.body;
+        const { name, minCalls, minMinutes, coinPerMinute, image, badgeIcon, badgeAnimation, levelTag, rewards } = req.body;
+
+        const updateData: any = {
+            name,
+            minCalls,
+            minMinutes,
+            coinPerMinute,
+            rewards: normalizeRewards(rewards),
+        };
+        if (image !== undefined) updateData.image = image;
+        if (badgeIcon !== undefined) updateData.badgeIcon = badgeIcon;
+        if (badgeAnimation !== undefined) updateData.badgeAnimation = badgeAnimation;
+        if (levelTag !== undefined) updateData.levelTag = levelTag;
 
         const updated = await HostLevel.findByIdAndUpdate(
             id,
-            { name, minCalls, minMinutes, coinPerMinute, image, rewards: normalizeRewards(rewards) },
+            updateData,
             { new: true, runValidators: true }
         );
 
