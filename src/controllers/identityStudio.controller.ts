@@ -16,7 +16,7 @@ import { NAME_EFFECT_PRESETS, nameEffectExpiry } from '../utils/nameEffectPreset
 import { publishNameEffectUpdate } from '../services/nameEffectUpdate.service';
 
 const ensureNameEffectPresets = () => IdentityEffect.bulkWrite(NAME_EFFECT_PRESETS.map(preset => ({
-  updateOne: { filter: { slug: preset.slug }, update: { $setOnInsert: preset }, upsert: true },
+  updateOne: { filter: { slug: preset.slug }, update: { $set: preset }, upsert: true },
 })));
 
 /* =========================================================================

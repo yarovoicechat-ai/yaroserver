@@ -16,10 +16,10 @@ const response = () => ({ code: 0, body: null as any,
   json(body: any) { this.body = body; return this; },
 });
 
-test('ten distinct presets are panel-only and eligible for every account', () => {
-  assert.equal(NAME_EFFECT_PRESETS.length, 10);
-  assert.equal(new Set(NAME_EFFECT_PRESETS.map(effect => effect.slug)).size, 10);
-  assert.equal(new Set(NAME_EFFECT_PRESETS.map(effect => effect.config.colors.join(','))).size, 10);
+test('60 distinct presets are panel-only and eligible for every account', () => {
+  assert.equal(NAME_EFFECT_PRESETS.length, 60);
+  assert.equal(new Set(NAME_EFFECT_PRESETS.map(effect => effect.slug)).size, 60);
+  assert.equal(new Set(NAME_EFFECT_PRESETS.map(effect => effect.config.colors.join(','))).size, 60);
   NAME_EFFECT_PRESETS.forEach(effect => {
     assert.equal(effect.isPurchasable, false);
     assert.equal(effect.metadata.panelOnly, true);
