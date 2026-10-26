@@ -1999,6 +1999,8 @@ export const equipStoreItem = async (req: any, res: Response) => {
       } else if (requestedCategory === 'Entry') {
         update.equippedEntry = null;
         update.equippedEntryAsset = null;
+        update.equippedEntryEffect = null;
+        update.equippedEntryTag = null;
       } else if (requestedCategory === 'Tassel') {
         update.equippedTassel = null;
         update.equippedTasselAsset = null;

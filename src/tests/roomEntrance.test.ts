@@ -45,6 +45,13 @@ test('VIP without entry gets plain arrival; entrance-only and current panel sett
     assert.equal(plain.entrance?.isDefault, true);
     assert.equal(plain.tagText, 'entered the room');
 
+    account.equippedEntryAsset = { name: 'Ride', animationUrl: 'ride.svga' };
+    const rideOnly = await EntryEffectService.broadcastEntry('room-a', { id });
+    assert.equal(rideOnly.entry.animationUrl, 'ride.svga', 'Entry works without an equipped entrance');
+    assert.equal(rideOnly.entrance.isDefault, true);
+    assert.equal(rideOnly.tagText, 'is coming');
+    account.equippedEntryAsset = null;
+
     account = { ...account, equippedEntranceAsset: { name: 'Bike', animationUrl: 'bike.svga' } };
     (StoreItem as any).findOne = () => ({ lean: async () => ({
       animationUrl: 'new-bike.svga', isActive: true,
