@@ -56,9 +56,14 @@ test('VIP without entry gets plain arrival; entrance-only and current panel sett
     assert.equal(arrival.entry, null, 'Entrance does not leak into Entry slot');
     assert.equal(arrival.entrance.animationUrl, 'new-bike.svga');
     assert.equal(arrival.entrance.metadata.showAvatar, true);
-    assert.equal(arrival.tagText, 'is coming');
+    assert.equal(arrival.tagText, 'entered the room');
     assert.equal(arrival.user.name, account.name);
 
+    account.equippedEntranceAsset = { name: 'Static banner', imageUrl: 'banner.png' };
+    (StoreItem as any).findOne = () => ({ lean: async () => null });
+    const imageBanner = await EntryEffectService.broadcastEntry('room-a', { id });
+    assert.equal(imageBanner.entrance.imageUrl, 'banner.png');
+    assert.equal(imageBanner.tagText, 'entered the room');
     account.equippedEntranceAsset.expiresAt = '2000-01-01';
     const expired = await EntryEffectService.broadcastEntry('room-a', { id });
     assert.equal(expired?.hasEntry, false);

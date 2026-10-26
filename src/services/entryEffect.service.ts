@@ -278,7 +278,7 @@ export class EntryEffectService {
       }
 
       const source = dbUser || user;
-      const identity = await IdentityResolverService.resolveEffectiveIdentity(source);
+      const identity = await IdentityResolverService.resolveEffectiveIdentity(source).catch(() => null);
       // Resolve equipped Entry Effect
       let entryEffect: any = source.equippedEntryAsset || null;
       if (!entryEffect && dbUser?.equippedEntryEffect) {
@@ -395,7 +395,11 @@ export class EntryEffectService {
       entryEffect = await refreshAsset(entryEffect, ['Entry', 'entry', 'Entry Effect', 'entry effect', 'Entry Effects', 'entry effects']);
       entranceEffect = await refreshAsset(entranceEffect, ['Entrance', 'entrance', 'Ride', 'ride', 'Vehicle', 'vehicle', 'Profile Entry', 'profile entry']);
       const roomEntryEffect = roomEntryAsset(entryEffect);
-      let activeEntrance = roomEntryAsset(entranceEffect);
+      let activeEntrance = entranceEffect && entranceEffect.isActive !== false &&
+        (!entranceEffect.expiresAt || new Date(entranceEffect.expiresAt).getTime() > Date.now()) &&
+        (entranceEffect.animationUrl || entranceEffect.imageUrl || entranceEffect.image)
+        ? { ...entranceEffect, imageUrl: entranceEffect.imageUrl || entranceEffect.image || '' }
+        : null;
       if (!activeEntrance) {
         activeEntrance = {
           id: 'default_entrance',
@@ -410,7 +414,7 @@ export class EntryEffectService {
         };
       }
       const hasEquippedEntry = Boolean(roomEntryEffect || (activeEntrance && !activeEntrance.isDefault));
-      const tagText = hasEquippedEntry ? 'is coming' : 'entered the room';
+      const tagText = roomEntryEffect ? 'is coming' : 'entered the room';
       const entryId = `entry_${Date.now()}_${Math.random().toString(36).substr(2, 6)}`;
       const payload = {
         entryId,
