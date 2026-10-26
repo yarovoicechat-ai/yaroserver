@@ -150,6 +150,28 @@ export const isActorInRequestBranch = (actor: { id: string | any; role: string }
   const normActor = normalizeRoleKey(actor.role);
   if (normActor === 'owner') return true;
 
+  const data = requestData?.data || requestData?.roleData || {};
+  const hasBranchConstraint = Boolean(
+    requestData?.referralUserId ||
+    requestData?.createdBy ||
+    requestData?.referrer?.referrerId ||
+    requestData?.operatorId ||
+    requestData?.superAdminId ||
+    requestData?.adminId ||
+    requestData?.bdLeaderId ||
+    requestData?.bdId ||
+    requestData?.agencyId ||
+    requestData?.hierarchyPath ||
+    data.operatorId ||
+    data.superAdminId ||
+    data.adminId ||
+    data.bdLeaderId ||
+    data.bdId ||
+    data.agencyId ||
+    data.hierarchyPath
+  );
+  if (!hasBranchConstraint) return true;
+
   const actorId = String(actor.id || (actor as any)._id || '');
   if (!actorId) return false;
 
@@ -160,7 +182,6 @@ export const isActorInRequestBranch = (actor: { id: string | any; role: string }
     return true;
   }
 
-  const data = requestData.data || requestData.roleData || {};
   const branchFields = [
     data.operatorId,
     data.superAdminId,
@@ -235,6 +256,13 @@ export const canActOnRequest = (
   // 4. Multi-tier step check
   const config = ROLE_APPROVAL_CONFIG[targetRole];
   if (!config) {
+    const approvedRoles = (request.approvedBy || []).map((entry: any) =>
+      normalizeRoleKey(entry?.role || '')
+    );
+    if (approvedRoles.includes('admin')) {
+      if (['operator', 'owner'].includes(normActor)) return { canAct: true, isDirectApproval: true };
+      return { canAct: false, isDirectApproval: false, reason: 'Waiting for operator final approval' };
+    }
     if (['admin', 'superAdmin'].includes(normActor)) {
       return { canAct: true, isDirectApproval: false };
     }
@@ -286,6 +314,13 @@ export const getAdminOperatorApprovalStage = (request: any): ApprovalStage => {
       role: config.stepRoles[currentStep],
       label: config.steps[currentStep] || `Stage ${currentStep + 1} Review`,
     };
+  }
+
+  const approvedRoles = (request.approvedBy || []).map((entry: any) =>
+    normalizeRoleKey(entry?.role || '')
+  );
+  if (approvedRoles.includes('admin')) {
+    return { index: 1, role: 'operator', label: 'Stage 2: Operator Final Approval' };
   }
 
   return { index: 0, role: 'admin', label: 'Stage 1: Admin Approval' };

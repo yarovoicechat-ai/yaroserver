@@ -21,6 +21,14 @@ const normalizeRoomIdentity = (value: unknown): string => {
   return clean;
 };
 
+export const isRoomOwner = ({ userId, numericUserId, roomOwnerId, roomChannelName, requestedRoomId }: Omit<RoomVoiceAuthorizationInput, 'seats'>): boolean => {
+  const identities = [userId, numericUserId].filter(Boolean).map(normalizeRoomIdentity);
+  // A recorded owner takes precedence over channel aliases and account roles.
+  if (roomOwnerId) return matchesIdentity(roomOwnerId, identities);
+  return Boolean(numericUserId &&
+    normalizeRoomIdentity(roomChannelName || requestedRoomId) === normalizeRoomIdentity(numericUserId));
+};
+
 export const hasRoomVoicePublisherAccess = ({
   userId,
   numericUserId,
@@ -30,9 +38,7 @@ export const hasRoomVoicePublisherAccess = ({
   seats,
 }: RoomVoiceAuthorizationInput): boolean => {
   const identities = [userId, numericUserId].filter(Boolean).map(normalizeRoomIdentity);
-  const isOwner = matchesIdentity(roomOwnerId, identities) || Boolean(
-    numericUserId && normalizeRoomIdentity(roomChannelName || requestedRoomId) === normalizeRoomIdentity(numericUserId),
-  );
+  const isOwner = isRoomOwner({ userId, numericUserId, roomOwnerId, roomChannelName, requestedRoomId });
   const isSeated = seats.some((seat) =>
     Boolean(seat.user && matchesIdentity(seat.user.userId, identities)),
   );

@@ -257,7 +257,7 @@ export class EntryEffectService {
   /**
    * Broadcast an entry effect to a voice room when a user enters.
    */
-  static async broadcastEntry(roomId: string, user: any) {
+  static async broadcastEntry(roomId: string, user: any, rawRoomId?: string) {
     if (!roomId || !user) return null;
 
     try {
@@ -452,9 +452,19 @@ export class EntryEffectService {
         (payload as any).id = entryEventId;
 
         // io.to(...).to(...) deduplicates sockets in multiple rooms so each client receives exactly once
-        io.to(`voice_room_channel:${roomId}`).to(`room:${roomId}`).emit('entry:effect', payload);
-
-
+        const clean = String(roomId || '').trim();
+        const norm = /^10000\d{3}$/.test(clean) ? `100000000${clean.slice(5)}`.slice(-10) : clean;
+        let target = io.to(`voice_room_channel:${clean}`).to(`room:${clean}`);
+        if (norm && norm !== clean) {
+          target = target.to(`voice_room_channel:${norm}`).to(`room:${norm}`);
+        }
+        if (rawRoomId) {
+          const rawClean = String(rawRoomId).trim();
+          if (rawClean && rawClean !== clean && rawClean !== norm) {
+            target = target.to(`voice_room_channel:${rawClean}`).to(`room:${rawClean}`);
+          }
+        }
+        target.emit('entry:effect', payload);
       }
 
       return payload;

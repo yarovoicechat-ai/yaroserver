@@ -12,6 +12,7 @@ import { RoomTaskService } from "../services/roomTask.service";
 import { withDistributedLock } from "../utils/distributedLock";
 import { allocateRoomSeat } from "../utils/roomSeatRules";
 import { isProtectedTeamAccount } from "../utils/roomModerationRules";
+import { isRoomOwner } from "../utils/roomVoiceAuthorization";
 
 export interface VoiceRoomSeat {
   seatIndex: number;
@@ -510,6 +511,8 @@ export const registerVoiceRoomHandlers = (io: Server, socket: AuthenticatedSocke
             { channelName: rawRoomId },
             { channelName: String(roomId) },
             { channelName: String(rawRoomId) },
+            ...(Types.ObjectId.isValid(rawRoomId) ? [{ _id: rawRoomId }] : []),
+            ...(Types.ObjectId.isValid(roomId) ? [{ _id: roomId }] : []),
           ],
         })
           .select("ownerId channelName isLocked isBanned banReason")
@@ -522,21 +525,13 @@ export const registerVoiceRoomHandlers = (io: Server, socket: AuthenticatedSocke
       const isGlobalManager = await isGlobalRoomManagerSocket(socket);
       const isSuperAdminOrOwnerRole = (user as any)?.role === "superAdmin" || (user as any)?.role === "owner";
 
-      const authorizedHost = Boolean(
-        isSuperAdminOrOwnerRole ||
-        (roomDocument?.ownerId && (
-          String(roomDocument.ownerId) === authUserDbId ||
-          (authUserNumId && String(roomDocument.ownerId) === authUserNumId)
-        )) ||
-        (roomDocument?.channelName && (
-          normalizeRoomId(String(roomDocument.channelName)) === normalizeRoomId(authUserNumId) ||
-          String(roomDocument.channelName) === authUserNumId
-        )) ||
-        (authUserNumId && (
-          normalizeRoomId(roomId) === normalizeRoomId(authUserNumId) ||
-          normalizeRoomId(rawRoomId) === normalizeRoomId(authUserNumId)
-        ))
-      );
+      const authorizedHost = isRoomOwner({
+        userId: authUserDbId,
+        numericUserId: authUserNumId,
+        roomOwnerId: roomDocument?.ownerId ? String(roomDocument.ownerId) : null,
+        roomChannelName: roomDocument?.channelName,
+        requestedRoomId: roomId,
+      });
       // 24-hour ban check
       try {
         const isBanned24h = await redis.get(`voice_room_ban24h:${roomId}:${userData.userId}`);
@@ -573,6 +568,20 @@ export const registerVoiceRoomHandlers = (io: Server, socket: AuthenticatedSocke
       if (rawRoomId !== roomId) {
         await socket.join(`voice_room_channel:${rawRoomId}`);
         await socket.join(`room:${rawRoomId}`);
+      }
+      if (roomDocument?.channelName) {
+        const docChannel = normalizeRoomId(String(roomDocument.channelName));
+        if (docChannel !== roomId && docChannel !== rawRoomId) {
+          await socket.join(`voice_room_channel:${docChannel}`);
+          await socket.join(`room:${docChannel}`);
+        }
+      }
+      if (roomDocument?._id) {
+        const docId = String(roomDocument._id);
+        if (docId !== roomId && docId !== rawRoomId) {
+          await socket.join(`voice_room_channel:${docId}`);
+          await socket.join(`room:${docId}`);
+        }
       }
 
       (socket as any).voiceRoomId = roomId;
@@ -778,7 +787,7 @@ export const registerVoiceRoomHandlers = (io: Server, socket: AuthenticatedSocke
 
       // Broadcast Entry Effect to the voice room and directly to joiner
       if (!isStealth) {
-        EntryEffectService.broadcastEntry(roomId, userData).then((entryPayload) => {
+        EntryEffectService.broadcastEntry(roomId, userData, rawRoomId).then((entryPayload) => {
           if (entryPayload && socket.connected) {
             socket.emit("entry:effect", entryPayload);
           }

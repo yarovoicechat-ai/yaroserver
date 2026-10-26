@@ -9,7 +9,7 @@ import {
 } from '../utils/emsApprovalRules';
 import { RequestStatus } from '../models/request.model';
 import { isProtectedTeamAccount } from '../utils/roomModerationRules';
-import { hasRoomVoicePublisherAccess } from '../utils/roomVoiceAuthorization';
+import { hasRoomVoicePublisherAccess, isRoomOwner } from '../utils/roomVoiceAuthorization';
 import { getCallActivityContent } from '../utils/callActivityRules';
 
 class FakeRedis {
@@ -82,7 +82,7 @@ test('reuses a single private conversation for concurrent opens of the same pair
 });
 
 test('requires Admin approval before Operator final approval and blocks terminal requests', () => {
-  const request: any = { role: 'Hosting', status: RequestStatus.PENDING, approvedBy: [] };
+  const request: any = { role: 'CustomWorkflow', status: RequestStatus.PENDING, approvedBy: [] };
   assert.deepEqual(getAdminOperatorApprovalStage(request), {
     index: 0, role: 'admin', label: 'Stage 1: Admin Approval',
   });
@@ -137,4 +137,17 @@ test('formats call activity updates across ringing, accepted, missed, rejected a
   });
   assert.equal(getCallActivityContent('rejected', 'caller', 'Ravi').title, 'Call declined');
   assert.equal(getCallActivityContent('ended', 'host', 'Asha').title, 'Call ended');
+});
+
+test('account staff roles cannot make a visitor the room owner', () => {
+  const visitor = { userId: 'visitor-db', numericUserId: '1000000002',
+    roomOwnerId: 'actual-owner-db', roomChannelName: '1000000003', requestedRoomId: '1000000003' };
+  for (const role of ['owner', 'superAdmin', 'admin', 'user']) {
+    assert.equal(isRoomOwner({ ...visitor, ...{ role } }), false);
+  }
+  assert.equal(isRoomOwner({ ...visitor, userId: 'actual-owner-db' }), true);
+  assert.equal(isRoomOwner({ ...visitor, roomChannelName: '1000000002' }), false,
+    'a channel alias cannot override the recorded owner');
+  assert.equal(hasRoomVoicePublisherAccess({ ...visitor, roomChannelName: '1000000002', seats: [] }), false);
+  assert.equal(isRoomOwner({ ...visitor, roomOwnerId: null, roomChannelName: '1000000002' }), true);
 });
