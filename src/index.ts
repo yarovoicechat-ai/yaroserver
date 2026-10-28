@@ -1,3 +1,5 @@
+import teamRoutes from './team/routes';
+import economyRoutes from './economy/routes';
 import express, { Application } from "express";
 import cors from "cors";
 import http from "http";
@@ -213,6 +215,8 @@ app.use("/api/family", familyRoutes);
 app.use("/api/v1/family", familyRoutes);
 app.use("/api/couple", coupleRoutes);
 app.use("/api/v1/couple", coupleRoutes);
+app.use("/api/team", teamRoutes);
+app.use("/api/economy", economyRoutes);
 app.use("/api/system-config", systemConfigRoutes);
 app.use("/api/v1/system-config", systemConfigRoutes);
 app.use("/api/public/app-config", systemConfigRoutes);

@@ -17,6 +17,7 @@ import {
   updateRequestPassword,
   approveRequest,
   rejectRequest,
+  transferRequest,
   getAuditLogs,
   getMyPermissions,
   syncPermissions,
@@ -71,6 +72,7 @@ router.patch('/requests/:id/status', updateRequestStatus);
 router.patch('/requests/:id/password', updateRequestPassword);
 router.post('/requests/:id/approve', approveRequest);
 router.post('/requests/:id/reject', rejectRequest);
+router.post('/requests/:id/transfer', transferRequest);
 
 // ============ Audit Logs ============
 router.get('/audit-logs', checkPermission('menus', 'Settings'), getAuditLogs);

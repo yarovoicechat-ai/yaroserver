@@ -86,6 +86,7 @@ export interface UserInterface extends Document {
     isBd?: boolean;
   isActive?: boolean;
   isBusy?: boolean;
+  recruitmentRevision?: number;
   hostTypes?: string[];
   canVoiceCall?: boolean;
   canVideoCall?: boolean;

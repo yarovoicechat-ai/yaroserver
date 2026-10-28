@@ -1,3 +1,4 @@
+import { invitationSponsor } from '../team/approval';
 import { Response, NextFunction } from 'express';
 import { AuthRequest } from '../middlewares/authorize.middleware';
 import { Permission } from '../models/permission.model';
@@ -1413,6 +1414,83 @@ export const rejectRequest = async (req: AuthRequest, res: Response) => {
   }
 };
 
+export const transferRequest = async (req: AuthRequest, res: Response) => {
+  try {
+    const { id } = req.params;
+    const { targetRecipient, newParentId, newParentRole, note = '' } = req.body;
+    const actor = req.user!;
+    const actorRole = (actor.role || '').toLowerCase();
+
+    // STRICT PERMISSION: Only Owner and Operator have transfer power!
+    if (!['owner', 'operator'].includes(actorRole)) {
+      return sendResponse(res, 403, false, 'Access Denied: Only Platform Owner and Operator have transfer power.');
+    }
+
+    const requestObj = await RequestModel.findById(id);
+    if (!requestObj) {
+      return sendResponse(res, 404, false, 'Request not found.');
+    }
+
+    if (actorRole === 'operator') {
+      const ownerInfo = await HierarchyScopeService.getOwnerReferralInfo();
+      if (HierarchyScopeService.isOwnerReferral(requestObj, 'request', ownerInfo)) {
+        return sendResponse(res, 403, false, 'Access Denied: Owner referral requests are restricted to Platform Owner.');
+      }
+    }
+
+    const recipient = targetRecipient || newParentRole || 'Reassigned Recipient';
+    requestObj.data = requestObj.data || {};
+    requestObj.data.invitedBy = `Transferred to ${recipient}`;
+    requestObj.data.targetRecipient = recipient;
+    if (newParentId) {
+      requestObj.data.assignedTo = newParentId;
+      requestObj.referralUserId = String(newParentId);
+    }
+    requestObj.referralOwner = recipient;
+
+    requestObj.timeline.push({
+      action: 'Transferred',
+      actor: (actor as any).name || actor.role,
+      actorRole: actor.role,
+      date: new Date(),
+      remarks: `Transferred to ${recipient}. Note: ${note || 'No specific note'}`,
+    });
+
+    await requestObj.save();
+
+    // Record in TransferHistory model
+    try {
+      const { TransferHistory } = await import('../models/transferHistory.model');
+      await TransferHistory.create({
+        transferType: 'Role_Transfer',
+        oldParentRole: requestObj.referralRole || '',
+        newParentId: newParentId || undefined,
+        newParentRole: recipient,
+        transferredBy: actor.id,
+        transferDate: new Date(),
+        reason: `EMS Request (${requestObj.requestType}) transferred to ${recipient}. Note: ${note || 'None'}`,
+        status: 'Approved',
+      });
+    } catch (e: any) {
+      console.warn('[EMS Transfer] History record notice:', e.message);
+    }
+
+    await logActivity(
+      actor.id.toString(),
+      actor.role,
+      'Transfer',
+      (requestObj as any)._id.toString(),
+      `Transferred request type ${requestObj.requestType} to ${recipient}. Note: ${note || ''}`
+    );
+
+    return sendResponse(res, 200, true, `Request transferred to ${recipient} successfully.`, {
+      request: sanitizeRequestForViewer(requestObj, actor.role),
+    });
+  } catch (error: any) {
+    return sendResponse(res, 500, false, error.message);
+  }
+};
+
 // ============ Helper: Create users after final workflow approval ============
 // Returns the plain-text credentials so the frontend can display them in the approval dialog
 export const finalizeUserApproval = async (
@@ -1493,9 +1571,9 @@ export const finalizeUserApproval = async (
   let agencyId: any = undefined;
 
   // Resolve hierarchy based on referral/parent links
-  let referrerUser: any = null;
+  let referrerUser: any = await invitationSponsor(requestObj);
   const referralCodeToSearch = data.referralCode || requestObj.referralCode || data.parentOwner || data.parentOperator || data.invitedBy;
-  if (referralCodeToSearch) {
+  if (!referrerUser && referralCodeToSearch) {
     referrerUser = await User.findOne({
       $or: [
         { referralCode: referralCodeToSearch },

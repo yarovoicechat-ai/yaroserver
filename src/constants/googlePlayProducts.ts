@@ -102,19 +102,10 @@ export const GOOGLE_PLAY_PRODUCTS: Record<string, GooglePlayProductConfig> = {
   diamonds_135000: { productId: 'diamonds_135000', diamonds: 135000, priceInr: 9999, formattedPrice: '₹9,999' },
 };
 
-export const GOOGLE_PLAY_PRODUCT_IDS = [
-  'diamonds_7',
-  'diamonds_35',
-  'diamonds_71',
-  'diamonds_143',
-  'diamonds_215',
-  'diamonds_359',
-  'diamonds_719',
-  'diamonds_1439',
-  'diamonds_3599',
-];
-
+// Legacy entitlements above remain unchanged for recovery. Only these SKUs are public.
+export const GOOGLE_PLAY_PRODUCT_IDS = ["diamonds_7", "diamonds_36","diamonds_72","diamonds_144","diamonds_360","diamonds_720","diamonds_1440","diamonds_3600","diamonds_7200"];
+Object.assign(GOOGLE_PLAY_PRODUCTS, {"diamonds_36": {productId: "diamonds_36", diamonds: 36, priceInr: 50, formattedPrice: "INR 50"},"diamonds_72":{"productId":"diamonds_72","diamonds":72,"priceInr":100,"formattedPrice":"INR 100"},"diamonds_144":{"productId":"diamonds_144","diamonds":144,"priceInr":200,"formattedPrice":"INR 200"},"diamonds_360":{"productId":"diamonds_360","diamonds":360,"priceInr":500,"formattedPrice":"INR 500"},"diamonds_720":{"productId":"diamonds_720","diamonds":720,"priceInr":1000,"formattedPrice":"INR 1000"},"diamonds_1440":{"productId":"diamonds_1440","diamonds":1440,"priceInr":2000,"formattedPrice":"INR 2000"},"diamonds_3600":{"productId":"diamonds_3600","diamonds":3600,"priceInr":5000,"formattedPrice":"INR 5000"},"diamonds_7200":{"productId":"diamonds_7200","diamonds":7200,"priceInr":10000,"formattedPrice":"INR 10000"}});
 export const getProductConfig = (productId: string): GooglePlayProductConfig | null => {
   if (!productId) return null;
-  return GOOGLE_PLAY_PRODUCTS[productId] || null;
+  return Object.prototype.hasOwnProperty.call(GOOGLE_PLAY_PRODUCTS, productId) ? GOOGLE_PLAY_PRODUCTS[productId] : null;
 };

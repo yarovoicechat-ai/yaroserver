@@ -1,3 +1,5 @@
+import { diamondUnits, mul } from '../economy/rules';
+import { billCallMinute, getVersion } from '../economy/service';
 import mongoose, { ClientSession, Types } from 'mongoose';
 import { CoinsTransaction } from '../models/spentCoinModel';
 import { User } from '../models/user.model';
@@ -123,11 +125,12 @@ export class BillingService {
             const meta = (transaction.meta || {}) as any;
             let currentlyBilledMinutes = Number(meta.billedMinutes || 0);
             let alreadyBilledAmount = Number(meta.alreadyBilledAmount || 0);
+            const pinnedEconomy = meta.economyVersion ? await getVersion(String(meta.economyVersion), session) : null;
 
             const fallbackSettings = meta?.callDiamondsPerMinute ? null : await getCachedSettings();
-            const callDiamondsPerMinute = Math.max(1, Number(
-                meta?.callDiamondsPerMinute || fallbackSettings?.callRatePerMinute || CALL_DIAMONDS_PER_MINUTE
-            ));
+            const callDiamondsPerMinute = pinnedEconomy
+                ? (meta.isVideo === true ? pinnedEconomy.rules.video : pinnedEconomy.rules.voice).diamondUnitsPerMinute / 100
+                : Math.max(1, Number(meta?.callDiamondsPerMinute || fallbackSettings?.callRatePerMinute || CALL_DIAMONDS_PER_MINUTE));
 
             // CRITICAL FIX: If currently paid minutes cover the current elapsed duration,
             // the call is ACTIVE and ENTITLED. DO NOT check caller balance for FUTURE minutes yet!
@@ -147,7 +150,16 @@ export class BillingService {
                 console.log(`[BILLING] BALANCE BEFORE: ${balanceBefore}`);
                 console.log(`[BILLING] CURRENT MINUTE: ${m}`);
 
-                const deductionSucceeded = await deductUserDiamondsAtomic(transaction.userId, callDiamondsPerMinute, session);
+                let deductionSucceeded = false;
+                if (pinnedEconomy) {
+                    try {
+                        await billCallMinute(String(transactionId), String(transaction.userId), String(transaction.hostId), m,
+                            meta.isVideo === true, pinnedEconomy, session);
+                        deductionSucceeded = true;
+                    } catch (error: any) {
+                        if (error.message !== 'INSUFFICIENT_DIAMONDS') throw error;
+                    }
+                } else deductionSucceeded = await deductUserDiamondsAtomic(transaction.userId, callDiamondsPerMinute, session);
 
                 if (!deductionSucceeded) {
                     // Caller cannot afford minute block m!
@@ -198,7 +210,9 @@ export class BillingService {
                 }
 
                 currentlyBilledMinutes = m;
-                alreadyBilledAmount += callDiamondsPerMinute;
+                alreadyBilledAmount = pinnedEconomy
+                    ? mul(m, (meta.isVideo === true ? pinnedEconomy.rules.video : pinnedEconomy.rules.voice).diamondUnitsPerMinute) / 100
+                    : alreadyBilledAmount + callDiamondsPerMinute;
 
                 const callerAfter = await User.findById(transaction.userId).select('diamonds').session(session).lean() as any;
                 const balanceAfter = Number(callerAfter?.diamonds || 0);
@@ -343,23 +357,28 @@ export class BillingService {
             const durationSec = serverDurationSec;
             const billedMinutes = Math.ceil(durationSec / 60);
 
-            // Level-based host earning
-            const hostLevel = await recalculateAndUpdateHostLevel(transaction.hostId, session);
-            const hostLevelConfig = await HostLevel.findOne({ level: hostLevel }).session(session).lean() as any;
+            const startMeta = (transaction.meta || {}) as any;
+            const pinnedEconomy = startMeta.economyVersion ? await getVersion(String(startMeta.economyVersion), session) : null;
+            // Historical calls retain their level-based earning; versioned calls use their pinned contract.
+            const hostLevel = pinnedEconomy ? 0 : await recalculateAndUpdateHostLevel(transaction.hostId, session);
+            const hostLevelConfig = pinnedEconomy ? null : await HostLevel.findOne({ level: hostLevel }).session(session).lean() as any;
 
-            const hostSharePerMinute =
-                hostLevelConfig?.coinPerMinute ??
+            const hostSharePerMinute = pinnedEconomy
+                ? (startMeta.isVideo === true ? pinnedEconomy.rules.video : pinnedEconomy.rules.voice).hostBeansPerMinute
+                : hostLevelConfig?.coinPerMinute ??
                 HOST_LEVEL_COINS_PER_MINUTE[hostLevel] ??
                 HOST_LEVEL_COINS_PER_MINUTE[1];
             const HOST_SHARE_PER_SECOND = hostSharePerMinute / 60;
 
-            const startMeta = (transaction.meta || {}) as any;
-            const fallbackSettings = startMeta?.callDiamondsPerMinute ? null : await getCachedSettings();
-            const callDiamondsPerMinute = Math.max(1, Number(
-                startMeta?.callDiamondsPerMinute || fallbackSettings?.callRatePerMinute || CALL_DIAMONDS_PER_MINUTE
-            ));
 
-            const totalCallCost = billedMinutes * callDiamondsPerMinute;
+            const fallbackSettings = startMeta?.callDiamondsPerMinute ? null : await getCachedSettings();
+            const callDiamondsPerMinute = pinnedEconomy
+                ? (startMeta.isVideo === true ? pinnedEconomy.rules.video : pinnedEconomy.rules.voice).diamondUnitsPerMinute / 100
+                : Math.max(1, Number(startMeta?.callDiamondsPerMinute || fallbackSettings?.callRatePerMinute || CALL_DIAMONDS_PER_MINUTE));
+
+            const totalCallCost = pinnedEconomy
+                ? mul(billedMinutes, diamondUnits(callDiamondsPerMinute)) / 100
+                : billedMinutes * callDiamondsPerMinute;
             const alreadyBilledAmount = Number(startMeta?.alreadyBilledAmount || 0);
 
             const netDeductRemaining = Math.max(0, totalCallCost - alreadyBilledAmount);
@@ -368,18 +387,36 @@ export class BillingService {
             if (netDeductRemaining > 0 && durationSec > 0) {
                 const missingMinutes = Math.max(
                     0,
-                    billedMinutes - Math.floor(alreadyBilledAmount / callDiamondsPerMinute)
+                    billedMinutes - (pinnedEconomy
+                        ? Math.floor(diamondUnits(alreadyBilledAmount) / diamondUnits(callDiamondsPerMinute))
+                        : Math.floor(alreadyBilledAmount / callDiamondsPerMinute))
                 );
                 for (let minute = 0; minute < missingMinutes; minute++) {
-                    if (!await deductUserDiamondsAtomic(transaction.userId, callDiamondsPerMinute, session)) break;
-                    chargedAmount += callDiamondsPerMinute;
+                    if (pinnedEconomy) {
+                        const minuteNumber = Math.floor(diamondUnits(chargedAmount) / diamondUnits(callDiamondsPerMinute)) + 1;
+                        try {
+                            await billCallMinute(String(transactionId), String(transaction.userId), String(transaction.hostId), minuteNumber,
+                                startMeta.isVideo === true, pinnedEconomy, session);
+                        } catch (error: any) {
+                            if (error.message !== 'INSUFFICIENT_DIAMONDS') throw error;
+                            break;
+                        }
+                        chargedAmount = mul(minuteNumber, (startMeta.isVideo === true ? pinnedEconomy.rules.video : pinnedEconomy.rules.voice).diamondUnitsPerMinute) / 100;
+                    } else {
+                        if (!await deductUserDiamondsAtomic(transaction.userId, callDiamondsPerMinute, session)) break;
+                        chargedAmount += callDiamondsPerMinute;
+                    }
                 }
             }
             transaction.coinsSpent = chargedAmount;
 
-            const fundedMinutes = Math.floor(chargedAmount / callDiamondsPerMinute);
+            const fundedMinutes = pinnedEconomy
+                ? Math.floor(diamondUnits(chargedAmount) / (startMeta.isVideo === true ? pinnedEconomy.rules.video : pinnedEconomy.rules.voice).diamondUnitsPerMinute)
+                : Math.floor(chargedAmount / callDiamondsPerMinute);
             const earningDurationSec = Math.min(durationSec, fundedMinutes * 60);
-            const hostEarning = earningDurationSec > 0
+            const hostEarning = pinnedEconomy
+                ? mul(fundedMinutes, (startMeta.isVideo === true ? pinnedEconomy.rules.video : pinnedEconomy.rules.voice).hostBeansPerMinute)
+                : earningDurationSec > 0
                 ? Math.max(1, Math.round(earningDurationSec * HOST_SHARE_PER_SECOND))
                 : 0;
             transaction.hostEarning = hostEarning;
@@ -387,7 +424,7 @@ export class BillingService {
             console.log(`[BILLING] HOST EARNING: TransactionID ${transactionId} | HostID ${transaction.hostId} | Coins: ${hostEarning} | DurationSec: ${durationSec}`);
 
             // Host earns coins exactly once (idempotent check)
-            if (hostEarning > 0 && !startMeta?.hostEarningsCredited) {
+            if (!pinnedEconomy && hostEarning > 0 && !startMeta?.hostEarningsCredited) {
                 await User.findByIdAndUpdate(
                     transaction.hostId,
                     { $inc: { coins: hostEarning } },

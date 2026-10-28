@@ -335,6 +335,8 @@ export const isRouteAllowed = (role: string, route: string): boolean => {
   if (roleDef.allowedRoutes.includes('*')) return true;
 
   const path = route.split('?')[0].split('#')[0];
+  if (path === '/team' || path.startsWith('/team/')) return ['owner', 'operator', 'superAdmin', 'super-admin', 'admin', 'bdLeader', 'bd-leader', 'bd', 'agency', 'host'].includes(role);
+
 
   if (role === 'superAdmin' && SUPER_ADMIN_DENIED_ROUTES.some(
     (denied) => path === denied || path.startsWith(`${denied}/`)

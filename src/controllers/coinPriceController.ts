@@ -1,3 +1,4 @@
+import { GOOGLE_PLAY_PRODUCT_IDS, GOOGLE_PLAY_PRODUCTS } from "../constants/googlePlayProducts";
 import { Request, Response } from "express";
 import { Logger } from "../utils/logger";
 import { PricePlan } from "../models/coinsPrice.model";
@@ -143,10 +144,16 @@ export const DEFAULT_RECHARGE_PLANS = [
   },
 ];
 
+export const getPublicPricePlans = (_req: Request, res: Response) => {
+  const plans = GOOGLE_PLAY_PRODUCT_IDS.map(productId => ({ productId,
+    diamonds: GOOGLE_PLAY_PRODUCTS[productId].diamonds, type: 'google_play', billingProvider: 'google_play' }));
+  return sendResponse(res, 200, true, 'Online packages', { plans, total: plans.length });
+};
+
 export const addPricePlan = async (req: AuthRequest, res: Response) => {
   try {
     const { role } = req.user || {};
-    if (role && ![UserRole.SUPER_ADMIN, UserRole.ADMIN, 'owner', 'operator'].includes(role as any)) {
+    if (!role || ![UserRole.SUPER_ADMIN, UserRole.ADMIN, 'owner', 'operator'].includes(role as any)) {
       return sendResponse(res, 403, false, "Forbidden: Access denied");
     }
 
@@ -270,7 +277,7 @@ export const getPricePlanById = async (req: Request, res: Response) => {
 export const updatePricePlan = async (req: AuthRequest, res: Response) => {
   try {
     const { role } = req.user || {};
-    if (role && ![UserRole.SUPER_ADMIN, UserRole.ADMIN, 'owner', 'operator'].includes(role as any)) {
+    if (!role || ![UserRole.SUPER_ADMIN, UserRole.ADMIN, 'owner', 'operator'].includes(role as any)) {
       return sendResponse(res, 403, false, "Forbidden: Access denied");
     }
 
@@ -318,7 +325,7 @@ export const togglePricePlanStatus = async (req: AuthRequest, res: Response) => 
 export const deletePricePlan = async (req: AuthRequest, res: Response) => {
   try {
     const { role } = req.user || {};
-    if (role && ![UserRole.SUPER_ADMIN, UserRole.ADMIN, 'owner', 'operator'].includes(role as any)) {
+    if (!role || ![UserRole.SUPER_ADMIN, UserRole.ADMIN, 'owner', 'operator'].includes(role as any)) {
       return sendResponse(res, 403, false, "Forbidden: Access denied");
     }
 
@@ -337,7 +344,7 @@ export const deletePricePlan = async (req: AuthRequest, res: Response) => {
 export const syncDefaultRechargePlans = async (req: AuthRequest, res: Response) => {
   try {
     const { role } = req.user || {};
-    if (role && ![UserRole.SUPER_ADMIN, UserRole.ADMIN, 'owner', 'operator'].includes(role as any)) {
+    if (!role || ![UserRole.SUPER_ADMIN, UserRole.ADMIN, 'owner', 'operator'].includes(role as any)) {
       return sendResponse(res, 403, false, "Forbidden: Access denied");
     }
 

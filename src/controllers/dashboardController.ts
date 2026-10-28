@@ -1,3 +1,5 @@
+import { getVersion } from '../economy/service';
+import { callReferenceAmounts } from '../economy/reporting';
 import { Request, Response, NextFunction } from 'express';
 import { User } from '../models/user.model';
 import Host from '../models/host.model';
@@ -206,18 +208,26 @@ export const getDashboardStats = async (
             },
             {
                 $group: {
-                    _id: null,
+                    _id: { version: { $ifNull: ['$meta.economyVersion', null] }, video: '$meta.isVideo' },
                     totalSeconds: { $sum: '$duration' },
                     totalCoins: { $sum: '$coinsSpent' },
                     totalHostEarnings: { $sum: '$hostEarning' },
+                    fundedMinutes: { $sum: { $ifNull: ['$meta.billing.fundedMinutes', 0] } },
                 },
             },
         ]);
 
-        const minutesToday = Math.round((callAggregation[0]?.totalSeconds || 0) / 60);
-        const coinsSpentToday = callAggregation[0]?.totalCoins || 0;
-        const hostCoinsToday = callAggregation[0]?.totalHostEarnings || 0;
-        const coinPrice = 0.10;
+        const minutesToday = Math.round(callAggregation.reduce((n, row) => n + (row.totalSeconds || 0), 0) / 60);
+        const coinsSpentToday = callAggregation.reduce((n, row) => n + (row.totalCoins || 0), 0);
+        let revenueToday = 0, hostEarningsToday = 0;
+        for (const row of callAggregation) {
+            const version = row._id?.version;
+            const pinned = version == null ? null : await getVersion(version);
+            const reference = callReferenceAmounts({ totalCoins: row.totalCoins || 0, totalHostEarnings: row.totalHostEarnings || 0,
+                fundedMinutes: row.fundedMinutes || 0, video: row._id?.video === true }, pinned?.rules || null);
+            revenueToday += reference.revenueInr;
+            hostEarningsToday += reference.hostEarningsInr;
+        }
         // Referral & Device Limit Stats
         const settings = await getCachedSettings();
         const [totalReferralsCount, aggregateReward, totalDeviceOverrides] = await Promise.all([
@@ -229,8 +239,7 @@ export const getDashboardStats = async (
         ]);
 
         const totalDiamondsGranted = (aggregateReward && aggregateReward[0]?.totalDiamonds) || 0;
-        const revenueToday = coinsSpentToday * coinPrice;
-        const hostEarningsToday = hostCoinsToday * coinPrice;
+
 
         const stats = {
             totalUsers,
@@ -376,18 +385,21 @@ export const getEarningsChart = async (
             },
             {
                 $group: {
-                    _id: { $dateToString: { format: '%Y-%m-%d', date: '$createdAt' } },
+                    _id: { date: { $dateToString: { format: '%Y-%m-%d', date: '$createdAt' } }, version: { $ifNull: ['$meta.economyVersion', null] } },
                     earnings: { $sum: '$hostEarning' },
                 },
             },
             { $sort: { _id: 1 } },
         ]);
 
-        earningsData.forEach(item => {
-            if (item._id && dateMap[item._id] !== undefined) {
-                dateMap[item._id] = (item.earnings || 0) * 0.10;
+        for (const item of earningsData) {
+            const date = item._id?.date;
+            if (date && dateMap[date] !== undefined) {
+                const pinned = item._id.version == null ? null : await getVersion(item._id.version);
+                const reference = callReferenceAmounts({ totalCoins: 0, totalHostEarnings: item.earnings || 0, fundedMinutes: 0, video: false }, pinned?.rules || null);
+                dateMap[date] += reference.hostEarningsInr;
             }
-        });
+        }
 
         const formattedData = Object.keys(dateMap).map(date => ({
             date,

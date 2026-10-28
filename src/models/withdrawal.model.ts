@@ -13,6 +13,12 @@ export enum WithdrawalMethod {
 }
 
 export interface IWithdrawal extends Document {
+    economyVersion?: string;
+    economyRequestKey?: string;
+    economyRequestId?: string;
+    economyUserId?: string;
+    economyRequestedBeans?: number;
+    economyQuote?: any;
     userId: number;
     amount: number; // Net payout in INR
     grossAmount?: number;
@@ -37,6 +43,12 @@ export interface IWithdrawal extends Document {
 const withdrawalSchema = new Schema<IWithdrawal>(
     {
         userId: { type: Number, required: true },
+        economyVersion: String,
+        economyRequestKey: { type: String, unique: true, sparse: true },
+        economyRequestId: String,
+        economyUserId: String,
+        economyRequestedBeans: Number,
+        economyQuote: Schema.Types.Mixed,
         amount: { type: Number, required: true },
         grossAmount: { type: Number },
         platformFee: { type: Number },

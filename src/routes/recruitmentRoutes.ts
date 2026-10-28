@@ -7,7 +7,7 @@ import {
     updateApplicationStatus,
     addReviewNote
 } from '../controllers/recruitmentController';
-import { verifyToken } from '../middlewares/authorize.middleware';
+import { verifyToken, requireRoles } from '../middlewares/authorize.middleware';
 
 import {
     getRoleConfigs,
@@ -20,7 +20,7 @@ const router = express.Router();
 // Role Config Endpoints
 router.get('/configs', getRoleConfigs);
 router.get('/config/:role', getRoleConfigByRole);
-router.post('/admin/config', verifyToken, upsertRoleConfig);
+router.post('/admin/config', verifyToken, requireRoles('owner', 'operator', 'superAdmin', 'admin'), upsertRoleConfig);
 
 // Public Recruitment Endpoints
 router.get('/verify-referral', verifyReferralCode);

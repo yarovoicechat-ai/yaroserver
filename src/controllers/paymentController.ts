@@ -111,7 +111,7 @@ const verifyGooglePurchaseState = async (
   productId: string,
   packageName: string
 ): Promise<NormalizedGooglePurchaseDetails | null> => {
-  const maskedToken = purchaseToken ? purchaseToken.substring(0, 8) + "..." + purchaseToken.slice(-6) : "N/A";
+  const maskedToken = typeof purchaseToken === 'string' && purchaseToken ? purchaseToken.substring(0, 8) + "..." + purchaseToken.slice(-6) : "N/A";
   console.log(`[GOOGLE-VERIFY] GOOGLE API REQUEST START for productId: ${productId}, masked purchaseToken: ${maskedToken}, packageName: ${packageName}`);
 
   // 1. Primary Attempt: Modern `purchases.productsv2.getproductpurchasev2`
@@ -125,23 +125,23 @@ const verifyGooglePurchaseState = async (
 
       if (v2Res.data) {
         const data = v2Res.data;
-        console.log('[GOOGLE-VERIFY] GOOGLE API RESPONSE (productsv2):', JSON.stringify(data));
+        console.log('[GOOGLE-VERIFY] productsv2 response received');
 
-        const itemProductId = data.productLineItem?.[0]?.productId || productId;
+        const itemProductId = data.productLineItem?.[0]?.productId || '';
         const consumptionState = data.productLineItem?.[0]?.productOfferDetails?.consumptionState || undefined;
         const acknowledgementState = data.acknowledgementState || undefined;
 
         let purchaseState: 'PURCHASED' | 'PENDING' | 'CANCELED' | 'UNKNOWN' = 'UNKNOWN';
         let rawState: string = 'UNKNOWN';
 
-        const stateStr = String((data as any).productPurchaseState || (data as any).purchaseState || '').toUpperCase();
-        if (stateStr.includes('PURCHASED') || data.purchaseCompletionTime) {
+        const stateStr = String(data.purchaseStateContext?.purchaseState || '').toUpperCase();
+        if (stateStr === 'PURCHASED') {
           purchaseState = 'PURCHASED';
           rawState = 'PURCHASED';
-        } else if (stateStr.includes('PENDING') || data.purchaseStateContext) {
+        } else if (stateStr === 'PENDING') {
           purchaseState = 'PENDING';
           rawState = 'PENDING';
-        } else if (stateStr.includes('CANCELED')) {
+        } else if (stateStr === 'CANCELLED' || stateStr === 'CANCELED') {
           purchaseState = 'CANCELED';
           rawState = 'CANCELED';
         }
@@ -179,7 +179,7 @@ const verifyGooglePurchaseState = async (
 
     if (v1Res.data) {
       const data = v1Res.data;
-      console.log('[GOOGLE-VERIFY] GOOGLE API RESPONSE (products.get):', JSON.stringify(data));
+      console.log('[GOOGLE-VERIFY] products.get response received');
 
       let purchaseState: 'PURCHASED' | 'PENDING' | 'CANCELED' | 'UNKNOWN' = 'UNKNOWN';
       // purchaseState: 0 = Purchased, 1 = Canceled, 2 = Pending
@@ -244,7 +244,7 @@ export const verifyGooglePurchase = async (req: AuthRequest, res: Response) => {
       console.warn(`[GOOGLE-VERIFY] Warning: client sent package name '${packageName}', enforcing configured '${GOOGLE_PLAY_PACKAGE_NAME}'`);
     }
     const effectivePackageName = GOOGLE_PLAY_PACKAGE_NAME;
-    const maskedToken = purchaseToken ? purchaseToken.substring(0, 8) + "..." + purchaseToken.slice(-6) : "N/A";
+    const maskedToken = typeof purchaseToken === 'string' && purchaseToken ? purchaseToken.substring(0, 8) + "..." + purchaseToken.slice(-6) : "N/A";
 
     console.log(`[GOOGLE-VERIFY] REQUEST RECEIVED`);
     console.log(`[GOOGLE-VERIFY] productId: ${productId}`);
@@ -257,7 +257,7 @@ export const verifyGooglePurchase = async (req: AuthRequest, res: Response) => {
       return sendResponse(res, 401, false, "Unauthorized: Authenticated user required");
     }
 
-    if (!purchaseToken || !productId) {
+    if (typeof purchaseToken !== 'string' || !purchaseToken || typeof productId !== 'string' || !productId) {
       console.error(`[GOOGLE-VERIFY][ERROR] Missing required fields: purchaseToken=${Boolean(purchaseToken)}, productId=${Boolean(productId)}`);
       return sendResponse(res, 400, false, "Missing required fields: purchaseToken and productId are required");
     }
@@ -276,6 +276,12 @@ export const verifyGooglePurchase = async (req: AuthRequest, res: Response) => {
     });
     console.log(`[GOOGLE-VERIFY] EXISTING TRANSACTION:`, existingTx ? { id: existingTx._id, status: existingTx.status, diamonds: existingTx.diamonds } : "NONE");
 
+    if (existingTx && (existingTx.userId !== userId || existingTx.productId !== productId)) {
+      return sendResponse(res, 403, false, 'Purchase belongs to another account or product');
+    }
+    if (existingTx && ['REFUNDED', 'REVOKED'].includes(existingTx.status || '')) {
+      return sendResponse(res, 400, false, 'Purchase is no longer valid');
+    }
     if (existingTx && existingTx.status === "COMPLETED") {
       const userRecord = await User.findOne({ userId });
       console.log(`[GOOGLE-VERIFY] Purchase token already processed. Returning ALREADY_PROCESSED. Balance: ${userRecord?.diamonds || 0}`);
@@ -302,7 +308,7 @@ export const verifyGooglePurchase = async (req: AuthRequest, res: Response) => {
       return sendResponse(res, 400, false, "Security violation: Package name mismatch");
     }
 
-    if (verifiedDetails.productId && verifiedDetails.productId !== productId) {
+    if (verifiedDetails.productId !== productId) {
       console.error(`[GOOGLE-VERIFY][ERROR] Product ID mismatch! Expected: ${productId}, Received: ${verifiedDetails.productId}`);
       return sendResponse(res, 400, false, "Security violation: Product ID mismatch");
     }
@@ -310,11 +316,17 @@ export const verifyGooglePurchase = async (req: AuthRequest, res: Response) => {
     console.log(`[GOOGLE-VERIFY] PRODUCT VALIDATED: SKU ${verifiedDetails.productId}, State: ${verifiedDetails.purchaseState}`);
     console.log(`[GOOGLE-VERIFY] DIAMONDS TO CREDIT: ${productConfig.diamonds}`);
 
+    if (verifiedDetails.obfuscatedExternalAccountId && verifiedDetails.obfuscatedExternalAccountId !== String(userId)) {
+      return sendResponse(res, 403, false, 'Purchase account mismatch');
+    }
+    if (!existingTx && (verifiedDetails.consumptionState === 1 || verifiedDetails.consumptionState === 'CONSUMPTION_STATE_CONSUMED')) {
+      return sendResponse(res, 400, false, 'Purchase has already been consumed');
+    }
     // 6. Handle Pending Purchase State
     if (verifiedDetails.purchaseState === 'PENDING') {
       console.log(`[GOOGLE-VERIFY] Purchase is PENDING. Saving PENDING record to RechargeHistory.`);
       await RechargeHistory.findOneAndUpdate(
-        { purchaseToken },
+        { purchaseToken, status: 'PENDING', userId },
         {
           userId,
           type: RechargeType.GOOGLE_PLAY,
@@ -374,6 +386,11 @@ export const verifyGooglePurchase = async (req: AuthRequest, res: Response) => {
         $or: [{ purchaseToken }, { transactionId: purchaseToken }],
       }).session(session);
 
+      if (doubleCheckTx && (doubleCheckTx.userId !== userId || doubleCheckTx.productId !== productId || ['REFUNDED', 'REVOKED'].includes(doubleCheckTx.status || ''))) {
+        await session.abortTransaction();
+        await session.endSession();
+        return sendResponse(res, 403, false, 'Purchase cannot be credited');
+      }
       if (doubleCheckTx && doubleCheckTx.status === "COMPLETED") {
         await session.abortTransaction();
         session.endSession();
@@ -473,6 +490,7 @@ export const verifyGooglePurchase = async (req: AuthRequest, res: Response) => {
 export const handleGooglePlayRTDN = async (req: any, res: Response) => {
   try {
     // 1. RTDN Security Authorization Verification
+    if (!GOOGLE_PLAY_RTDN_SECRET) return res.status(503).send('RTDN authentication is not configured');
     if (GOOGLE_PLAY_RTDN_SECRET) {
       const incomingToken = req.query.token || req.headers['x-rtdn-token'];
       if (incomingToken !== GOOGLE_PLAY_RTDN_SECRET) {
@@ -500,20 +518,27 @@ export const handleGooglePlayRTDN = async (req: any, res: Response) => {
       });
     } catch (createErr: any) {
       if (createErr.code === 11000 || createErr.message?.includes('duplicate')) {
-        console.log(`[GooglePlay RTDN] Duplicate messageId '${messageId}' already exists in DB. Skipping execution.`);
-        return res.status(200).send("Duplicate message ignored");
+        rtdnRecord = await GooglePlayRTDN.findOneAndUpdate(
+          { messageId, $or: [{ status: 'FAILED' }, { status: 'PROCESSING', updatedAt: { $lt: new Date(Date.now() - 600000) } }] },
+          { $set: { status: 'PROCESSING' } }, { new: true });
+        if (!rtdnRecord) {
+          const existing = await GooglePlayRTDN.findOne({ messageId });
+          return res.status(existing?.status === 'PROCESSED' ? 200 : 503).send('Notification already received');
+        }
       }
-      console.error('[GooglePlay RTDN] Error creating RTDN record:', createErr);
-      return res.status(500).send("Database error creating RTDN record");
+      if (!rtdnRecord) {
+        console.error('[GooglePlay RTDN] Error creating RTDN record:', createErr);
+        return res.status(500).send('Database error creating RTDN record');
+      }
     }
 
     try {
       const decodedData = Buffer.from(pubSubMessage.data, "base64").toString("utf-8");
       const payload = JSON.parse(decodedData);
 
-      console.log("[GooglePlay RTDN] Received notification payload:", payload);
+      console.log("[GooglePlay RTDN] Notification decoded");
 
-      const devNotification = payload.developerNotification;
+      const devNotification = payload.developerNotification || payload;
       if (!devNotification) {
         rtdnRecord.status = 'PROCESSED';
         rtdnRecord.processedAt = new Date();
@@ -521,8 +546,12 @@ export const handleGooglePlayRTDN = async (req: any, res: Response) => {
         return res.status(200).send("Ignored non-developer notification");
       }
 
-      const packageName = devNotification.packageName || GOOGLE_PLAY_PACKAGE_NAME;
+      const packageName = devNotification.packageName;
+      if (packageName !== GOOGLE_PLAY_PACKAGE_NAME) throw new Error('RTDN package mismatch');
       const productNotification = devNotification.oneTimeProductNotification;
+      if (devNotification.voidedPurchaseNotification?.purchaseToken) {
+        await reverseGooglePurchase(devNotification.voidedPurchaseNotification.purchaseToken, devNotification.voidedPurchaseNotification);
+      }
 
       rtdnRecord.packageName = packageName;
       if (devNotification.eventTimeMillis) {
@@ -540,28 +569,28 @@ export const handleGooglePlayRTDN = async (req: any, res: Response) => {
           const verifiedDetails = await verifyGooglePurchaseState(purchaseToken, productId, packageName);
 
           if (verifiedDetails) {
+            if (verifiedDetails.productId !== productId) throw new Error('RTDN product mismatch');
             if (verifiedDetails.purchaseState === 'PURCHASED') {
               const existingTx = await RechargeHistory.findOne({ purchaseToken });
 
               if (existingTx && existingTx.status === "PENDING") {
-                const user = await User.findOneAndUpdate(
-                  { userId: existingTx.userId },
-                  { $inc: { diamonds: existingTx.diamonds || 0 } },
-                  { new: true }
-                );
-
-                existingTx.status = "COMPLETED";
-                existingTx.processedAt = new Date();
-                existingTx.rawGoogleData = verifiedDetails.rawPayload;
-                await existingTx.save();
-
-                console.log(`[GooglePlay RTDN] Credited ${existingTx.diamonds} diamonds for pending order of user ${existingTx.userId}`);
+                const session = await mongoose.startSession();
+                try {
+                  await session.withTransaction(async () => {
+                    const claimed = await RechargeHistory.findOneAndUpdate(
+                      { _id: existingTx._id, status: 'PENDING' },
+                      { $set: { status: 'COMPLETED', processedAt: new Date(), rawGoogleData: verifiedDetails.rawPayload } },
+                      { new: true, session }
+                    );
+                    if (!claimed) return;
+                    const credited = await User.findOneAndUpdate({ userId: claimed.userId },
+                      { $inc: { diamonds: claimed.diamonds || 0 } }, { session, new: true });
+                    if (!credited) throw new Error('Purchase owner not found');
+                  });
+                } finally { await session.endSession(); }
               }
             } else if (verifiedDetails.purchaseState === 'CANCELED' || notificationType === 2) {
-              await RechargeHistory.findOneAndUpdate(
-                { purchaseToken },
-                { status: "REFUNDED", rawGoogleData: verifiedDetails.rawPayload }
-              );
+              await reverseGooglePurchase(purchaseToken, verifiedDetails.rawPayload);
               console.log(`[GooglePlay RTDN] Marked purchase ${purchaseToken} as REFUNDED`);
             }
           }
@@ -579,7 +608,7 @@ export const handleGooglePlayRTDN = async (req: any, res: Response) => {
       rtdnRecord.status = 'FAILED';
       rtdnRecord.error = procErr.message || String(procErr);
       await rtdnRecord.save();
-      return res.status(200).send("Handled with error");
+      return res.status(503).send("Notification processing failed; retry required");
     }
 
   } catch (error: any) {
@@ -591,6 +620,26 @@ export const handleGooglePlayRTDN = async (req: any, res: Response) => {
 /**
  * Audit / Synchronize Refunded & Voided Purchases
  */
+
+const reverseGooglePurchase = async (purchaseToken: string, rawGoogleData: any) => {
+  const session = await mongoose.startSession();
+  try {
+    await session.withTransaction(async () => {
+      const tx = await RechargeHistory.findOneAndUpdate(
+        { purchaseToken, status: 'COMPLETED' },
+        { $set: { status: 'REFUNDED', rawGoogleData } }, { new: true, session });
+      if (!tx) {
+        await RechargeHistory.findOneAndUpdate({ purchaseToken, status: 'PENDING' },
+          { $set: { status: 'REFUNDED', rawGoogleData } }, { session });
+        return;
+      }
+      const user = await User.findOneAndUpdate({ userId: tx.userId },
+        { $inc: { diamonds: -(tx.diamonds || 0) } }, { session, new: true });
+      if (!user) throw new Error('Refund owner not found');
+    });
+  } finally { await session.endSession(); }
+};
+
 export const syncVoidedPurchases = async (packageName: string = GOOGLE_PLAY_PACKAGE_NAME) => {
   try {
     const res = await androidPublisher.purchases.voidedpurchases.list({
@@ -602,10 +651,7 @@ export const syncVoidedPurchases = async (packageName: string = GOOGLE_PLAY_PACK
       console.log(`[GooglePlay Voided] Found ${voidedList.length} voided purchases`);
       for (const item of voidedList) {
         if (item.purchaseToken) {
-          await RechargeHistory.findOneAndUpdate(
-            { purchaseToken: item.purchaseToken },
-            { status: "REFUNDED", rawGoogleData: item }
-          );
+          await reverseGooglePurchase(item.purchaseToken, item);
         }
       }
     }

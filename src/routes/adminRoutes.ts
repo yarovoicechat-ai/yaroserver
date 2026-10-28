@@ -452,21 +452,36 @@ router.post('/users/:id/transfer', verifyToken, async (req: any, res: any) => {
         const { User } = await import('../models/user.model');
         const { TransferHistory } = await import('../models/transferHistory.model');
         const { id } = req.params;
-        const { newParentId, newParentRole, reason = 'Transfer approved by Admin' } = req.body;
+        const { newParentId, newParentRole, targetRecipient, reason = 'Transfer approved by Admin' } = req.body;
         const actor = req.user;
+        const actorRole = (actor?.role || '').toLowerCase();
+
+        // STRICT PERMISSION: Only Owner and Operator have transfer power!
+        if (!['owner', 'operator'].includes(actorRole)) {
+            return res.status(403).json({ success: false, message: 'Access Denied: Only Platform Owner and Operator have transfer power.' });
+        }
 
         const userObj = await User.findById(id);
         if (!userObj) return res.status(404).json({ success: false, message: 'Target user not found' });
+
+        if (actorRole === 'operator') {
+            const { HierarchyScopeService } = await import('../utils/hierarchyScope');
+            const ownerInfo = await HierarchyScopeService.getOwnerReferralInfo();
+            if (HierarchyScopeService.isOwnerReferral(userObj, 'user', ownerInfo)) {
+                return res.status(403).json({ success: false, message: 'Access Denied: Owner referral accounts can only be transferred by Platform Owner.' });
+            }
+        }
 
         const oldParentId = userObj.parentId;
         const oldParentRole = userObj.parentRole || '';
 
         // Update user parentage
-        userObj.parentId = newParentId;
-        userObj.parentRole = newParentRole;
+        if (newParentId) userObj.parentId = newParentId;
+        if (newParentRole) userObj.parentRole = newParentRole;
         if (newParentRole === 'agency') userObj.agencyId = newParentId;
         if (newParentRole === 'operator') userObj.operatorId = newParentId;
         if (newParentRole === 'superAdmin') userObj.superAdminId = newParentId;
+        if (targetRecipient) (userObj as any).invitedBy = targetRecipient;
         await userObj.save();
 
         // Record Transfer History
@@ -475,18 +490,68 @@ router.post('/users/:id/transfer', verifyToken, async (req: any, res: any) => {
             transferType: 'Role_Transfer',
             oldParentId,
             oldParentRole,
-            newParentId,
-            newParentRole,
+            newParentId: newParentId || undefined,
+            newParentRole: newParentRole || targetRecipient || 'Transferred',
             transferredBy: actor?.id || actor?._id,
             transferDate: new Date(),
-            reason,
+            reason: `${reason}${targetRecipient ? ` (Transferred to ${targetRecipient})` : ''}`,
             status: 'Approved'
         });
 
         return res.json({
             success: true,
-            message: `User ${userObj.name || userObj.employeeCode} transferred successfully.`,
+            message: `User ${userObj.name || userObj.employeeCode || userObj.userId} transferred successfully.`,
             data: { user: userObj, transferRecord }
+        });
+    } catch (e: any) {
+        return res.status(500).json({ success: false, message: e.message });
+    }
+});
+
+router.post('/sellers/:id/transfer', verifyToken, async (req: any, res: any) => {
+    try {
+        const { User } = await import('../models/user.model');
+        const { TransferHistory } = await import('../models/transferHistory.model');
+        const { id } = req.params;
+        const { targetRecipient, note = '' } = req.body;
+        const actor = req.user;
+        const actorRole = (actor?.role || '').toLowerCase();
+
+        // STRICT PERMISSION: Only Owner and Operator have transfer power!
+        if (!['owner', 'operator'].includes(actorRole)) {
+            return res.status(403).json({ success: false, message: 'Access Denied: Only Platform Owner and Operator have transfer power.' });
+        }
+
+        const isOid = (await import('mongoose')).default.Types.ObjectId.isValid(id);
+        const seller = await User.findOne({
+            $or: [
+                ...(isOid ? [{ _id: id }] : []),
+                { meethiId: id },
+                { specialCode: id },
+                { employeeCode: id }
+            ]
+        });
+        if (!seller) return res.status(404).json({ success: false, message: 'Target seller not found' });
+
+        const oldInvitedBy = (seller as any).invitedBy || '';
+        (seller as any).invitedBy = targetRecipient;
+        await seller.save();
+
+        const transferRecord = await TransferHistory.create({
+            targetUserId: seller._id,
+            transferType: 'Role_Transfer',
+            oldParentRole: oldInvitedBy,
+            newParentRole: targetRecipient,
+            transferredBy: actor?.id || actor?._id,
+            transferDate: new Date(),
+            reason: `Coin Seller transferred to ${targetRecipient}. Note: ${note || 'None'}`,
+            status: 'Approved'
+        });
+
+        return res.json({
+            success: true,
+            message: `Seller ${seller.name} transferred to ${targetRecipient} successfully.`,
+            data: { seller, transferRecord }
         });
     } catch (e: any) {
         return res.status(500).json({ success: false, message: e.message });

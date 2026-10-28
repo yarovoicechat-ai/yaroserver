@@ -1,3 +1,4 @@
+import { getVersion, settleWithdrawal } from '../economy/service';
 
 import { Response } from "express";
 import { AuthRequest } from "../middlewares/authorize.middleware";
@@ -201,13 +202,20 @@ export const processWithdrawal = async (req: AuthRequest, res: Response) => {
         if (status === WithdrawalStatus.REJECTED) {
             // Refund coins
             withdrawal.rejectionReason = rejectionReason || "Rejected by admin";
-            await User.findOneAndUpdate(
-                { userId: withdrawal.userId },
-                { $inc: { coins: withdrawal.coinsDeducted } },
-                { session }
-            );
+            if (withdrawal.economyVersion) {
+                await settleWithdrawal(withdrawal.economyUserId!, withdrawal.economyRequestId!, false,
+                    await getVersion(withdrawal.economyVersion, session), session);
+            } else {
+                await User.findOneAndUpdate({ userId: withdrawal.userId },
+                    { $inc: { coins: withdrawal.coinsDeducted } }, { session });
+            }
         } else {
             // Approved
+            if (withdrawal.economyVersion) {
+                if (typeof transactionId !== 'string' || !transactionId.trim()) throw new Error('Bank settlement reference required');
+                await settleWithdrawal(withdrawal.economyUserId!, withdrawal.economyRequestId!, true,
+                    await getVersion(withdrawal.economyVersion, session), session);
+            }
             withdrawal.transactionId = transactionId; // Admin enters bank ref ID
         }
 

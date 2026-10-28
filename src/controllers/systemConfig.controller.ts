@@ -18,6 +18,16 @@ export const getAppConfig = async (_req: Request, res: Response) => {
   }
 };
 
+export const getPublicAppConfig = async (_req: Request, res: Response) => {
+  try {
+    const config = await SystemConfig.findOne({ key: 'global_config' }).lean();
+    return sendResponse(res, 200, true, 'App configuration retrieved', {
+      isFamilyEnabled: config?.isFamilyEnabled ?? true, isCpEnabled: config?.isCpEnabled ?? true,
+      maintenanceMode: config?.maintenanceMode ?? false, storeCategories: config?.storeCategories || [],
+    });
+  } catch (err: any) { return sendResponse(res, 500, false, 'Failed to fetch app configuration'); }
+};
+
 export const updateAppConfig = async (req: Request, res: Response) => {
   try {
     const { isFamilyEnabled, isCpEnabled, maintenanceMode, metadata } = req.body;

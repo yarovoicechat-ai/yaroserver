@@ -1,3 +1,4 @@
+import { HostingObserver, recordObservedHostingMinute, attendanceEconomy } from '../economy/attendance';
 import { IdentityResolverService } from '../services/identityResolver.service';
 import mongoose, { Types } from "mongoose";
 import { Server } from "socket.io";
@@ -496,6 +497,35 @@ const withRoomSeatLock = async <T>(roomId: string, task: () => Promise<T>, waitM
 
 export const registerVoiceRoomHandlers = (io: Server, socket: AuthenticatedSocket) => {
   const user = socket.user;
+
+  // Eligibility evidence uses live server seat/presence, never client-submitted durations.
+  if (user?.role === 'host') {
+    const observer = new HostingObserver();
+    let observing = false;
+    const timer = setInterval(async () => {
+      if (observing) return;
+      observing = true;
+      try {
+        const pinned = await attendanceEconomy(String(user.id));
+        const roomId = String((socket as any).voiceRoomId || '');
+        if (!pinned || !socket.connected || !roomId) { observer.observe(Date.now(), '', '', false); return; }
+        const state = await getVoiceRoomState(roomId);
+        const host = await User.findById(user.id).select('role isBlocked isDeleted').lean();
+        const ids = [String(user.id), String(user.userId)];
+        const seat = state.seats.find(s => ids.includes(String(s.user?.userId || '')));
+        const presence = Object.entries(state.onlineUsers || {}).find(([id, p]: [string, any]) => ids.includes(id) && p.socketId === socket.id);
+        const hasAudience = Object.keys(state.onlineUsers || {}).some(id => !ids.includes(id));
+        const valid = !!(host?.role === 'host' && !host.isBlocked && !host.isDeleted && seat && !seat.isMuted && presence && hasAudience);
+        const minute = observer.observe(Date.now(), roomId, pinned.version, valid);
+        if (minute !== null) await recordObservedHostingMinute(String(user.id), roomId, minute, pinned.version);
+      } catch (error) {
+        observer.observe(Date.now(), '', '', false);
+        console.warn('[Economy] Hosting observation failed; minute not counted');
+      } finally { observing = false; }
+    }, 15000);
+    timer.unref();
+    socket.once('disconnect', () => clearInterval(timer));
+  }
 
   // 1. Join Room
   socket.on("voice_room:join", async (data: { roomId: string; user?: any; isHost?: boolean; customSeats?: number; roomTitle?: string; stealth?: boolean }) => {

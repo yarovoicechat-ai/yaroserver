@@ -1,3 +1,5 @@
+import { effectiveEconomy, getVersion } from '../economy/service';
+import { sendVersionedRoomGift } from '../economy/giftAdapter';
 import mongoose, { Types } from 'mongoose';
 import { Gift, GiftCategory, GiftTransaction } from './gift.model';
 import { User } from '../models/user.model';
@@ -387,7 +389,10 @@ export class GiftService {
     const existingTx = await GiftTransaction.findOne({ requestId })
       .populate('giftId')
       .lean();
-    if (existingTx) {
+    if (existingTx && String(existingTx.senderId) !== String(senderId)) throw new Error('Gift request belongs to another sender');
+    if (existingTx?.meta?.economyVersion && existingTx.status === 'REFUNDED') throw new Error('Gift was already refunded');
+    if (existingTx && !existingTx.meta?.economyVersion) {
+      if (String(existingTx.senderId) !== String(senderId)) throw new Error('Gift request belongs to another sender');
       console.log(`[GiftService] Idempotent replay detected for requestId: ${requestId}`);
       const senderBal = await this.getUserDiamondsBalance(senderId);
       return {
@@ -476,6 +481,14 @@ export class GiftService {
       if (userLevel < 5) {
         throw new Error('This gift is exclusive to VIP members (Level 5+)');
       }
+    }
+
+    const pinnedEconomy = existingTx?.meta?.economyVersion
+      ? await getVersion(existingTx.meta.economyVersion)
+      : roomId ? await effectiveEconomy() : null;
+    if (pinnedEconomy) {
+      if (callId) throw new Error('A room gift cannot use a call settlement context');
+      return sendVersionedRoomGift(sender, receivers, gift, dto, qty, pinnedEconomy);
     }
 
     // 7. Check Balance & Deduct Atomically in DIAMONDS

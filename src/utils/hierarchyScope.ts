@@ -409,6 +409,10 @@ export class HierarchyScopeService {
    * Build Transfer Scope Filter
    */
   static buildTransferScope(user: { id: string; role: string }): Record<string, any> {
+    const role = (user?.role || '').toLowerCase();
+    if (!['owner', 'operator'].includes(role)) {
+      return { _id: null }; // Strictly restricted: only Owner and Operator have transfer power
+    }
     return this.buildUserScope(user);
   }
 

@@ -18,7 +18,9 @@
     "seed:plans": "ts-node scripts/seed-recharge-plans.ts",
     "start": "node dist/index.js",
     "script:updateLevels": "ts-node src/scripts/updateLevels.ts",
-    "script:migrateVerificationSummaries": "ts-node src/scripts/migrateVerificationSummaries.ts"
+    "script:migrateVerificationSummaries": "ts-node src/scripts/migrateVerificationSummaries.ts",
+    "test:economy": "node --test -r ts-node/register src/tests/economyRules.test.ts src/tests/economyTransactions.test.cjs src/tests/economy.integration.test.ts src/tests/rechargeCatalog.test.ts src/tests/rechargeSecurity.test.cjs",
+    "economy:report": "ts-node src/scripts/economyReport.ts"
   },
   "keywords": [],
   "author": "",
@@ -51,7 +53,8 @@
     "node-cron": "^4.2.1",
     "nodemailer": "^7.0.6",
     "razorpay": "^2.9.6",
-    "socket.io": "^4.8.1"
+    "socket.io": "^4.8.1",
+    "xlsx": "^0.18.5"
   },
   "devDependencies": {
     "@types/bcryptjs": "^2.4.6",

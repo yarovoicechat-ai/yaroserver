@@ -1053,6 +1053,7 @@ export const getRechargeHistory = async (req: AuthRequest, res: Response) => {
     const totalRecords = await RechargeHistory.countDocuments({ userId: Number(finalUserId) });
 
     const history = await RechargeHistory.find({ userId: Number(finalUserId) })
+      .select(["owner", "operator", "superAdmin", "admin"].includes(role || "") ? '' : '_id type coins diamonds date amount currency status createdAt')
       .sort({ createdAt: -1 })
       .skip(skip)
       .limit(limitNumber);
@@ -1635,6 +1636,9 @@ export const getUserProfile = async (req: AuthRequest, res: Response) => {
       equippedFrame: effective?.avatarFrame || user.equippedFrame || null,
       nameEffect: effective?.nameEffect || null,
       effectiveIdentity: effective,
+      coins: user.coins ?? 0,
+      beans: user.beans ?? user.beanBalance ?? user.coins ?? 0,
+      beanBalance: user.beanBalance ?? user.beans ?? user.coins ?? 0,
     };
     return sendResponse(res, 200, true, "Profile fetched successfully", enrichedUser);
   } catch (error: any) {
@@ -1814,6 +1818,9 @@ export const getPublicUserProfile = async (req: AuthRequest, res: Response) => {
       isHost: Boolean(user.role === 'host' || (user as any).isHost === true || ((user as any).callRate && (user as any).callRate > 0)),
       callRate: (user as any).callRate || 20,
       videoCallRate: (user as any).videoCallRate || 35,
+      coins: user.coins ?? 0,
+      beans: user.beans ?? user.beanBalance ?? user.coins ?? 0,
+      beanBalance: user.beanBalance ?? user.beans ?? user.coins ?? 0,
     };
     return sendResponse(res, 200, true, "Public user profile fetched successfully", enrichedUser);
   } catch (error: any) {

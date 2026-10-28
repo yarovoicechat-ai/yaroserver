@@ -127,6 +127,7 @@ const userSchema = new Schema<UserInterface>(
     isBd: { type: Boolean, default: false },
     isActive: { type: Boolean, default: false },
     isBusy: { type: Boolean, default: false },
+    recruitmentRevision: { type: Number, default: 0 },
     hostTypes: { type: [String], default: [] },
     canVoiceCall: { type: Boolean, default: true },
     canVideoCall: { type: Boolean, default: true },

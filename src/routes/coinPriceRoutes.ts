@@ -6,11 +6,26 @@ import {
   updatePricePlan,
   togglePricePlanStatus,
   deletePricePlan,
+  getPublicPricePlans,
   syncDefaultRechargePlans
 } from '../controllers/coinPriceController';
-import { verifyToken } from '../middlewares/authorize.middleware';
+import { verifyToken, requireRoles } from '../middlewares/authorize.middleware';
 
 const router = Router();
+const managers = requireRoles('owner', 'superAdmin', 'admin', 'operator');
+router.get('/public', getPublicPricePlans);
+router.use((req, res, next) => {
+  if (req.method === 'GET' && !req.header('Authorization')) return getPublicPricePlans(req, res);
+  return verifyToken(req, res, next);
+});
+router.use((req, res, next) => {
+  const role = (req as any).user?.role;
+  if (req.method === 'GET') {
+    if (['owner', 'superAdmin', 'admin', 'operator', 'coinSeller'].includes(role)) return next();
+    return getPublicPricePlans(req, res);
+  }
+  return managers(req, res, next);
+});
 
 router.post('/sync-defaults', verifyToken, syncDefaultRechargePlans);
 router.post('/', verifyToken, addPricePlan);

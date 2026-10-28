@@ -1,3 +1,5 @@
+import { diamondUnits } from '../economy/rules';
+import { effectiveEconomy } from '../economy/service';
 import { GiftTransaction } from '../gift/gift.model';
 import { v4 as uuidv4 } from 'uuid';
 import dayjs from 'dayjs';
@@ -405,8 +407,14 @@ export const startCall = async (req: AuthRequest, res: Response) => {
     console.log('[CALL] START REQUEST:', { userId, hostId, randomMatch, isVideo });
 
     const runtimeSettings = await getCachedSettings();
-    const CALL_RATE_PER_MINUTE = Math.max(1, Number(runtimeSettings.callRatePerMinute || CALL_DIAMONDS_PER_MINUTE));
+    const pinnedEconomy = await effectiveEconomy();
+    const CALL_RATE_PER_MINUTE = pinnedEconomy
+      ? (isVideo ? pinnedEconomy.rules.video : pinnedEconomy.rules.voice).diamondUnitsPerMinute / 100
+      : Math.max(1, Number(runtimeSettings.callRatePerMinute || CALL_DIAMONDS_PER_MINUTE));
 
+    if (pinnedEconomy && hostId && String(userId) === String(hostId)) {
+      return sendResponse(res, 400, false, 'Self-calling is not permitted');
+    }
     if (!userId || (!hostId && !randomMatch)) {
       return sendResponse(res, 400, false, "Required call details are missing");
     }
@@ -585,7 +593,9 @@ export const startCall = async (req: AuthRequest, res: Response) => {
       reservedHostId = String(host._id);
     }
 
-    const maxMinutes = Math.floor(availableDiamonds / CALL_RATE_PER_MINUTE);
+    const maxMinutes = pinnedEconomy
+      ? Math.floor(diamondUnits(availableDiamonds) / (isVideo ? pinnedEconomy.rules.video : pinnedEconomy.rules.voice).diamondUnitsPerMinute)
+      : Math.floor(availableDiamonds / CALL_RATE_PER_MINUTE);
     const channelName = `call${Date.now()}${uuidv4().replace(/-/g, '').slice(0, 6)}`;
 
     const callerAgoraUid = Math.floor(Math.random() * 1e9);
@@ -620,6 +630,7 @@ export const startCall = async (req: AuthRequest, res: Response) => {
         maxMinutes,
         reservedDiamonds: maxMinutes * CALL_RATE_PER_MINUTE,
         callDiamondsPerMinute: CALL_RATE_PER_MINUTE,
+        ...(pinnedEconomy ? { economyVersion: pinnedEconomy.version, economyDigest: pinnedEconomy.digest } : {}),
         platformCommissionRate: Number(runtimeSettings.commissionRate || 0),
         isVideo,
         callType: isVideo ? 'video' : 'audio',
