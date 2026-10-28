@@ -627,6 +627,33 @@ export const createRequest = async (req: AuthRequest, res: Response) => {
     // Generate password (stored for reference, only hashed on approval)
     const passwordBeforeApproval = generateStrongPassword();
 
+    // Resolve and bind referral info so operator and staff referrals show properly
+    let referralCode = data.referralCode || data.referrerCode || data.code || (creator ? ((creator as any).specialCode || (creator as any).referralCode) : undefined);
+    let referralUserId = data.referralUserId || data.referrerId || (creator ? creator.id.toString() : undefined);
+    let referralOwner = data.referralOwner || data.referrerName || (creator ? ((creator as any).name || (creator as any).email) : undefined);
+    let referralRole = data.referralRole || data.referrerRole || (creator ? creator.role : undefined);
+
+    if (referralCode && (!referralUserId || !referralRole)) {
+      const refUser = await User.findOne({
+        $or: [
+          { referralCode: String(referralCode).trim() },
+          { specialCode: String(referralCode).trim() },
+          { employeeCode: String(referralCode).trim() },
+          { meethiId: String(referralCode).trim() }
+        ]
+      }).select('_id name role specialCode referralCode').lean();
+      if (refUser) {
+        referralUserId = refUser._id.toString();
+        referralRole = refUser.role;
+        referralOwner = refUser.name;
+      }
+    }
+
+    data.referralUserId = referralUserId;
+    data.referralCode = referralCode;
+    data.referralRole = referralRole;
+    data.referralOwner = referralOwner;
+
     const newRequest = await RequestModel.create({
       requestType,
       role: detectedRole,
@@ -636,6 +663,11 @@ export const createRequest = async (req: AuthRequest, res: Response) => {
       currentStepIndex: 0,
       status: RequestStatus.PENDING,
       passwordBeforeApproval,
+      referralCode,
+      referralUserId,
+      referralOwner,
+      referralRole,
+      referralDate: referralCode || referralUserId ? new Date() : undefined,
       createdBy: creator ? creator.id : (data.email || 'self_registration'),
       createdByRole: creator ? creator.role : 'public',
       timeline: [{
@@ -802,16 +834,9 @@ export const listRequests = async (req: AuthRequest, res: Response) => {
     const andConditions: any[] = [{ role: { $ne: 'owner' } }];
 
     // Strict branch isolation: requests are strictly visible only to their referral/parent hierarchy branch
+    // Platform Owner and Operator have full visibility over all requests
     const currentUser = req.user;
-    if (currentUser) {
-      if (currentUser.role === 'operator') {
-        const ownerInfo = await HierarchyScopeService.getOwnerReferralInfo();
-        const exclusionFilter = HierarchyScopeService.buildOwnerReferralExclusionFilter('operator', 'request', ownerInfo);
-        if (Object.keys(exclusionFilter).length > 0) {
-          andConditions.push(exclusionFilter);
-        }
-      }
-
+    if (currentUser && currentUser.role !== 'owner' && currentUser.role !== 'operator') {
       const scopeFilter = HierarchyScopeService.buildRequestScope({
         id: (currentUser.id || (currentUser as any)._id || '').toString(),
         role: currentUser.role || 'user'

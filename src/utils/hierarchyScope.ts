@@ -238,7 +238,7 @@ export class HierarchyScopeService {
     const role = user.role;
     const userId = user.id.toString();
 
-    if (role === 'owner') return {};
+    if (role === 'owner' || role === 'operator') return {};
 
     // Operator: visible to requests in this Operator's branch (excluding Owner direct referrals) + direct unassigned applications
     if (role === 'operator') {
@@ -259,7 +259,7 @@ export class HierarchyScopeService {
       };
     }
 
-    // Super Admin: visible to requests in this Super Admin's branch + direct unassigned applications
+    // Super Admin: visible strictly to requests in this Super Admin's branch
     if (role === 'superAdmin' || role === 'super-admin') {
       return {
         $or: [
@@ -269,14 +269,12 @@ export class HierarchyScopeService {
           { 'data.hierarchyPath': { $regex: userId } },
           { 'referrer.referrerId': userId },
           { 'roleData.superAdminId': userId },
-          { 'roleData.hierarchyPath': { $regex: userId } },
-          { createdBy: { $in: ['public', 'recruitment_sync', '', null] } },
-          { referralUserId: { $in: ['', null, undefined] } }
+          { 'roleData.hierarchyPath': { $regex: userId } }
         ]
       };
     }
 
-    // Admin: visible to requests in this Admin's branch + direct unassigned applications
+    // Admin: visible strictly to requests in this Admin's branch
     if (role === 'admin') {
       return {
         $or: [
@@ -286,9 +284,7 @@ export class HierarchyScopeService {
           { 'data.hierarchyPath': { $regex: userId } },
           { 'referrer.referrerId': userId },
           { 'roleData.adminId': userId },
-          { 'roleData.hierarchyPath': { $regex: userId } },
-          { createdBy: { $in: ['public', 'recruitment_sync', '', null] } },
-          { referralUserId: { $in: ['', null, undefined] } }
+          { 'roleData.hierarchyPath': { $regex: userId } }
         ]
       };
     }

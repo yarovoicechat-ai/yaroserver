@@ -1,3 +1,4 @@
+import { Types } from 'mongoose';
 export const TEAM_ROLES = ['owner', 'operator', 'superAdmin', 'admin', 'bdLeader', 'bd', 'agency', 'host'] as const;
 export const CHANNELS = ['voice', 'video', 'room'] as const;
 export type Channel = typeof CHANNELS[number];
@@ -42,7 +43,7 @@ export function canInviteRole(actor: string, target: string) {
 export function belongsTo(member: any, root: string): boolean {
   if (String(member._id) === root) return true;
   if (Object.values(scopeFields).some(field => String(member[field] || '') === root)) return true;
-  if (String(member.parentId || member.parentUserId || '') === root) return true;
+  if (String(member.parentId || member.parentUserId || member.referredBy || member.referrerId || '') === root) return true;
   return String(member.hierarchyPath || '').split('/').includes(root);
 }
 export function teamScope(id: string, role: string): Record<string, any> {
@@ -50,10 +51,23 @@ export function teamScope(id: string, role: string): Record<string, any> {
   if (!TEAM_ROLES.includes(canonical as any)) throw new Error('Team access is not authorized');
   if (canonical === 'owner') return { isDeleted: { $ne: true }, ...teamPeople };
   const field = scopeFields[canonical];
-  const own = { _id: id };
+  const objId = Types.ObjectId.isValid(id) ? new Types.ObjectId(id) : null;
+  const idList: any[] = objId ? [id, objId] : [id];
+  const own = { _id: { $in: idList } };
   if (!field) return { ...own, isDeleted: { $ne: true } };
-  return { isDeleted: { $ne: true }, $and: [teamPeople], $or: [own, { [field]: id },
-    { parentId: id }, { parentUserId: id }, { hierarchyPath: { $regex: `(^|/)${id}(/|$)` } }] };
+  return {
+    isDeleted: { $ne: true },
+    $and: [teamPeople],
+    $or: [
+      own,
+      { [field]: { $in: idList } },
+      { parentId: { $in: idList } },
+      { referredBy: { $in: idList } },
+      { referrerId: id },
+      { parentUserId: id },
+      { hierarchyPath: { $regex: `(^|/)${id}(/|$)` } }
+    ]
+  };
 }
 export function reportMonth(month?: string) {
   const key = month || new Date(Date.now() + 330 * 60000).toISOString().slice(0, 7);

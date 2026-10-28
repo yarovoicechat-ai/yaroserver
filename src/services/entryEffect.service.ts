@@ -116,21 +116,8 @@ export class EntryEffectService {
    * Fetch all active entry effects (strictly real entries, excluding dummy seeds).
    */
   static async getEntryEffects(userId?: string | Types.ObjectId) {
-    const DUMMY_NAMES = [
-      'king arrival',
-      'vip phantom',
-      'diamond lord',
-      'legend beast',
-      'star guest',
-      'royal phantom rolls',
-      'golden dragon descent',
-      'cyber hypercar',
-    ];
-    const regexes = DUMMY_NAMES.map(n => new RegExp(`^${n}$`, 'i'));
     const effects = await EntryEffect.find({
       isActive: true,
-      name: { $nin: regexes },
-      image: { $not: /unsplash\.com/i },
     }).sort({ sortOrder: 1, price: 1 }).lean();
 
     let ownedIds: string[] = [];

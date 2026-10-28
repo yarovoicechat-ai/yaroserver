@@ -69,18 +69,27 @@ export async function teamReport(actorId: string, role: string, query: { month?:
   const rootId = query.rootId || actorId;
   const root = byId.get(rootId);
   if (!root) throw new Error('Selected branch is outside your team');
+  const rootRole = normalizeTeamRole(root.role);
   const ancestors = (user: any) => {
     const found = new Set<string>(), pending = [String(user._id)];
     while (pending.length) {
       const id = pending.pop()!; if (found.has(id)) continue; found.add(id);
       const node = byId.get(id); if (!node) continue;
-      const parents = [node.parentId, node.parentUserId, node.ownerId, ...Object.values(scopeFields).map(f => (node as any)[f]), ...String(node.hierarchyPath || '').split('/')];
+      const parents = [
+        node.parentId,
+        node.parentUserId,
+        node.referredBy,
+        node.referrerId,
+        ...(rootRole === 'owner' ? [node.ownerId] : []),
+        ...Object.values(scopeFields).map(f => (node as any)[f]),
+        ...String(node.hierarchyPath || '').split('/')
+      ];
       for (const p of parents) if (p && byId.has(String(p)) && !found.has(String(p))) pending.push(String(p));
     }
     return found;
   };
   const tree = new Map(users.map(u => [String(u._id), ancestors(u)]));
-  const branch = users.filter(u => (normalizeTeamRole(root.role) === 'owner' || tree.get(String(u._id))!.has(rootId)) && (u.role !== 'owner' || String(u._id) === rootId));
+  const branch = users.filter(u => (rootRole === 'owner' || tree.get(String(u._id))!.has(rootId)) && (u.role !== 'owner' || String(u._id) === rootId));
   const hosts = branch.filter(u => u.role === 'host'), hostIds = hosts.map(h => String(h._id));
   const [production, targets] = await Promise.all([hostProduction(hostIds, month), HostTeamTarget.find({ hostId: { $in: hostIds }, month }).lean()]);
   const targetMap = new Map(targets.map(t => [String(t.hostId), t]));
@@ -130,7 +139,11 @@ export async function teamReport(actorId: string, role: string, query: { month?:
     };
   };
   const counts = Object.fromEntries(TEAM_ROLES.map(r => [r, branch.filter(u => normalizeTeamRole(u.role) === r && String(u._id) !== rootId).length]));
-  let members = branch.filter(u => String(u._id) !== rootId && (!query.role || normalizeTeamRole(u.role) === query.role));
+  const defaultSubordinateRole = !query.role
+    ? (rootRole === 'bd' ? 'agency' : rootRole === 'agency' ? 'host' : undefined)
+    : undefined;
+  const effectiveRoleFilter = query.role || defaultSubordinateRole;
+  let members = branch.filter(u => String(u._id) !== rootId && (!effectiveRoleFilter || normalizeTeamRole(u.role) === effectiveRoleFilter));
   if (query.search) { const text = query.search.toLowerCase(); members = members.filter(u => `${u.name} ${u.userId} ${u.employeeCode || ''}`.toLowerCase().includes(text)); }
   const page = Math.max(1, query.page || 1), limit = Math.max(1, Math.min(100, query.limit || 30));
   const rows = members.slice((page - 1) * limit, page * limit).map(member => {
