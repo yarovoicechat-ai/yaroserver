@@ -23,6 +23,7 @@ const DEFAULT_COMMISSION_PERCENT = 30;
 
 // Standard categories as required by the design
 export const INITIAL_CATEGORIES = [
+  { name: 'Popular', slug: 'popular', sortOrder: 0, icon: '??', isActive: true },
   { name: 'Gifts', slug: 'gifts', sortOrder: 1, icon: '🎁', isActive: true },
   { name: 'Lucky', slug: 'lucky', sortOrder: 2, icon: '🍀', isActive: true },
   { name: 'Event', slug: 'event', sortOrder: 3, icon: '🎉', isActive: true },
@@ -297,6 +298,12 @@ export class GiftService {
    * Fetch categories with automatic fallback seed if empty.
    */
   static async getCategories() {
+    await this.createCategory({ name: 'Popular', slug: 'popular', icon: '??', sortOrder: 0 });
+    const names = await Gift.distinct('category', { isActive: true });
+    const known = await GiftCategory.find().select('name').lean();
+    const knownNames = new Set(known.map(category => category.name.toLowerCase()));
+    await Promise.all(names.filter(name => typeof name === 'string' && name.trim() && !knownNames.has(name.toLowerCase()))
+      .map(name => this.createCategory({ name })));
     let categories = await GiftCategory.find({ isActive: true }).sort({ sortOrder: 1, name: 1 }).lean();
     if (!categories || categories.length === 0) {
       await this.seedInitialCatalog();
@@ -781,8 +788,11 @@ export class GiftService {
     const rawVal = dto.price ?? dto.cost ?? (dto as any).diamond ?? (dto as any).diamonds ?? 0;
     const diamondVal = Number(rawVal);
     const slug = dto.slug || dto.name.toLowerCase().replace(/[^a-z0-9]+/g, '-').replace(/(^-|-$)+/g, '') || `gift-${Date.now()}`;
+    const category = await this.createCategory({ name: dto.category || 'Popular' });
     const gift = new Gift({
       ...dto,
+      category: category.name,
+      categoryId: category._id,
       slug,
       price: diamondVal,
       cost: diamondVal,
@@ -796,6 +806,11 @@ export class GiftService {
    */
   static async updateGift(id: string, dto: UpdateGiftDTO) {
     const updateData: any = { ...dto };
+    if (dto.category) {
+      const category = await this.createCategory({ name: dto.category });
+      updateData.category = category.name;
+      updateData.categoryId = category._id;
+    }
     if (dto.price !== undefined || dto.cost !== undefined || (dto as any).diamond !== undefined || (dto as any).diamonds !== undefined) {
       const rawVal = dto.price ?? dto.cost ?? (dto as any).diamond ?? (dto as any).diamonds;
       const diamondVal = Number(rawVal);
@@ -826,8 +841,19 @@ export class GiftService {
    * Admin: Create Category
    */
   static async createCategory(dto: CreateCategoryDTO) {
-    const cat = new GiftCategory(dto);
-    return cat.save();
+    const name = String(dto.name || '').trim().replace(/\s+/g, ' ');
+    if (!name || name.length > 80) throw new Error('Category name must contain 1 to 80 characters');
+    const slug = String(dto.slug || name).normalize('NFKC').toLowerCase().replace(/[^\p{L}\p{N}]+/gu, '-').replace(/^-|-$/g, '');
+    if (!slug) throw new Error('Category name must include letters or numbers');
+    try {
+      return await GiftCategory.findOneAndUpdate({ slug }, { $setOnInsert: { ...dto, name, slug, isActive: dto.isActive ?? true } }, { upsert: true, new: true, runValidators: true });
+    } catch (error: any) {
+      if (error.code === 11000) {
+        const existing = await GiftCategory.findOne({ slug });
+        if (existing) return existing;
+      }
+      throw error;
+    }
   }
 
   /**

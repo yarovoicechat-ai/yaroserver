@@ -1,10 +1,11 @@
+import { resizeRoomSeats, validateRoomSeatCount } from '../utils/roomSeatRules';
 import { Request, Response } from 'express';
 import { Types } from 'mongoose';
 import agoraToken from 'agora-token';
 const { RtcTokenBuilder, RtcRole } = agoraToken;
 import { getAgoraCredentials } from './settingsController';
 import { AuthRequest } from '../middlewares/authorize.middleware';
-import { getVoiceRoomState } from '../sockets/voiceRoomSocket';
+import { getVoiceRoomState, withRoomSeatLock, getUserOfficialPowers } from '../sockets/voiceRoomSocket';
 import { hasRoomVoicePublisherAccess } from '../utils/roomVoiceAuthorization';
 
 export const getVoiceClubConfig = async (req: Request, res: Response) => {
@@ -378,7 +379,7 @@ export const createOrUpdateMyVoiceRoom = async (req: any, res: Response) => {
     if (!user) return res.status(401).json({ success: false, message: 'Unauthorized' });
 
     const targetRoomId = String(req.body?.roomId || req.body?.channelName || req.body?.id || '').trim();
-    const isGlobalManager = Boolean(user.isGlobalRoomManager || ['admin', 'owner', 'superAdmin'].includes(user.role));
+    const isGlobalManager = (await getUserOfficialPowers(String(user.id || user._id)))?.isGlobalRoomManager === true;
 
     const roomChannelId = String(user.userId || user.meethiId || user.id || user._id);
     const { title, about, coverImage, category, seatCount, mode, pin, themeId, themeAsset, seatSkinId, seatSkinAsset } = req.body || {};
@@ -409,6 +410,13 @@ export const createOrUpdateMyVoiceRoom = async (req: any, res: Response) => {
       return res.status(400).json({ success: false, message: 'Set a 4-digit PIN before enabling room privacy.' });
     }
 
+    if (seatCount !== undefined) validateRoomSeatCount(seatCount);
+    return await withRoomSeatLock(room?.channelName || roomChannelId, async () => {
+    let resizedState: any = null;
+    if (room && seatCount !== undefined) {
+      const currentRaw = await redis.get(`voice_room:${normalizeRoomId(room.channelName)}`);
+      if (currentRaw) resizedState = resizeRoomSeats(JSON.parse(currentRaw), seatCount);
+    }
     if (!room) {
       room = await Room.create({
         title: title || (user.name ? `${user.name}'s Party Club 🎶` : 'My Voice Party 🎵'),
@@ -445,7 +453,7 @@ export const createOrUpdateMyVoiceRoom = async (req: any, res: Response) => {
       const roomKey = `voice_room:${normalizeRoomId(room.channelName)}`;
       const rawState = await redis.get(roomKey);
       if (rawState) {
-        const state = JSON.parse(rawState);
+        const state = resizedState || JSON.parse(rawState);
         if (title) state.title = title;
         if (coverImage) state.coverImage = coverImage;
         if (about) state.about = about;
@@ -466,6 +474,7 @@ export const createOrUpdateMyVoiceRoom = async (req: any, res: Response) => {
             coverImage: state.coverImage,
             about: state.about,
             seatCount: state.seatCount,
+            seats: state.seats,
             isLocked: state.isLocked,
             mode: state.mode,
             themeId: state.themeId,
@@ -508,6 +517,7 @@ export const createOrUpdateMyVoiceRoom = async (req: any, res: Response) => {
       success: true,
       message: 'Room ready',
       data: { room: formatted },
+    });
     });
   } catch (error: any) {
     return res.status(500).json({ success: false, message: error.message });

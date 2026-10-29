@@ -3,6 +3,30 @@ export interface SeatAllocationResult<TState> {
   seatIndex: number;
 }
 
+export const ROOM_SEAT_COUNTS = [8, 10, 12, 15, 17];
+export const validateRoomSeatCount = (value: unknown): number => {
+  const count = Number(value);
+  if (!ROOM_SEAT_COUNTS.includes(count)) throw new Error('Choose a valid room seat count');
+  return count;
+};
+
+// Keep existing positions where possible; relocate occupied removed seats
+// before shrinking, and reject layouts that cannot retain every occupant.
+export const resizeRoomSeats = <T extends { seats: any[]; seatCount?: number }>(state: T, value: unknown): T => {
+  const count = validateRoomSeatCount(value);
+  const seats = Array.from({ length: count }, (_, index) => ({
+    seatIndex: index, isHost: index === 0, user: null, isMuted: true, isLocked: false,
+    ...state.seats[index],
+  }));
+  const displaced = state.seats.slice(count).filter(seat => seat.user);
+  for (const oldSeat of displaced) {
+    const target = seats.findIndex((seat, index) => index > 1 && !seat.user && !seat.isLocked);
+    if (target < 0) throw new Error('Not enough empty seats. Ask users to leave a mic before reducing the layout.');
+    seats[target] = { ...oldSeat, seatIndex: target, isHost: false };
+  }
+  return { ...state, seats, seatCount: count };
+};
+
 export const allocateRoomSeat = <TState extends { seats: any[] }>(
   state: TState,
   seatIndex: number,

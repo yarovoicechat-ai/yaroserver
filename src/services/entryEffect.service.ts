@@ -392,7 +392,7 @@ export class EntryEffectService {
           id: 'default_entrance',
           name: 'Default Entrance',
           isDefault: true,
-          imageUrl: '/uploads/default_entrance_banner.png',
+          imageUrl: '',
           bannerColors: ['#854D0E', '#B45309', '#78350F'],
           metadata: {
             comingText: 'enter the room',
@@ -400,6 +400,7 @@ export class EntryEffectService {
           },
         };
       }
+
       const hasEquippedEntry = Boolean(roomEntryEffect || (activeEntrance && !activeEntrance.isDefault));
       const tagText = roomEntryEffect ? 'is coming' : 'entered the room';
       const entryId = `entry_${Date.now()}_${Math.random().toString(36).substr(2, 6)}`;

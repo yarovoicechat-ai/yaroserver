@@ -1,3 +1,4 @@
+import { checkPermission } from '../middlewares/dynamicPermission.middleware';
 import express from 'express';
 import { verifyToken } from '../middlewares/authorize.middleware';
 import { GiftController } from './gift.controller';
@@ -37,19 +38,19 @@ const setupAdminRoutes = (router: express.Router) => {
   // Gift CRUD
   router.get('/', verifyToken, GiftController.getGifts);
   router.get('/all', verifyToken, GiftController.getGifts);
-  router.get('/admin-all', verifyToken, (req, res, next) => { req.query.includeInactive = 'true'; next(); }, GiftController.getGifts);
-  router.post('/', verifyToken, validateCreateGift, GiftController.adminCreateGift);
-  router.post('/create', verifyToken, validateCreateGift, GiftController.adminCreateGift);
-  router.put('/:id', verifyToken, GiftController.adminUpdateGift);
-  router.patch('/:id', verifyToken, GiftController.adminUpdateGift);
-  router.patch('/:id/status', verifyToken, GiftController.adminToggleStatus);
-  router.patch('/:id/toggle', verifyToken, GiftController.adminToggleStatus);
-  router.delete('/:id', verifyToken, GiftController.adminDeleteGift);
+  router.get('/admin-all', verifyToken, checkPermission('pages', 'gifts'), (req, res, next) => { req.query.includeInactive = 'true'; next(); }, GiftController.getGifts);
+  router.post('/', verifyToken, checkPermission('pages', 'gifts'), validateCreateGift, GiftController.adminCreateGift);
+  router.post('/create', verifyToken, checkPermission('pages', 'gifts'), validateCreateGift, GiftController.adminCreateGift);
+  router.put('/:id', verifyToken, checkPermission('pages', 'gifts'), GiftController.adminUpdateGift);
+  router.patch('/:id', verifyToken, checkPermission('pages', 'gifts'), GiftController.adminUpdateGift);
+  router.patch('/:id/status', verifyToken, checkPermission('pages', 'gifts'), GiftController.adminToggleStatus);
+  router.patch('/:id/toggle', verifyToken, checkPermission('pages', 'gifts'), GiftController.adminToggleStatus);
+  router.delete('/:id', verifyToken, checkPermission('pages', 'gifts'), GiftController.adminDeleteGift);
 
   // Category CRUD
-  router.post('/categories', verifyToken, validateCategory, GiftController.adminCreateCategory);
-  router.patch('/categories/:id', verifyToken, GiftController.adminUpdateCategory);
-  router.delete('/categories/:id', verifyToken, GiftController.adminDeleteCategory);
+  router.post('/categories', verifyToken, checkPermission('pages', 'gifts'), validateCategory, GiftController.adminCreateCategory);
+  router.patch('/categories/:id', verifyToken, checkPermission('pages', 'gifts'), GiftController.adminUpdateCategory);
+  router.delete('/categories/:id', verifyToken, checkPermission('pages', 'gifts'), GiftController.adminDeleteCategory);
 };
 
 setupAdminRoutes(adminGiftRouter);

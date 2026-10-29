@@ -1,3 +1,5 @@
+import { explicitRoomPowers } from '../utils/roomOfficialPowers';
+import { chargeRoomBullet } from '../services/roomBullet.service';
 import { HostingObserver, recordObservedHostingMinute, attendanceEconomy } from '../economy/attendance';
 import { IdentityResolverService } from '../services/identityResolver.service';
 import mongoose, { Types } from "mongoose";
@@ -11,8 +13,7 @@ import { User } from "../models/user.model";
 import { StoreItem } from "../models/storeItem.model";
 import { RoomTaskService } from "../services/roomTask.service";
 import { withDistributedLock } from "../utils/distributedLock";
-import { allocateRoomSeat } from "../utils/roomSeatRules";
-import { isProtectedTeamAccount } from "../utils/roomModerationRules";
+import { allocateRoomSeat, resizeRoomSeats, validateRoomSeatCount } from "../utils/roomSeatRules";
 import { isRoomOwner } from "../utils/roomVoiceAuthorization";
 
 export interface VoiceRoomSeat {
@@ -120,18 +121,7 @@ export const getUserOfficialPowers = async (userId: string) => {
   const dbUser: any = await User.findOne({ $or: alternatives, isDeleted: false })
     .select('officialPowers isGlobalRoomManager role name userName')
     .lean();
-  const isProtectedRole = ['owner', 'superAdmin', 'admin', 'operator', 'bdLeader', 'bd'].includes(String(dbUser?.role || ''));
-  const isRudransh = /rudransh/i.test(String(dbUser?.name || '')) || /rudransh/i.test(String(dbUser?.userName || ''));
-  const isManager = Boolean(dbUser?.isGlobalRoomManager || dbUser?.officialPowers?.isGlobalRoomManager || isProtectedRole || isRudransh);
-  return {
-    isGlobalRoomManager: isManager,
-    canBanRoom: Boolean(dbUser?.officialPowers?.canBanRoom || isManager),
-    canBanUser: Boolean(dbUser?.officialPowers?.canBanUser || isManager),
-    canGhostEntry: Boolean(dbUser?.officialPowers?.canGhostEntry || isManager),
-    canKickAnyUser: Boolean(dbUser?.officialPowers?.canKickAnyUser || isManager),
-    canMuteAnyUser: Boolean(dbUser?.officialPowers?.canMuteAnyUser || isManager),
-    canLockAnySeat: Boolean(dbUser?.officialPowers?.canLockAnySeat || isManager),
-  };
+  return explicitRoomPowers(dbUser);
 };
 
 const isGlobalRoomManagerId = async (userId: string): Promise<boolean> => {
@@ -146,8 +136,7 @@ const isGlobalRoomManagerId = async (userId: string): Promise<boolean> => {
     $or: alternatives,
     isDeleted: false,
   }).select('role isGlobalRoomManager officialPowers name userName').lean();
-  if (/rudransh/i.test(String(account?.name || '')) || /rudransh/i.test(String(account?.userName || ''))) return true;
-  return isProtectedTeamAccount(account);
+  return explicitRoomPowers(account).isGlobalRoomManager;
 };
 
 const isGlobalRoomManagerSocket = async (socket: AuthenticatedSocket): Promise<boolean> => {
@@ -163,7 +152,6 @@ const isRoomOwnerSocket = async (
   const allowedChannels = getVoiceRoomChannels(roomId, rawRoomId);
   if (!allowedChannels.some((channel) => socket.rooms.has(channel))) return false;
   const socketUser: any = socket.user || {};
-  if (socketUser.role === "superAdmin" || socketUser.role === "owner") return true;
 
   const ownerRoom: any = await Room.findOne({
     $or: [
@@ -195,12 +183,12 @@ const canModerateRoom = async (
   state: VoiceRoomState,
   roomId: string,
   rawRoomId: string,
+  capability?: keyof ReturnType<typeof explicitRoomPowers>,
 ): Promise<boolean> => {
   const socketUser: any = socket.user || {};
-  if (['admin', 'superAdmin', 'owner'].includes(socketUser.role)) return true;
   if (await isGlobalRoomManagerSocket(socket)) return true;
   const userPowers = await getUserOfficialPowers(String(socketUser.userId || socketUser._id || socketUser.id || ''));
-  if (userPowers && (userPowers.canKickAnyUser || userPowers.canMuteAnyUser || userPowers.isGlobalRoomManager || userPowers.canBanRoom)) {
+  if (capability && userPowers?.[capability]) {
     return true;
   }
   if (await isRoomOwnerSocket(socket, roomId, rawRoomId)) return true;
@@ -344,14 +332,12 @@ export const getVoiceRoomState = async (roomId: string, defaultSeatsCount = 8, h
         parsed.bannedChatUsers = Array.isArray(parsed.bannedChatUsers) ? parsed.bannedChatUsers.map(String) : [];
         parsed.mutedUsers = Array.isArray(parsed.mutedUsers) ? parsed.mutedUsers.map(String) : [];
 
-        while (parsed.seats.length < 15) {
-          parsed.seats.push({
-            seatIndex: parsed.seats.length,
-            isHost: false,
-            user: null,
-            isMuted: true,
-            isLocked: false,
-          });
+        try {
+          Object.assign(parsed, resizeRoomSeats(parsed, parsed.seatCount || defaultSeatsCount));
+        } catch (_) {
+          // Old clients sometimes exposed more seats than their saved count.
+          // Preserve all of those occupants while migrating the cached state.
+          Object.assign(parsed, resizeRoomSeats(parsed, 17));
         }
         if (needsRoomMetadata || !parsed.displayRoomId) {
           try {
@@ -427,7 +413,7 @@ export const getVoiceRoomState = async (roomId: string, defaultSeatsCount = 8, h
     persistedRoom = await Room.findOne({
       $or: [{ channelName: canonicalId }, { channelName: String(roomId) }],
     })
-      .select("title channelName coverImage about themeId themeAsset seatSkinId seatSkinAsset showSeatCharm isLocked mode +pinHash ownerId")
+      .select("seatCount title channelName coverImage about themeId themeAsset seatSkinId seatSkinAsset showSeatCharm isLocked mode +pinHash ownerId")
       .populate("ownerId", "userId uniqueId customDisplayId displayId")
       .lean();
   } catch (err) {
@@ -451,8 +437,8 @@ export const getVoiceRoomState = async (roomId: string, defaultSeatsCount = 8, h
     displayRoomId: initialUniqueId || canonicalId,
     title: persistedRoom?.title || `Voice Room #${canonicalId}`,
     hostUser: hostUser || null,
-    seatCount: defaultSeatsCount,
-    seats: buildInitialSeats(defaultSeatsCount, hostUser),
+    seatCount: persistedRoom?.seatCount || defaultSeatsCount,
+    seats: buildInitialSeats(persistedRoom?.seatCount || defaultSeatsCount, hostUser),
     onlineUsers: {},
     themeId: persistedRoom?.themeId || null,
     themeAsset: persistedRoom?.themeAsset || null,
@@ -490,7 +476,7 @@ export const saveVoiceRoomState = async (state: VoiceRoomState): Promise<void> =
   }
 };
 
-const withRoomSeatLock = async <T>(roomId: string, task: () => Promise<T>, waitMs = 750): Promise<T> => {
+export const withRoomSeatLock = async <T>(roomId: string, task: () => Promise<T>, waitMs = 750): Promise<T> => {
   const lockKey = `voice_room:seat_lock:${normalizeRoomId(roomId)}`;
   return withDistributedLock(redis, lockKey, task, { ttlMs: 15_000, waitMs });
 };
@@ -553,7 +539,6 @@ export const registerVoiceRoomHandlers = (io: Server, socket: AuthenticatedSocke
       const authUserDbId = String((user as any)?.id || (user as any)?._id || "").trim();
       const authUserNumId = String(user?.userId || "").trim();
       const isGlobalManager = await isGlobalRoomManagerSocket(socket);
-      const isSuperAdminOrOwnerRole = (user as any)?.role === "superAdmin" || (user as any)?.role === "owner";
 
       const authorizedHost = isRoomOwner({
         userId: authUserDbId,
@@ -730,7 +715,7 @@ export const registerVoiceRoomHandlers = (io: Server, socket: AuthenticatedSocke
       const userPowers = userData?.officialPowers || (user as any)?.officialPowers || (await getUserOfficialPowers(String(userData.userId)));
       const hasGhostPower = Boolean(userPowers?.canGhostEntry);
       const isStealth = Boolean(
-        (isGlobalManager || isSuperAdminOrOwnerRole || hasGhostPower) &&
+        (isGlobalManager || hasGhostPower) &&
         data?.stealth === true
       );
       if (isStealth) {
@@ -782,6 +767,7 @@ export const registerVoiceRoomHandlers = (io: Server, socket: AuthenticatedSocke
         roomId: state.roomId,
         title: state.title,
         seats: state.seats,
+        seatCount: state.seatCount,
         onlineCount: Object.keys(state.onlineUsers).length,
         onlineUsers: Object.values(state.onlineUsers),
         hostUser: state.hostUser,
@@ -969,7 +955,7 @@ export const registerVoiceRoomHandlers = (io: Server, socket: AuthenticatedSocke
         id === String((targetSeat.user as any)?._id) ||
         id === String((targetSeat.user as any)?.id)
       ));
-      const isModerator = await canModerateRoom(socket, state, roomId, rawRoomId);
+      const isModerator = await canModerateRoom(socket, state, roomId, rawRoomId, 'canMuteAnyUser');
       if (!targetSeat || (!isOwnSeat && !isModerator)) {
         socket.emit("voice_room:error", { message: "You cannot change this seat's microphone state" });
         return;
@@ -1024,7 +1010,7 @@ export const registerVoiceRoomHandlers = (io: Server, socket: AuthenticatedSocke
       const roomId = normalizeRoomId(rawRoomId);
 
       const state = await getVoiceRoomState(roomId);
-      if (!(await canModerateRoom(socket, state, roomId, rawRoomId))) {
+      if (!(await canModerateRoom(socket, state, roomId, rawRoomId, 'canLockAnySeat'))) {
         socket.emit("voice_room:error", {
           message: "Only the room owner is authorized to lock/unlock seats",
           code: "UNAUTHORIZED_LOCK",
@@ -1084,7 +1070,7 @@ export const registerVoiceRoomHandlers = (io: Server, socket: AuthenticatedSocke
       const authUserDbId = String((user as any)?.id || (user as any)?._id || "").trim();
       const authUserNumId = String(user?.userId || "").trim();
       const state = await getVoiceRoomState(roomId);
-      if (!(await canModerateRoom(socket, state, roomId, rawRoomId))) {
+      if (!(await canModerateRoom(socket, state, roomId, rawRoomId, 'canLockAnySeat'))) {
         socket.emit("voice_room:error", {
           message: "Only the room owner is authorized to lock/unlock all seats",
           code: "UNAUTHORIZED_LOCK",
@@ -1376,7 +1362,7 @@ export const registerVoiceRoomHandlers = (io: Server, socket: AuthenticatedSocke
       const roomId = normalizeRoomId(rawRoomId);
       const state = await getVoiceRoomState(roomId);
       const targetUserId = resolveRoomUserId(state, requestedTargetUserId);
-      if (!(await canModerateRoom(socket, state, roomId, rawRoomId))) {
+      if (!(await canModerateRoom(socket, state, roomId, rawRoomId, 'canMuteAnyUser'))) {
         socket.emit("voice_room:error", { message: "Only room admins can manage chat access" });
         return;
       }
@@ -1414,7 +1400,7 @@ export const registerVoiceRoomHandlers = (io: Server, socket: AuthenticatedSocke
       const roomId = normalizeRoomId(rawRoomId);
       const state = await getVoiceRoomState(roomId);
       const targetUserId = resolveRoomUserId(state, requestedTargetUserId);
-      if (!(await canModerateRoom(socket, state, roomId, rawRoomId))) {
+      if (!(await canModerateRoom(socket, state, roomId, rawRoomId, 'canMuteAnyUser'))) {
         socket.emit("voice_room:error", { message: "Only room admins can mute a user's microphone" });
         return;
       }
@@ -1459,12 +1445,16 @@ export const registerVoiceRoomHandlers = (io: Server, socket: AuthenticatedSocke
   });
 
   // 6. Send Chat Message
-  socket.on("voice_room:send_chat", async (data: { roomId: string; message: any }) => {
+  socket.on("voice_room:send_chat", async (data: { roomId: string; message: any }, ack?: (result: any) => void) => {
     try {
       const rawRoomId = String(data?.roomId || (socket as any).voiceRawRoomId || (socket as any).voiceRoomId || "").trim();
-      if (!rawRoomId || !data?.message) return;
+      if (!rawRoomId || !data?.message) { ack?.({ success: false, message: "Invalid message" }); return; }
       const roomId = normalizeRoomId(rawRoomId);
 
+      if (!socket.rooms.has(`voice_room_channel:${roomId}`) && !socket.rooms.has(`voice_room_channel:${rawRoomId}`)) {
+        ack?.({ success: false, message: 'Join the room before sending messages' });
+        return;
+      }
       const senderId = String((socket as any).voiceUser?.userId || user?.userId || "");
       const state = await getVoiceRoomState(roomId);
       if (state.bannedChatUsers?.includes(senderId) && !(await isGlobalRoomManagerSocket(socket))) {
@@ -1472,6 +1462,7 @@ export const registerVoiceRoomHandlers = (io: Server, socket: AuthenticatedSocke
           message: "You are currently muted from chat in this room.",
           code: "ROOM_CHAT_BANNED",
         });
+        ack?.({ success: false, message: "You are currently muted from chat in this room." });
         return;
       }
 
@@ -1486,41 +1477,61 @@ export const registerVoiceRoomHandlers = (io: Server, socket: AuthenticatedSocke
         (dbSender as any)?.isStaff ||
         (dbSender as any)?.isGlobalRoomManager
       );
-      const isSvipUser = Boolean(dbSender?.equippedSvipId || (dbSender as any)?.isSvip || data.message?.isSvip);
-      const isVipUser = Boolean(dbSender?.equippedVipId || (dbSender as any)?.isVip || data.message?.isVip);
+      const isSvipUser = Boolean(identity?.isSvip);
+      const isVipUser = Boolean(identity?.isVip);
 
+      const isBullet = data.message.isBullet === true;
+      const text = String(data.message.text || data.message.content || '').trim();
+      if (!text || text.length > 500) throw new Error('Message must contain 1 to 500 characters');
+      const charge = isBullet
+        ? await chargeRoomBullet(String(user?.id || ''), roomId, String(data.message.id || ''), text)
+        : null;
       const msg = {
         ...data.message,
+        text,
+        isBullet,
         nameEffect: identity?.nameEffect || null,
         id: data.message.id || ("msg-" + Date.now() + "-" + Math.random().toString(36).substr(2, 4)),
         senderId,
+        role: isOwner ? 'owner' : 'user',
+        isAdmin: (state.admins || []).map(String).includes(senderId),
+        bubbleConfig: null,
+        chatBubbleAsset: null,
+        bubble: null,
         wealthLevel: (dbSender as any)?.wealthLevel || dbSender?.level || data.message?.wealthLevel || data.message?.level || 1,
         charmLevel: (dbSender as any)?.charmLevel ?? data.message?.charmLevel ?? 0,
         level: (dbSender as any)?.wealthLevel || dbSender?.level || data.message?.level || 1,
-        isOwner: isOwner || Boolean(data.message?.isOwner),
-        userRole: isOwner ? 'owner' : (isStaffUser ? 'staff' : (data.message?.userRole || 'user')),
-        isStaff: isStaffUser || Boolean(data.message?.isStaff),
+        isOwner,
+        userRole: isOwner ? 'owner' : (isStaffUser ? 'staff' : 'user'),
+        isStaff: isStaffUser,
         isSvip: isSvipUser,
         isVip: isVipUser,
-        svipLevel: dbSender?.svipLevel || (dbSender?.equippedSvipId ? 1 : null) || data.message?.svipLevel || (isSvipUser ? 1 : null),
-        vipLevel: (dbSender as any)?.vipLevel || (dbSender?.equippedVipId ? 1 : null) || data.message?.vipLevel || (isVipUser ? 1 : null),
-        equippedTag: dbSender?.equippedTag || data.message?.equippedTag || null,
-        equippedTagAsset: dbSender?.equippedTagAsset || data.message?.equippedTagAsset || null,
-        equippedBadge: dbSender?.equippedBadge || data.message?.equippedBadge || null,
-        equippedBadgeAsset: dbSender?.equippedBadgeAsset || data.message?.equippedBadgeAsset || null,
-        equippedBadges: Array.isArray(dbSender?.equippedBadges) && dbSender.equippedBadges.length
-          ? dbSender.equippedBadges
-          : (Array.isArray(data.message?.equippedBadges) ? data.message.equippedBadges : []),
-        chatBubble: (socket as any).voiceUser?.equippedChatBubbleAsset || (socket as any).voiceUser?.equippedChatBubble || (dbSender as any)?.equippedChatBubbleAsset || (dbSender as any)?.equippedChatBubble || data.message.chatBubble || null,
-        chatBubbleId: (socket as any).voiceUser?.equippedChatBubble || (dbSender as any)?.equippedChatBubble || data.message.chatBubbleId || null,
+        svipLevel: isSvipUser ? identity?.svipLevel || 1 : null,
+        vipLevel: isVipUser ? identity?.vipLevel || 1 : null,
+        equippedTag: dbSender?.equippedTag || null,
+        equippedTagAsset: dbSender?.equippedTagAsset || null,
+        equippedBadge: dbSender?.equippedBadge || null,
+        equippedBadgeAsset: dbSender?.equippedBadgeAsset || null,
+        equippedBadges: Array.isArray(dbSender?.equippedBadges) ? dbSender.equippedBadges : [],
+        chatBubble: (dbSender as any)?.equippedChatBubbleAsset || (dbSender as any)?.equippedChatBubble || null,
+        chatBubbleId: (dbSender as any)?.equippedChatBubble || null,
         timestamp: Date.now(),
       };
 
+      if (charge?.duplicate) {
+        socket.emit('voice_room:chat_message', msg);
+        ack?.({ success: true, diamonds: charge.diamonds, chargedDiamonds: 0, messageId: msg.id });
+        return;
+      }
       io.to(socketRoomChannel).emit("voice_room:chat_message", msg);
       if (rawRoomId !== roomId) {
         io.to(`voice_room_channel:${rawRoomId}`).emit("voice_room:chat_message", msg);
       }
+      ack?.({ success: true, diamonds: charge?.diamonds, chargedDiamonds: isBullet ? 1 : 0, messageId: msg.id });
     } catch (err: any) {
+      const message = err?.message === 'INSUFFICIENT_DIAMONDS' ? 'Bullet message requires 1 diamond. Please recharge.' : (err?.message || 'Could not send message');
+      ack?.({ success: false, message });
+      if (!ack) socket.emit('voice_room:error', { message });
       console.error("[VoiceRoom] Chat message error:", err);
     }
   });
@@ -1837,7 +1848,7 @@ export const registerVoiceRoomHandlers = (io: Server, socket: AuthenticatedSocke
 
       const state = await getVoiceRoomState(roomId);
       const targetUserId = resolveRoomUserId(state, requestedTargetUserId);
-      if (!(await canModerateRoom(socket, state, roomId, rawRoomId))) {
+      if (!(await canModerateRoom(socket, state, roomId, rawRoomId, 'canKickAnyUser'))) {
         socket.emit("voice_room:error", { message: "Only room admins can remove users from seats" });
         return;
       }
@@ -1909,7 +1920,7 @@ export const registerVoiceRoomHandlers = (io: Server, socket: AuthenticatedSocke
 
       const state = await getVoiceRoomState(roomId);
       const targetUserId = resolveRoomUserId(state, requestedTargetUserId);
-      if (!(await canModerateRoom(socket, state, roomId, rawRoomId))) {
+      if (!(await canModerateRoom(socket, state, roomId, rawRoomId, 'canKickAnyUser'))) {
         socket.emit("voice_room:error", { message: "Only room admins can kick users" });
         return;
       }
@@ -2323,6 +2334,28 @@ export const registerVoiceRoomHandlers = (io: Server, socket: AuthenticatedSocke
     }
   });
 
+  socket.on('voice_room:update_seat_count', async (data: { roomId: string; seatCount: number }, ack?: (result: any) => void) => {
+    try {
+      const rawRoomId = String(data?.roomId || '').trim();
+      const roomId = normalizeRoomId(rawRoomId);
+      const count = validateRoomSeatCount(data?.seatCount);
+      if (!roomId || (!socket.rooms.has(`voice_room_channel:${roomId}`) && !socket.rooms.has(`voice_room_channel:${rawRoomId}`))) throw new Error('Join the room first');
+      await withRoomSeatLock(roomId, async () => {
+        const state = await getVoiceRoomState(roomId);
+        if (!await canModerateRoom(socket, state, roomId, rawRoomId)) throw new Error('Only the room owner or an authorized moderator can change the layout');
+        const next = resizeRoomSeats(state, count);
+        await Room.updateOne({ channelName: { $in: [roomId, rawRoomId] } }, { $set: { seatCount: count } });
+        await saveVoiceRoomState(next);
+        const payload = { roomId, seatCount: count, seats: next.seats };
+        io.to(`voice_room_channel:${roomId}`).to(`voice_room_channel:${rawRoomId}`).emit('voice_room:seat_updated', payload);
+        ack?.({ success: true, ...payload });
+      });
+    } catch (error: any) {
+      if (ack) ack({ success: false, message: error.message });
+      else socket.emit('voice_room:error', { message: error.message });
+    }
+  });
+
   // 17. Update Room Details (DP / Title / About) (Owner Only)
   socket.on("voice_room:update_details", async (data: { roomId: string; coverImage?: string; title?: string; about?: string; seatCount?: number; isLocked?: boolean; mode?: string; hasPin?: boolean }) => {
     try {
@@ -2336,11 +2369,10 @@ export const registerVoiceRoomHandlers = (io: Server, socket: AuthenticatedSocke
 
       const authUserDbId = String((user as any)?.id || (user as any)?._id || "").trim();
       const authUserNumId = String(user?.userId || "").trim();
-      const isSuperAdminOrOwnerRole = (user as any)?.role === "superAdmin" || (user as any)?.role === "owner" || (user as any)?.role === "admin";
       const isGlobalManager = await isGlobalRoomManagerSocket(socket);
 
       const isOwner = Boolean(
-        isSuperAdminOrOwnerRole || isGlobalManager ||
+        isGlobalManager ||
         (roomDocument?.ownerId && (
           String(roomDocument.ownerId) === authUserDbId ||
           (authUserNumId && String(roomDocument.ownerId) === authUserNumId)
@@ -2379,6 +2411,7 @@ export const registerVoiceRoomHandlers = (io: Server, socket: AuthenticatedSocke
         }
       }
 
+      await withRoomSeatLock(roomId, async () => {
       const state = await getVoiceRoomState(roomId);
       if (data.coverImage) {
         state.coverImage = data.coverImage;
@@ -2393,7 +2426,7 @@ export const registerVoiceRoomHandlers = (io: Server, socket: AuthenticatedSocke
         if (roomDocument) (roomDocument as any).about = data.about;
       }
       if (data.seatCount) {
-        state.seatCount = data.seatCount;
+        Object.assign(state, resizeRoomSeats(state, data.seatCount));
         if (roomDocument) (roomDocument as any).seatCount = data.seatCount;
       }
       if (typeof data.isLocked === "boolean") {
@@ -2416,6 +2449,7 @@ export const registerVoiceRoomHandlers = (io: Server, socket: AuthenticatedSocke
         title: state.title,
         about: state.about,
         seatCount: state.seatCount,
+        seats: state.seats,
         isLocked: Boolean(state.isLocked),
         mode: state.mode || (state.isLocked ? "Private (PIN)" : "Public"),
         hasPin: Boolean(state.hasPin),
@@ -2427,6 +2461,7 @@ export const registerVoiceRoomHandlers = (io: Server, socket: AuthenticatedSocke
         io.to(`voice_room_channel:${rawRoomId}`).emit("voice_room:details_updated", payload);
       }
 
+      });
       console.log(`[VoiceRoom] Room ${roomId} details updated (coverImage=${Boolean(data.coverImage)}) by owner ${authUserDbId}`);
     } catch (err: any) {
       console.error("[VoiceRoom] Update room details error:", err);
@@ -2442,10 +2477,8 @@ export const registerVoiceRoomHandlers = (io: Server, socket: AuthenticatedSocke
       const roomId = normalizeRoomId(rawRoomId);
 
       const roleStr = String((user as any)?.role || '');
-      const isSuperAdminOrOwnerRole = ["superAdmin", "owner", "admin", "operator", "bdLeader", "bd"].includes(roleStr);
       const isGlobalManager = await isGlobalRoomManagerSocket(socket);
       const userPowers = await getUserOfficialPowers(String((user as any)?.userId || (user as any)?._id || (user as any)?.id || ''));
-      const isRudranshUser = /rudransh/i.test(String((user as any)?.name || '')) || /rudransh/i.test(String((user as any)?.userName || ''));
       const specialIdVal = String(
         (data as any)?.specialId ||
         (user as any)?.specialCode ||
@@ -2454,7 +2487,7 @@ export const registerVoiceRoomHandlers = (io: Server, socket: AuthenticatedSocke
         ''
       ).trim();
       const hasSpecialId = Boolean(specialIdVal || (user as any)?.isSpecialId);
-      const canBanRoom = Boolean(isSuperAdminOrOwnerRole || isGlobalManager || userPowers?.canBanRoom || hasSpecialId || isRudranshUser);
+      const canBanRoom = Boolean(isGlobalManager || userPowers?.canBanRoom);
 
       if (!canBanRoom) {
         socket.emit("voice_room:error", {
@@ -2533,11 +2566,9 @@ export const registerVoiceRoomHandlers = (io: Server, socket: AuthenticatedSocke
       if (!targetIdentifier) return;
 
       const roleStr = String((user as any)?.role || '');
-      const isSuperAdminOrOwnerRole = ["superAdmin", "owner", "admin", "operator", "bdLeader", "bd"].includes(roleStr);
       const isGlobalManager = await isGlobalRoomManagerSocket(socket);
       const userPowers = await getUserOfficialPowers(String((user as any)?.userId || (user as any)?._id || (user as any)?.id || ''));
-      const isRudranshUser = /rudransh/i.test(String((user as any)?.name || '')) || /rudransh/i.test(String((user as any)?.userName || ''));
-      const canBanUser = Boolean(isSuperAdminOrOwnerRole || isGlobalManager || userPowers?.canBanUser || isRudranshUser);
+      const canBanUser = Boolean(isGlobalManager || userPowers?.canBanUser);
 
       if (!canBanUser) {
         socket.emit("voice_room:error", {
