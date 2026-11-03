@@ -1,3 +1,4 @@
+import { notifyRoomFollowers } from '../services/roomOpenNotification.service';
 import { explicitRoomPowers } from '../utils/roomOfficialPowers';
 import { chargeRoomBullet } from '../services/roomBullet.service';
 import { HostingObserver, recordObservedHostingMinute, attendanceEconomy } from '../economy/attendance';
@@ -741,6 +742,14 @@ export const registerVoiceRoomHandlers = (io: Server, socket: AuthenticatedSocke
       }
 
       await saveVoiceRoomState(state);
+      if (authorizedHost && !wasOnline) {
+        const firstOpen = await redis.set('room_open_notification:' + roomId, String(Date.now()), 'EX', 60, 'NX');
+        if (firstOpen === 'OK') {
+          void notifyRoomFollowers({ ownerId: roomDocument?.ownerId || authUserDbId,
+            channelName: roomDocument?.channelName || roomId, title: state.title || data.roomTitle || '' })
+            .catch(error => console.warn('[Room] Follower notification failed:', error?.message));
+        }
+      }
 
       if (shouldBroadcastJoin && !isStealth && userData.userId) {
         RoomTaskService.recordVisitor(roomId, String(userData.userId)).catch((err) => {

@@ -343,7 +343,7 @@ export class AgoraProjectService {
 
       const testChannel = `_probe_${Date.now()}`;
       const testUid = 999999;
-      const expireTs = Math.floor(Date.now() / 1000) + 3600;
+      const expireTs = 3600; // AccessToken2 expects seconds from now.
 
       const tokenPublisher = RtcTokenBuilder.buildTokenWithUid(
         appId,

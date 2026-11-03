@@ -86,9 +86,8 @@ export class AgoraTokenService {
   ): Promise<GeneratedCallTokens> {
     const { project, certificate, configVersion } = await this.resolveProject(preferredProjectIdOrAppId);
 
-    const nowSec = Math.floor(Date.now() / 1000);
-    const expirationSeconds = Math.max(maxMinutes * 60, 86400); // 24hr safety window
-    const tokenExpireTs = nowSec + expirationSeconds;
+    // AccessToken2 accepts a duration, independent of the account balance.
+    const tokenExpireSeconds = 86400;
 
     const callerToken = RtcTokenBuilder.buildTokenWithUid(
       project.appId,
@@ -96,8 +95,8 @@ export class AgoraTokenService {
       channelName,
       callerAgoraUid,
       RtcRole.PUBLISHER,
-      tokenExpireTs,
-      tokenExpireTs
+      tokenExpireSeconds,
+      tokenExpireSeconds
     );
 
     const hostToken = RtcTokenBuilder.buildTokenWithUid(
@@ -106,8 +105,8 @@ export class AgoraTokenService {
       channelName,
       hostAgoraUid,
       RtcRole.PUBLISHER,
-      tokenExpireTs,
-      tokenExpireTs
+      tokenExpireSeconds,
+      tokenExpireSeconds
     );
 
     return {
@@ -135,8 +134,6 @@ export class AgoraTokenService {
 
     const channelName = `voiceroom_${roomId}`;
     const tokenExpireSeconds = 86400; // 24 hours
-    const nowSec = Math.floor(Date.now() / 1000);
-    const expireTs = nowSec + tokenExpireSeconds;
 
     let token = '';
     if (certificate) {
@@ -146,8 +143,8 @@ export class AgoraTokenService {
         channelName,
         agoraUid,
         RtcRole.PUBLISHER,
-        expireTs,
-        expireTs
+        tokenExpireSeconds,
+        tokenExpireSeconds
       );
     }
 
