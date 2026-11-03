@@ -68,10 +68,15 @@ jobs:
             test "$(git branch --show-current)" = main
             echo "DEPLOY_STAGE=check-production-edits"
             git diff --name-only
-            # Recover only the exact source revision restored by the preceding rollback.
+            # Recover only the exact source revision restored by our previous rollback.
             if ! git diff --quiet -- src package.json; then
               CHANGED=$(git diff --name-only -- src package.json)
-              UNEXPECTED=$(printf '%s\n' "$CHANGED" | grep -vE '^src/(services/agora/agora(Project|Token)\.service\.ts|sockets/voiceRoomSocket\.ts)            git diff --quiet -- src package.json
+              UNEXPECTED=$(printf '%s\n' "$CHANGED" | grep -vE '^src/(services/agora/agora(Project|Token)\.service\.ts|sockets/voiceRoomSocket\.ts)$' || true)
+              test -z "$UNEXPECTED"
+              git diff --quiet 2905f8f56643a03ce3aee6da53d31db6f40f8e58 -- src/services/agora/agoraProject.service.ts src/services/agora/agoraToken.service.ts src/sockets/voiceRoomSocket.ts
+              git restore --source=HEAD -- src/services/agora/agoraProject.service.ts src/services/agora/agoraToken.service.ts src/sockets/voiceRoomSocket.ts
+            fi
+            git diff --quiet -- src package.json
             git diff --cached --quiet
             echo "DEPLOY_STAGE=fetch"
             git fetch origin main
@@ -85,41 +90,6 @@ jobs:
               trap - EXIT
               git restore --source="$PREVIOUS_COMMIT" -- . ':!package-lock.json'
               git reset --mixed "$PREVIOUS_COMMIT"
-              tar -xzf "$BACKUP_DIR/backend.tgz"
-              pm2 reload yaro-backend --update-env || true
-              echo "Deployment failed; restored previous backend from $BACKUP_DIR"
-              exit 1
-            }
-            trap rollback EXIT
-            git merge --ff-only origin/main
-            if ! git diff --quiet "$PREVIOUS_COMMIT" HEAD -- package.json package-lock.json; then
-              npm ci --no-audit --no-fund
-            fi
-            npm run build
-            pm2 reload yaro-backend --update-env
-            sleep 5
-            curl --fail --silent --show-error --retry 15 --retry-delay 2 --retry-connrefused --max-time 5 http://127.0.0.1:3101/health
-            curl --fail --silent --show-error --retry 15 --retry-delay 2 --retry-connrefused --max-time 5 https://api.yaroapp.in/health
-            pm2 save
-            trap - EXIT
-            echo "DEPLOYED_COMMIT=${{ github.sha }}"
- || true)
-              test -z "$UNEXPECTED"
-              git diff --quiet 2905f8f56643a03ce3aee6da53d31db6f40f8e58 -- src/services/agora/agoraProject.service.ts src/services/agora/agoraToken.service.ts src/sockets/voiceRoomSocket.ts
-              git restore --source=HEAD -- src/services/agora/agoraProject.service.ts src/services/agora/agoraToken.service.ts src/sockets/voiceRoomSocket.ts
-            fi
-            git diff --quiet -- . ':!package-lock.json'
-            git diff --cached --quiet
-            echo "DEPLOY_STAGE=fetch"
-            git fetch origin main
-            test "$(git rev-parse origin/main)" = '${{ github.sha }}'
-            BACKUP_DIR="$HOME/yaro-deploy-backups/$(date +%Y%m%d-%H%M%S)"
-            mkdir -p "$BACKUP_DIR"
-            PREVIOUS_COMMIT=$(git rev-parse HEAD)
-            printf '%s\n' "$PREVIOUS_COMMIT" > "$BACKUP_DIR/previous-commit"
-            tar -czf "$BACKUP_DIR/backend.tgz" src dist package.json package-lock.json
-            rollback() {
-              trap - EXIT
               tar -xzf "$BACKUP_DIR/backend.tgz"
               pm2 reload yaro-backend --update-env || true
               echo "Deployment failed; restored previous backend from $BACKUP_DIR"
