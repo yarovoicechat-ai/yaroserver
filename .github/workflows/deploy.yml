@@ -68,14 +68,15 @@ jobs:
             test "$(git branch --show-current)" = main
             echo "DEPLOY_STAGE=check-production-edits"
             git diff --name-only
-            git diff --quiet
+            git diff --quiet -- . ':!package-lock.json'
             git diff --cached --quiet
             echo "DEPLOY_STAGE=fetch"
             git fetch origin main
             test "$(git rev-parse origin/main)" = '${{ github.sha }}'
             BACKUP_DIR="$HOME/yaro-deploy-backups/$(date +%Y%m%d-%H%M%S)"
             mkdir -p "$BACKUP_DIR"
-            git rev-parse HEAD > "$BACKUP_DIR/previous-commit"
+            PREVIOUS_COMMIT=$(git rev-parse HEAD)
+            printf '%s\n' "$PREVIOUS_COMMIT" > "$BACKUP_DIR/previous-commit"
             tar -czf "$BACKUP_DIR/backend.tgz" src dist package.json package-lock.json
             rollback() {
               trap - EXIT
@@ -86,7 +87,9 @@ jobs:
             }
             trap rollback EXIT
             git merge --ff-only origin/main
-            npm ci --no-audit --no-fund
+            if ! git diff --quiet "$PREVIOUS_COMMIT" HEAD -- package.json package-lock.json; then
+              npm ci --no-audit --no-fund
+            fi
             npm run build
             pm2 reload yaro-backend --update-env
             sleep 5
