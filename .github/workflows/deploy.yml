@@ -55,15 +55,22 @@ jobs:
           script_stop: false
           script: |
             set -eu
+            echo "DEPLOY_STAGE=runtime-discovery"
+            pm2 jlist | node -e 'const ps=JSON.parse(require("fs").readFileSync(0,"utf8")); console.log(JSON.stringify(ps.filter(p=>/^yaro/i.test(p.name)).map(p=>({name:p.name,cwd:p.pm2_env.pm_cwd}))))'
             BACKEND_DIR=""
             for dir in /root/apps/Yaro/YaroServer /root/apps/YaroServer /root/apps/yaro-server /root/apps/backend /var/www/yaro-server; do
               if [ -f "$dir/package.json" ]; then BACKEND_DIR="$dir"; break; fi
             done
+            echo "DEPLOY_TARGET=$BACKEND_DIR"
             test -n "$BACKEND_DIR"
             cd "$BACKEND_DIR"
+            echo "DEPLOY_BRANCH=$(git branch --show-current)"
             test "$(git branch --show-current)" = main
+            echo "DEPLOY_STAGE=check-production-edits"
+            git diff --name-only
             git diff --quiet
             git diff --cached --quiet
+            echo "DEPLOY_STAGE=fetch"
             git fetch origin main
             test "$(git rev-parse origin/main)" = '${{ github.sha }}'
             BACKUP_DIR="$HOME/yaro-deploy-backups/$(date +%Y%m%d-%H%M%S)"
