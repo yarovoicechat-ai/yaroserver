@@ -1,13 +1,15 @@
+import { randomUUID } from 'crypto';
 import { User } from '../models/user.model';
 import { createNotification } from '../controllers/notificationController';
 import { sendPushNotification } from '../utils/pushNotification';
 
-export const notifyRoomFollowers = async (room: { ownerId: unknown; channelName: string; title: string }) => {
+export const notifyRoomFollowers = async (room: { ownerId: unknown; channelName: string; title: string; openEventId?: string }) => {
   const owner = await User.findById(room.ownerId).select('name blockedUsers').lean();
   if (!owner) return;
   const title = (owner.name || 'Someone you follow') + ' opened a room';
   const body = room.title || 'Join their voice room';
-  const data = { type: 'room_open', action: 'open_room', roomId: String(room.channelName), ownerId: String(room.ownerId) };
+  const notificationId = room.openEventId || `room-open:${room.channelName}:${randomUUID()}`;
+  const data = { notificationId, eventId: notificationId, type: 'room_open', action: 'open_room', roomId: String(room.channelName), ownerId: String(room.ownerId) };
   const cursor = User.find({ following: room.ownerId,
     _id: { $ne: room.ownerId, $nin: owner.blockedUsers || [] },
     blockedUsers: { $ne: room.ownerId }, isDeleted: { $ne: true }, isBlocked: { $ne: true },

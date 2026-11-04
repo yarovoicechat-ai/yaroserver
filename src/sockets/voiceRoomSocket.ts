@@ -1,4 +1,5 @@
 import { canEnterLockedRoom, roomPinGrantKey } from '../utils/roomLockAccess';
+import { claimRoomOpenEvent } from '../utils/roomOpenEvent';
 import { notifyRoomFollowers } from '../services/roomOpenNotification.service';
 import { explicitRoomPowers } from '../utils/roomOfficialPowers';
 import { chargeRoomBullet } from '../services/roomBullet.service';
@@ -522,7 +523,7 @@ export const registerVoiceRoomHandlers = (io: Server, socket: AuthenticatedSocke
   }
 
   // 1. Join Room
-  socket.on("voice_room:join", async (data: { roomId: string; user?: any; isHost?: boolean; customSeats?: number; roomTitle?: string; stealth?: boolean }) => {
+  socket.on("voice_room:join", async (data: { roomId: string; user?: any; isHost?: boolean; customSeats?: number; roomTitle?: string; stealth?: boolean; silent?: boolean; resync?: boolean }) => {
     try {
       const rawRoomId = String(data?.roomId || "").trim();
       if (!rawRoomId) return;
@@ -707,18 +708,19 @@ export const registerVoiceRoomHandlers = (io: Server, socket: AuthenticatedSocke
       if (!Array.isArray(state.admins)) state.admins = [];
       if (!Array.isArray(state.bannedChatUsers)) state.bannedChatUsers = [];
       if (!Array.isArray(state.mutedUsers)) state.mutedUsers = [];
-      let shouldBroadcastJoin = !wasOnline;
-      if (userData.userId) {
+      const isQuietResync = Boolean(data?.silent || data?.resync);
+      let shouldBroadcastJoin = !wasOnline && !isQuietResync;
+      if (userData.userId && shouldBroadcastJoin) {
         try {
           const firstJoinForUser = await redis.set(
             `voice_room_join_event:${roomId}:${userData.userId}`,
             String(Date.now()),
             "EX",
-            1,
+            60,
             "NX",
           );
-          if (firstJoinForUser === "OK") {
-            shouldBroadcastJoin = true;
+          if (firstJoinForUser !== "OK") {
+            shouldBroadcastJoin = false;
           }
         } catch (joinLockErr) {
           console.warn("[VoiceRoom] Join deduplication warning:", joinLockErr);
@@ -754,13 +756,11 @@ export const registerVoiceRoomHandlers = (io: Server, socket: AuthenticatedSocke
       }
 
       await saveVoiceRoomState(state);
-      if (authorizedHost && !wasOnline) {
-        const firstOpen = await redis.set('room_open_notification:' + roomId, String(Date.now()), 'EX', 60, 'NX');
-        if (firstOpen === 'OK') {
-          void notifyRoomFollowers({ ownerId: roomDocument?.ownerId || authUserDbId,
-            channelName: roomDocument?.channelName || roomId, title: state.title || data.roomTitle || '' })
-            .catch(error => console.warn('[Room] Follower notification failed:', error?.message));
-        }
+      const openEventId = await claimRoomOpenEvent(redis, { roomId, membershipId, isOwner: authorizedHost && !isStealth, wasOnline });
+      if (openEventId) {
+        void notifyRoomFollowers({ ownerId: roomDocument?.ownerId || authUserDbId,
+          channelName: roomDocument?.channelName || roomId, title: state.title || data.roomTitle || '', openEventId })
+          .catch(error => console.warn('[Room] Follower notification failed:', error?.message));
       }
 
       if (shouldBroadcastJoin && !isStealth && userData.userId) {
@@ -822,8 +822,8 @@ export const registerVoiceRoomHandlers = (io: Server, socket: AuthenticatedSocke
         });
       }
 
-      // Broadcast Entry Effect to the voice room and directly to joiner
-      if (!isStealth) {
+      // Broadcast Entry Effect to the voice room and directly to joiner only when joining anew
+      if (shouldBroadcastJoin && !isStealth && !isQuietResync) {
         EntryEffectService.broadcastEntry(roomId, userData, rawRoomId).then((entryPayload) => {
           if (entryPayload && socket.connected) {
             socket.emit("entry:effect", entryPayload);
@@ -1802,6 +1802,9 @@ export const registerVoiceRoomHandlers = (io: Server, socket: AuthenticatedSocke
       };
 
       io.to(getVoiceRoomChannels(roomId, rawRoomId)).emit("voice_room:user_left", userLeftPayload);
+      if (isExplicitLeave && targetUserId) {
+        redis.del(`voice_room_join_event:${roomId}:${targetUserId}`).catch(() => {});
+      }
 
 
       console.log(`[VoiceRoom] ${targetName} (${targetUserId}) left room ${roomId} - seats vacated: ${vacatedIndices.join(",")}`);

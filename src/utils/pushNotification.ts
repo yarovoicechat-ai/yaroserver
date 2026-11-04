@@ -117,7 +117,10 @@ export const sendPushNotification = async (
           body: payload.body,
         },
       }),
-      android: { priority: "high" },
+      android: { priority: "high", ...(payload.data?.type === 'room_open' ? {
+        notification: { channelId: 'activity_notifications_v1', sound: 'default', tag: payload.data.notificationId },
+      } : {}) },
+      ...(payload.data?.type === 'room_open' ? { apns: { payload: { aps: { sound: 'default' } } } } : {}),
     };
 
     const response = await admin.messaging().sendEachForMulticast(message);
