@@ -1553,10 +1553,13 @@ export const getCallStatus = async (req: AuthRequest, res: Response) => {
 
     console.log(`[CALL_STATUS_CHECK] Timestamp: ${new Date().toISOString()} | TxID: ${transactionId} | Status: ${transaction.status} | Channel: ${channelName}`);
 
+    const isVideo = meta?.isVideo === true || meta?.callType === 'video';
     return sendResponse(res, 200, true, "Call status fetched successfully", {
       status: transaction.status,
       transactionId: transaction._id,
       channelName,
+      isVideo,
+      callType: isVideo ? 'video' : 'audio',
       createdAt: transaction.createdAt,
       ringExpiresAt: transaction.ringExpiresAt,
       agora: {
@@ -1564,7 +1567,7 @@ export const getCallStatus = async (req: AuthRequest, res: Response) => {
         callerAgoraUid: meta?.callerAgoraUid,
         hostToken: meta?.hostToken,
         hostAgoraUid: meta?.hostAgoraUid,
-        appId: meta?.appId || fallbackAgora?.appId || config.AGORA_APP_ID || 'd23c897f9305450faa7809ffcf666e57'
+        appId: meta?.appId || fallbackAgora?.appId || config.AGORA_APP_ID || 'a728e57756ce4e9caebe4ace185c8bae'
       },
     });
   } catch (error: any) {

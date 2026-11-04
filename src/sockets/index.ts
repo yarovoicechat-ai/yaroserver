@@ -265,9 +265,12 @@ const chatSocket = (io: Server) => {
             await User.findByIdAndUpdate(txn.hostId, { $set: { isBusy: true } });
             socket.data.transactionId = transactionId;
             const meta = txn.meta as any;
+            const isVideo = meta?.isVideo === true || meta?.callType === 'video';
             const payload = {
                 transactionId,
                 channelName: txn.channelName || meta?.channelName,
+                isVideo,
+                callType: isVideo ? 'video' : 'audio',
                 agora: {
                     callerToken: meta?.callerToken,
                     callerAgoraUid: meta?.callerAgoraUid,
