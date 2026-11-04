@@ -231,7 +231,7 @@ export const getUsers = async (req: AuthRequest, res: Response) => {
       };
       const totalUsers = await User.countDocuments(searchFilter);
       const users = await User.find(searchFilter)
-        .select("userId meethiId name userName image gender level isOnline role isVerified isActive bio languages")
+        .select("country age userId meethiId name userName image gender level isOnline role isVerified isActive bio languages")
         .sort({ isOnline: -1, createdAt: -1 })
         .skip(skip)
         .limit(limitNumber)
@@ -309,7 +309,7 @@ export const getUsers = async (req: AuthRequest, res: Response) => {
 
         const totalUsers = await User.countDocuments(filter);
         const users = await User.find(filter)
-          .select("userId meethiId name userName coins diamonds isBlocked createdAt role email phoneNumber image gender level isVIP employeeCode specialCode")
+          .select("country age userId meethiId name userName coins diamonds isBlocked createdAt role email phoneNumber image gender level isVIP employeeCode specialCode")
           .sort({ createdAt: -1 })
           .skip(skip)
           .limit(limitNumber)
@@ -328,7 +328,7 @@ export const getUsers = async (req: AuthRequest, res: Response) => {
 
       case "host": {
         const host = await User.findOne({ userId })
-          .select("userId name email phoneNumber gender role bio image audio coins diamonds isBlocked emailVerified phoneVerified language frameId isUserName userName isActive level faceVerificationStatus kycVerificationStatus profileCompleted welcomeRewardClaimed referralClaimed referralCode equippedFrame equippedFrameAsset equippedMicWave equippedChatBubble equippedChatBubbleAsset equippedEntry equippedEntryAsset equippedTassel equippedTasselAsset equippedEntrance equippedEntranceAsset storeInventory")
+          .select("country age userId name email phoneNumber gender role bio image audio coins diamonds isBlocked emailVerified phoneVerified language frameId isUserName userName isActive level faceVerificationStatus kycVerificationStatus profileCompleted welcomeRewardClaimed referralClaimed referralCode equippedFrame equippedFrameAsset equippedMicWave equippedChatBubble equippedChatBubbleAsset equippedEntry equippedEntryAsset equippedTassel equippedTasselAsset equippedEntrance equippedEntranceAsset storeInventory")
           .lean();
         if (host && host.level === undefined) host.level = 6;
         return sendResponse(res, 200, true, "User fetched successfully", { user: host });
@@ -336,7 +336,7 @@ export const getUsers = async (req: AuthRequest, res: Response) => {
 
       case "user": {
         const user = await User.findOne({ userId })
-          .select("userId name email gender phoneNumber role bio image coins diamonds isBlocked emailVerified phoneVerified language isUserName userName isActive level faceVerificationStatus kycVerificationStatus profileCompleted welcomeRewardClaimed referralClaimed referralCode equippedFrame equippedFrameAsset equippedMicWave equippedChatBubble equippedChatBubbleAsset equippedEntry equippedEntryAsset equippedTassel equippedTasselAsset equippedEntrance equippedEntranceAsset storeInventory")
+          .select("country age userId name email gender phoneNumber role bio image coins diamonds isBlocked emailVerified phoneVerified language isUserName userName isActive level faceVerificationStatus kycVerificationStatus profileCompleted welcomeRewardClaimed referralClaimed referralCode equippedFrame equippedFrameAsset equippedMicWave equippedChatBubble equippedChatBubbleAsset equippedEntry equippedEntryAsset equippedTassel equippedTasselAsset equippedEntrance equippedEntranceAsset storeInventory")
           .lean();
         if (user && user.level === undefined) user.level = 6;
         return sendResponse(res, 200, true, "User fetched successfully", { user });
@@ -483,7 +483,7 @@ export const updateUser = async (req: AuthRequest, res: Response) => {
 
     if (age !== undefined) {
       const numAge = Number(age);
-      if (isNaN(numAge) || numAge < 18 || numAge > 120) {
+      if (!Number.isInteger(numAge) || numAge < 18 || numAge > 120) {
         return sendResponse(
           res,
           400,
@@ -527,7 +527,7 @@ export const updateUser = async (req: AuthRequest, res: Response) => {
         if (gender !== undefined) updatedFields.gender = gender;
         if (language && Array.isArray(language)) updatedFields.language = language;
         if (phoneVerified !== undefined) updatedFields.phoneVerified = phoneVerified;
-        if (country !== undefined) updatedFields.country = country;
+        if (country !== undefined) updatedFields.country = typeof country === "string" ? { name: country.trim(), code: "", flag: "" } : country;
         if (age !== undefined) updatedFields.age = Number(age);
         if (level !== undefined) updatedFields.level = level;
         if (cleanImage !== undefined) updatedFields.image = cleanImage;
@@ -553,7 +553,7 @@ export const updateUser = async (req: AuthRequest, res: Response) => {
         if (gender !== undefined) updatedFields.gender = gender;
         if (language && Array.isArray(language)) updatedFields.language = language;
         if (phoneVerified !== undefined) updatedFields.phoneVerified = phoneVerified;
-        if (country !== undefined) updatedFields.country = country;
+        if (country !== undefined) updatedFields.country = typeof country === "string" ? { name: country.trim(), code: "", flag: "" } : country;
         if (age !== undefined) updatedFields.age = Number(age);
         if (cleanImage !== undefined) updatedFields.image = cleanImage;
         break;
@@ -564,7 +564,7 @@ export const updateUser = async (req: AuthRequest, res: Response) => {
         if (bio !== undefined) updatedFields.bio = bio;
         if (gender !== undefined) updatedFields.gender = gender;
         if (language && Array.isArray(language)) updatedFields.language = language;
-        if (country !== undefined) updatedFields.country = country;
+        if (country !== undefined) updatedFields.country = typeof country === "string" ? { name: country.trim(), code: "", flag: "" } : country;
         if (age !== undefined) updatedFields.age = Number(age);
         if (cleanImage !== undefined) updatedFields.image = cleanImage;
         break;
@@ -930,7 +930,7 @@ export const getAdminHostUsers = async (req: AuthRequest, res: Response) => {
 
     const [hosts, total, maxLevelDoc] = await Promise.all([
       User.find(filter)
-        .select("userId name image phoneNumber email gender level coins diamonds isBlocked isOnline isActive country language agencyId createdAt")
+        .select("country age userId name image phoneNumber email gender level coins diamonds isBlocked isOnline isActive country language agencyId createdAt")
         .sort({ createdAt: -1 })
         .skip(skip)
         .limit(limit)

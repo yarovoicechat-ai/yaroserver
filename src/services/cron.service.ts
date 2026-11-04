@@ -99,7 +99,7 @@ export const startCallCleanupJob = () => {
                         ),
                     ]);
                     if (host?.fcmToken) {
-                        sendMissedCallNotification(host.fcmToken, caller?.name || 'User', caller?.image || '', String(txn.userId));
+                        sendMissedCallNotification(host.fcmToken, caller?.name || 'User', caller?.image || '', String(txn.userId), String(txn._id));
                     }
                     console.log(`❌ Auto-closed Stuck INITIATED/RINGING: ${txn._id}`);
                 }

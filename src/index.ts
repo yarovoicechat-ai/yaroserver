@@ -1,4 +1,5 @@
 import teamRoutes from './team/routes';
+import { getPublicShare } from './controllers/shareController';
 import economyRoutes from './economy/routes';
 import express, { Application } from "express";
 import cors from "cors";
@@ -140,8 +141,11 @@ app.use(helmet({
 // });
 // app.use('/api/', limiter);
 
-app.use("/uploads", express.static(path.join(__dirname, "../uploads")));
+app.use("/uploads", express.static(path.join(__dirname, "../uploads"), {
+  maxAge: '1d', etag: true, lastModified: true,
+}));
 app.use("/policies", express.static(path.join(__dirname, "../policies")));
+app.get('/api/share/:kind/:id', getPublicShare);
 
 // Android App Links / Digital Asset Links
 app.get('/.well-known/assetlinks.json', (_req, res) => {

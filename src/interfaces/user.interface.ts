@@ -38,6 +38,8 @@ export interface UserInterface extends Document {
   language?: string[];
   country?: { name?: string; code?: string; flag?: string };
   age?: number;
+  state?: string;
+  hiringScope?: { country?: string; state?: string };
   frameId?: string;
   equippedFrame?: string;
   equippedFrameAsset?: any;

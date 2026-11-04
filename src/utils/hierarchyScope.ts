@@ -140,6 +140,7 @@ export class HierarchyScopeService {
   static buildUserScope(user: { id: string; role: string }): Record<string, any> {
     const role = user.role;
     const userId = user.id.toString();
+    if (['countryManager', 'stateManager'].includes(role)) return { $or: [{ _id: userId }, { parentId: userId }, { referralUserId: userId }, { 'referrer.referrerId': userId }, { hierarchyPath: { $regex: userId } }, { 'data.hierarchyPath': { $regex: userId } }, { 'roleData.hierarchyPath': { $regex: userId } }] };
 
     // 1. Owner: Full platform visibility (Everything)
     if (role === 'owner') {
@@ -237,8 +238,9 @@ export class HierarchyScopeService {
   static buildRequestScope(user: { id: string; role: string }): Record<string, any> {
     const role = user.role;
     const userId = user.id.toString();
+    if (['countryManager', 'stateManager'].includes(role)) return { $or: [{ _id: userId }, { parentId: userId }, { referralUserId: userId }, { 'referrer.referrerId': userId }, { hierarchyPath: { $regex: userId } }, { 'data.hierarchyPath': { $regex: userId } }, { 'roleData.hierarchyPath': { $regex: userId } }] };
 
-    if (role === 'owner' || role === 'operator') return {};
+    if (role === 'owner') return {};
 
     // Operator: visible to requests in this Operator's branch (excluding Owner direct referrals) + direct unassigned applications
     if (role === 'operator') {

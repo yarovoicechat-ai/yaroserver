@@ -1,3 +1,4 @@
+import { deriveHiringScope, validateManagerDocuments } from '../utils/hiringScope';
 import { invitationSponsor } from '../team/approval';
 import { Response, NextFunction } from 'express';
 import { AuthRequest } from '../middlewares/authorize.middleware';
@@ -97,6 +98,7 @@ const getNextSequenceValue = async (sequenceName: string): Promise<number> => {
 // Role prefixes for special codes (short referral format)
 const roleCodePrefix: Record<string, string> = {
   owner: 'OWN',
+  countryManager: 'CM', stateManager: 'SM',
   operator: 'OPR',
   superAdmin: 'SUP',
   admin: 'ADM',
@@ -113,6 +115,7 @@ const empCodePrefixMap: Record<string, string> = {
   superAdmin: 'EMP-SA',
   admin: 'EMP-ADM',
   agency: 'EMP-AGY',
+  countryManager: 'EMP-CM', stateManager: 'EMP-SM',
   operator: 'EMP-OP',
   host: 'EMP-HOST',
   coinSeller: 'EMP-SEL',
@@ -127,6 +130,7 @@ const roleCodePrefixMap: Record<string, string> = {
   superAdmin: 'SA',
   admin: 'ADM',
   agency: 'AGY',
+  countryManager: 'CM', stateManager: 'SM',
   operator: 'OP',
   host: 'HOST',
   coinSeller: 'SEL',
@@ -582,7 +586,9 @@ export const createRequest = async (req: AuthRequest, res: Response) => {
     // Detect role from requestType
     let detectedRole = 'user';
     const rt = requestType.toLowerCase();
-    if (rt.includes('super admin')) detectedRole = 'superAdmin';
+    if (rt.includes('country manager')) detectedRole = 'countryManager';
+    else if (rt.includes('state manager')) detectedRole = 'stateManager';
+    else if (rt.includes('super admin')) detectedRole = 'superAdmin';
     else if (rt.includes('admin')) detectedRole = 'admin';
     else if (rt.includes('operator')) detectedRole = 'operator';
     else if (rt.includes('bd-leader') || rt.includes('bd leader') || rt.includes('bdleader')) detectedRole = 'bdLeader';
@@ -649,6 +655,15 @@ export const createRequest = async (req: AuthRequest, res: Response) => {
       }
     }
 
+    const hiringSponsor = creator ? await User.findById(creator.id).lean() : (referralUserId ? await User.findById(referralUserId).lean() : null);
+    try {
+      data.hiringScope = deriveHiringScope(hiringSponsor, detectedRole, data);
+      validateManagerDocuments(detectedRole, data.documents || []);
+    } catch (error: any) { return sendResponse(res, 400, false, error.message); }
+    if (creator) {
+      referralUserId = String(creator.id); referralRole = creator.role; referralOwner = creator.name;
+      data.hierarchyPath = `${hiringSponsor?.hierarchyPath || ''}/${creator.id}`;
+    }
     data.referralUserId = referralUserId;
     data.referralCode = referralCode;
     data.referralRole = referralRole;
@@ -1539,6 +1554,8 @@ export const finalizeUserApproval = async (
 
   // Map role to valid User schema enum (camelCase)
   const roleMap: Record<string, string> = {
+    'country-manager': 'countryManager',
+    'state-manager': 'stateManager',
     'super-admin': 'superAdmin',
     'superadmin': 'superAdmin',
     'customer-service': 'customerSupport',
@@ -1553,7 +1570,9 @@ export const finalizeUserApproval = async (
   let targetRole = roleMap[(requestObj as any).role?.toLowerCase()] || (requestObj as any).role || 'user';
   if (!targetRole || targetRole === 'user' || targetRole.includes('-')) {
     const rt = (requestType || (requestObj as any).role || '').toLowerCase();
-    if (rt.includes('super')) targetRole = 'superAdmin';
+    if (rt.includes('country manager')) targetRole = 'countryManager';
+    else if (rt.includes('state manager')) targetRole = 'stateManager';
+    else if (rt.includes('super')) targetRole = 'superAdmin';
     else if (rt.includes('admin')) targetRole = 'admin';
     else if (rt.includes('operator')) targetRole = 'operator';
     else if (rt.includes('bd-leader') || rt.includes('bd leader') || rt.includes('bdleader')) targetRole = 'bdLeader';
@@ -1597,6 +1616,11 @@ export const finalizeUserApproval = async (
 
   // Resolve hierarchy based on referral/parent links
   let referrerUser: any = await invitationSponsor(requestObj);
+  // The stored, verified sponsor takes precedence over editable form codes.
+  if (!referrerUser && requestObj.referralUserId) {
+    referrerUser = await User.findById(requestObj.referralUserId).catch(() => null);
+    if (!referrerUser || referrerUser.isDeleted || referrerUser.isBlocked) throw new Error('Hiring sponsor is inactive or unavailable');
+  }
   const referralCodeToSearch = data.referralCode || requestObj.referralCode || data.parentOwner || data.parentOperator || data.invitedBy;
   if (!referrerUser && referralCodeToSearch) {
     referrerUser = await User.findOne({
@@ -1638,11 +1662,15 @@ export const finalizeUserApproval = async (
   bdLeaderId = bdLeaderId || data.bdLeaderId;
   bdId = bdId || data.bdId;
   agencyId = agencyId || data.agencyId;
+  const inheritedHiringScope = deriveHiringScope(referrerUser, targetRole, data);
+  validateManagerDocuments(targetRole, data.documents || []);
   const userHierarchyPath = (referrerUser ? `${referrerUser.hierarchyPath || ''}/${referrerUser._id}` : (data.hierarchyPath || '')).replace(/\/+/g, '/');
 
   // Generate immutable Enterprise Referral Code & Link for supported roles
   const rolePrefixMap: Record<string, { prefix: string; path: string }> = {
     owner: { prefix: 'OWN', path: '' },
+    countryManager: { prefix: 'CM', path: '/country-manager' },
+    stateManager: { prefix: 'SM', path: '/state-manager' },
     operator: { prefix: 'OPR', path: '/operator' },
     superAdmin: { prefix: 'SA', path: '/super-admin' },
     'super-admin': { prefix: 'SA', path: '/super-admin' },
@@ -1734,6 +1762,7 @@ export const finalizeUserApproval = async (
     if (adminId) existingUser.adminId = adminId;
     if (superAdminId) existingUser.superAdminId = superAdminId;
     if (userHierarchyPath) existingUser.hierarchyPath = userHierarchyPath;
+    existingUser.hiringScope = inheritedHiringScope;
     existingUser.emsRequestId = (requestObj as any)._id;
     await existingUser.save();
     newUser = existingUser;
@@ -1776,6 +1805,7 @@ export const finalizeUserApproval = async (
       bdId,
       agencyId,
       hierarchyPath: userHierarchyPath,
+      hiringScope: inheritedHiringScope,
       documents: Array.isArray(data.documents)
         ? data.documents.map((d: any) => (typeof d === 'string' ? d : (d?.url || d?.uri || JSON.stringify(d)))).filter(Boolean)
         : (data.documents ? [typeof data.documents === 'string' ? data.documents : (data.documents.url || JSON.stringify(data.documents))] : []),

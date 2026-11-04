@@ -861,7 +861,8 @@ export const endCall = async (req: AuthRequest, res: Response) => {
               host.fcmToken,
               caller.name || 'User',
               caller.image || '',
-              String(caller._id)
+              String(caller._id),
+              String(transaction._id)
             );
           }
         }

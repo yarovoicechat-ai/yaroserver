@@ -1,3 +1,6 @@
+import { Types } from 'mongoose';
+import { deriveHiringScope, validateManagerDocuments } from '../utils/hiringScope';
+import { normalizeRoleKey } from '../utils/emsApprovalRules';
 import { User } from '../models/user.model';
 import { Employee } from '../models/employee.model';
 import { RecruitmentApplication } from '../models/recruitmentApplication.model';
@@ -9,13 +12,16 @@ import { PANEL_ACCOUNT_ROLES } from '../utils/accountScope';
 export async function automateEmployeeCreationOnApproval(applicationId: string) {
     try {
         const app = await RecruitmentApplication.findOne({
-            $or: [{ _id: applicationId }, { applicationId }]
+            $or: [...(Types.ObjectId.isValid(applicationId) ? [{ _id: applicationId }] : []), { applicationId }]
         });
 
         if (!app || app.status !== 'approved') {
             return { success: false, message: 'Application is not approved or not found' };
         }
 
+        const sponsor = app.referrer?.referrerId ? await User.findById(app.referrer.referrerId).lean() : null;
+        validateManagerDocuments(app.role, app.documents);
+        const hiringScope = deriveHiringScope(sponsor, app.role, { ...app.roleData, country: app.applicant.country });
         // Check if user account already exists by Yaro ID / userId or email
         const rawYaroId = app.applicant?.yaroId || app.applicant?.userId || (app.roleData as any)?.yaroId || (app.roleData as any)?.userId;
         let user: any = null;
@@ -41,7 +47,13 @@ export async function automateEmployeeCreationOnApproval(applicationId: string) 
                 email: app.applicant.email.toLowerCase(),
                 phoneNumber: app.applicant.phone,
                 password: defaultPassword,
-                role: app.role === 'customer-service' ? 'customerSupport' : app.role,
+                role: normalizeRoleKey(app.role),
+                hiringScope,
+                documents: app.documents.map(d => d.url),
+                country: { name: app.applicant.country || '' },
+                state: app.roleData.state || '',
+                parentId: sponsor?._id,
+                hierarchyPath: sponsor ? `${sponsor.hierarchyPath || ''}/${sponsor._id}` : '',
                 gender: app.applicant.gender || 'other',
                 employeeCode,
                 isActive: true,
@@ -49,6 +61,14 @@ export async function automateEmployeeCreationOnApproval(applicationId: string) 
             });
         }
 
+        if (['owner', 'operator'].includes(user.role) && user.role !== normalizeRoleKey(app.role)) {
+            throw new Error('A protected account cannot be reassigned through recruitment');
+        }
+        if (['country-manager', 'state-manager', 'super-admin', 'admin', 'operator', 'customer-service'].includes(app.role)) user.role = normalizeRoleKey(app.role);
+        user.documents = app.documents.map(d => d.url);
+        user.hiringScope = hiringScope;
+        if (sponsor) { user.parentId = sponsor._id; user.hierarchyPath = `${sponsor.hierarchyPath || ''}/${sponsor._id}`; }
+        await user.save();
         // Check if employee record already exists
         let employee = await Employee.findOne({ userId: user._id });
         if (!employee) {

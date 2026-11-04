@@ -3,6 +3,10 @@ export const APP_ACCOUNT_ROLES = ['user', 'host'] as const;
 export const PANEL_ACCOUNT_ROLES = [
   'owner',
   'operator',
+  'countryManager',
+  'stateManager',
+  'bdLeader',
+  'bd',
   'superAdmin',
   'admin',
   'agency',

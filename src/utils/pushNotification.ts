@@ -80,11 +80,23 @@ export interface PushPayload {
 export const sendPushNotification = async (
   deviceTokens: string[], // multiple FCM tokens
   payload: PushPayload
-) => {
+): Promise<{ success: boolean; message?: string; successCount?: number; failureCount?: number; responses?: admin.messaging.SendResponse[] }> => {
   if (!deviceTokens || deviceTokens.length === 0) {
     return { success: false, message: "No device tokens provided" };
   }
 
+  const tokens = [...new Set(deviceTokens.filter(token => typeof token === 'string' && token.trim()))];
+  if (!tokens.length) return { success: false, message: 'No valid device tokens provided' };
+  if (tokens.length > 500) {
+    const results = [];
+    for (let offset = 0; offset < tokens.length; offset += 500) {
+      results.push(await sendPushNotification(tokens.slice(offset, offset + 500), payload));
+    }
+    return { success: results.every(result => result.success),
+      successCount: results.reduce((sum, result) => sum + (result.successCount || 0), 0),
+      failureCount: results.reduce((sum, result) => sum + (result.failureCount || 0), 0) };
+  }
+  deviceTokens = tokens;
   try {
     const message: admin.messaging.MulticastMessage = {
       tokens: deviceTokens,
@@ -256,12 +268,14 @@ export const sendMissedCallNotification = async (
   token: string,
   callerName: string,
   callerImage: string,
-  targetUserId: string = ''
+  targetUserId: string = '',
+  transactionId: string = ''
 ) => sendPushNotification([token], {
   title: 'Missed call',
   body: `You missed a call from ${callerName}`,
   data: {
     type: 'missed_call',
+    transactionId,
     action: 'open_activity',
     callerName,
     callerImage,

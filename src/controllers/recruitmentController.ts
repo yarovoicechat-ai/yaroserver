@@ -1,4 +1,5 @@
 import { Request, Response } from 'express';
+import { deriveHiringScope, validateManagerDocuments } from '../utils/hiringScope';
 import { RecruitmentApplication, RecruitmentRole, ApplicationStatus } from '../models/recruitmentApplication.model';
 import { User } from '../models/user.model';
 import { Request as RequestModel, RequestStatus } from '../models/request.model';
@@ -9,12 +10,14 @@ import { automateEmployeeCreationOnApproval } from '../services/employeeLifecycl
 import { generateStrongPassword } from './emsController';
 import { HierarchyScopeService } from '../utils/hierarchyScope';
 import { firstPlayableVoiceUrl } from '../utils/voiceMedia';
-import { ROLE_APPROVAL_CONFIG, normalizeRoleKey, canActOnRequest } from '../utils/emsApprovalRules';
+import { ROLE_APPROVAL_CONFIG, normalizeRoleKey, canActOnRequest, isActorInRequestBranch } from '../utils/emsApprovalRules';
 import { isYaroIdMandatoryRole, applyInAppRoleOption } from '../utils/appRoleService';
 
 const RECRUITMENT_ROLE_RANK: Record<string, number> = {
     owner: 0,
     operator: 1,
+    "country-manager": 1.2,
+    "state-manager": 1.4,
     'super-admin': 2,
     superadmin: 2,
     'bd-leader': 3,
@@ -31,6 +34,8 @@ const RECRUITMENT_ROLE_RANK: Record<string, number> = {
 const normalizeRecruitmentRole = (role: string) => {
     const compact = role.toLowerCase().replace(/[\s_]/g, '-');
     const aliases: Record<string, RecruitmentRole> = {
+        countrymanager: 'country-manager',
+        statemanager: 'state-manager',
         superadmin: 'super-admin',
         'super-admin': 'super-admin',
         coinseller: 'seller',
@@ -134,7 +139,7 @@ export const submitApplication = async (req: Request, res: Response) => {
         const body = req.body || {};
         const role = normalizeRecruitmentRole(roleFromParams || body.role || '');
 
-        const validRoles: RecruitmentRole[] = ['agency', 'operator', 'admin', 'customer-service', 'super-admin', 'seller', 'host', 'bd', 'bd-leader'];
+        const validRoles: RecruitmentRole[] = ['agency', 'operator', 'admin', 'customer-service', 'super-admin', 'seller', 'host', 'bd', 'bd-leader', 'country-manager', 'state-manager'];
         if (!validRoles.includes(role)) {
             return sendResponse(res, 400, false, `Invalid role. Allowed roles: ${validRoles.join(', ')}`);
         }
@@ -232,12 +237,12 @@ export const submitApplication = async (req: Request, res: Response) => {
                 { userName: codeRegex }
             ],
             isDeleted: { $ne: true }
-        }).select('_id name role employeeCode referralCode specialCode ownerId operatorId superAdminId adminId bdLeaderId bdId agencyId hierarchyPath');
+        }).select('_id name role employeeCode referralCode specialCode ownerId operatorId superAdminId adminId bdLeaderId bdId agencyId hierarchyPath hiringScope');
 
         if (!senior) {
             if (cleanCodeToValidate.startsWith('OS') || cleanCodeToValidate.startsWith('OWN')) {
                 senior = await User.findOne({ role: 'owner', isDeleted: { $ne: true } })
-                    .select('_id name role employeeCode referralCode specialCode ownerId operatorId superAdminId adminId bdLeaderId bdId agencyId hierarchyPath');
+                    .select('_id name role employeeCode referralCode specialCode ownerId operatorId superAdminId adminId bdLeaderId bdId agencyId hierarchyPath hiringScope');
                 if (!senior) {
                     senior = {
                         _id: '650000000000000000000001',
@@ -248,22 +253,22 @@ export const submitApplication = async (req: Request, res: Response) => {
                 }
             } else if (cleanCodeToValidate.startsWith('OPR')) {
                 senior = await User.findOne({ role: 'operator', isDeleted: { $ne: true } })
-                    .select('_id name role employeeCode referralCode specialCode ownerId operatorId superAdminId adminId bdLeaderId bdId agencyId hierarchyPath');
+                    .select('_id name role employeeCode referralCode specialCode ownerId operatorId superAdminId adminId bdLeaderId bdId agencyId hierarchyPath hiringScope');
             } else if (cleanCodeToValidate.startsWith('SA')) {
                 senior = await User.findOne({ role: { $in: ['superAdmin', 'super-admin'] }, isDeleted: { $ne: true } })
-                    .select('_id name role employeeCode referralCode specialCode ownerId operatorId superAdminId adminId bdLeaderId bdId agencyId hierarchyPath');
+                    .select('_id name role employeeCode referralCode specialCode ownerId operatorId superAdminId adminId bdLeaderId bdId agencyId hierarchyPath hiringScope');
             } else if (cleanCodeToValidate.startsWith('ADM')) {
                 senior = await User.findOne({ role: 'admin', isDeleted: { $ne: true } })
-                    .select('_id name role employeeCode referralCode specialCode ownerId operatorId superAdminId adminId bdLeaderId bdId agencyId hierarchyPath');
+                    .select('_id name role employeeCode referralCode specialCode ownerId operatorId superAdminId adminId bdLeaderId bdId agencyId hierarchyPath hiringScope');
             } else if (cleanCodeToValidate.startsWith('AGY')) {
                 senior = await User.findOne({ role: 'agency', isDeleted: { $ne: true } })
-                    .select('_id name role employeeCode referralCode specialCode ownerId operatorId superAdminId adminId bdLeaderId bdId agencyId hierarchyPath');
+                    .select('_id name role employeeCode referralCode specialCode ownerId operatorId superAdminId adminId bdLeaderId bdId agencyId hierarchyPath hiringScope');
             } else if (cleanCodeToValidate.startsWith('BDL')) {
                 senior = await User.findOne({ role: 'bd-leader', isDeleted: { $ne: true } })
-                    .select('_id name role employeeCode referralCode specialCode ownerId operatorId superAdminId adminId bdLeaderId bdId agencyId hierarchyPath');
+                    .select('_id name role employeeCode referralCode specialCode ownerId operatorId superAdminId adminId bdLeaderId bdId agencyId hierarchyPath hiringScope');
             } else if (cleanCodeToValidate.startsWith('BD')) {
                 senior = await User.findOne({ role: 'bd', isDeleted: { $ne: true } })
-                    .select('_id name role employeeCode referralCode specialCode ownerId operatorId superAdminId adminId bdLeaderId bdId agencyId hierarchyPath');
+                    .select('_id name role employeeCode referralCode specialCode ownerId operatorId superAdminId adminId bdLeaderId bdId agencyId hierarchyPath hiringScope');
             }
         }
 
@@ -314,6 +319,11 @@ export const submitApplication = async (req: Request, res: Response) => {
             });
         }
 
+        let hiringScope;
+        try {
+            hiringScope = deriveHiringScope(senior, role, { country, state: body.state });
+            validateManagerDocuments(role, parsedDocs);
+        } catch (error: any) { return sendResponse(res, 400, false, error.message); }
         const applicationId = generateApplicationId(role);
 
         const newApplication = await RecruitmentApplication.create({
@@ -334,6 +344,7 @@ export const submitApplication = async (req: Request, res: Response) => {
             },
             roleData: {
                 ...roleSpecificFields,
+                hiringScope,
                 yaroId: linkedUser ? String(linkedUser.userId) : (rawYaroId || undefined),
                 userId: linkedUser ? linkedUser.userId : (Number(rawYaroId) || undefined),
                 ownerId: seniorOwnerId ? String(seniorOwnerId) : undefined,
@@ -356,6 +367,8 @@ export const submitApplication = async (req: Request, res: Response) => {
 
         // Automatically sync to EMS Request Center for the role's Request Page (e.g. Operator Request, Admin Request, Super Admin Request)
         const roleToRequestTypeMap: Record<string, string> = {
+            'country-manager': 'Country Manager Request',
+            'state-manager': 'State Manager Request',
             operator: 'Operator Request',
             admin: 'Admin Request',
             'super-admin': 'Super Admin Request',
@@ -404,6 +417,7 @@ export const submitApplication = async (req: Request, res: Response) => {
                     referralRole: referrerData?.referrerRole || '',
                     generatedUserId: linkedUser ? linkedUser.userId : (rawYaroId && !isNaN(Number(rawYaroId)) ? Number(rawYaroId) : undefined),
                     data: {
+                        recruitmentAppId: String(newApplication._id),
                         name: applicantName,
                         email: applicantEmail.toLowerCase(),
                         phoneNumber: applicantPhone,
@@ -439,7 +453,8 @@ export const submitApplication = async (req: Request, res: Response) => {
                         voice: voiceUrl,
                         documents: parsedDocs,
                         specialCode: roleSpecificFields.specialCode || roleSpecificFields.adminCode || roleSpecificFields.superAdminCode || roleSpecificFields.operatorCode || '',
-                        ...roleSpecificFields
+                        ...roleSpecificFields,
+                        hiringScope
                     },
                     status: RequestStatus.PENDING,
                     createdBy: referrerData?.referrerId || 'public_recruitment',
@@ -554,6 +569,7 @@ export const getApplicationById = async (req: Request, res: Response) => {
             }
         }
 
+        if (!isActorInRequestBranch({ id: currentUser?.id, role: currentUser?.role }, application)) return sendResponse(res, 403, false, 'Application belongs to another branch');
         return sendResponse(res, 200, true, 'Application details retrieved', application);
     } catch (error: any) {
         await Logger('getApplicationById', error);
@@ -584,6 +600,11 @@ export const updateApplicationStatus = async (req: Request, res: Response) => {
         }
 
         if (status === 'approved') {
+            const sponsor = application.referrer?.referrerId ? await User.findById(application.referrer.referrerId).lean() : null;
+            try {
+                deriveHiringScope(sponsor, application.role, { ...application.roleData, country: application.applicant.country });
+                validateManagerDocuments(application.role, application.documents);
+            } catch (error: any) { return sendResponse(res, 400, false, error.message); }
             const actionEval = canActOnRequest(
                 { id: currentUser?._id || currentUser?.id, role: currentUser?.role },
                 application
@@ -593,6 +614,9 @@ export const updateApplicationStatus = async (req: Request, res: Response) => {
             }
         }
 
+        if (!['pending', 'under_review', 'interview_scheduled', 'document_verification', 'background_verification', 'approved', 'rejected', 'hold', 'joined', 'cancelled'].includes(status)) return sendResponse(res, 400, false, 'Invalid application status');
+        const evaluation = canActOnRequest({ id: currentUser?.id, role: currentUser?.role }, application);
+        if (!evaluation.canAct) return sendResponse(res, 403, false, evaluation.reason || 'Unauthorized application action');
         const prevStatus = application.status;
         application.status = status;
 
@@ -645,9 +669,15 @@ export const updateApplicationStatus = async (req: Request, res: Response) => {
                 await Logger('updateApplicationStatusRoleOptionError', roleOptErr);
             }
 
-            automateEmployeeCreationOnApproval(application.applicationId).catch(() => {});
+            const result = await automateEmployeeCreationOnApproval(application.applicationId);
+            if (!result.success) {
+                application.status = prevStatus;
+                await application.save();
+                return sendResponse(res, 500, false, result.message || 'Account provisioning failed. Please retry.');
+            }
         }
 
+        if (['approved', 'rejected', 'cancelled'].includes(status)) await RequestModel.updateMany({ $or: [{ 'data.recruitmentAppId': String(application._id) }, { 'data.mithiChatId': application.applicationId }] }, { $set: { status } });
         return sendResponse(res, 200, true, `Application status updated to ${status}`, application);
     } catch (error: any) {
         await Logger('updateApplicationStatus', error);

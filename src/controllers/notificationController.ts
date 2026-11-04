@@ -33,6 +33,14 @@ export const createNotification = async (
         } catch (socketError) {
             console.warn("Notification saved; live socket update deferred", socketError);
         }
+        if (type === 'system') {
+            const user = await User.findById(userId).select('fcmToken').lean();
+            if (user?.fcmToken) {
+                const { sendPushNotification } = await import('../utils/pushNotification');
+                await sendPushNotification([user.fcmToken], { title, body: message,
+                    data: { type: 'system', action: 'open_system_messages', notificationId: String(notification?._id || '') } });
+            }
+        }
     } catch (error) {
         console.error("Failed to create notification:", error);
     }
@@ -159,8 +167,9 @@ export const sendSystemNotification = async (req: AuthRequest, res: Response) =>
 
         await Notification.insertMany(notificationDocs);
 
-        // Emit socket notification to online target users & collect FCM tokens
-        const io = getIO();
+        // Push delivery must continue even if the socket server is unavailable.
+        let io: ReturnType<typeof getIO> | undefined;
+        try { io = getIO(); } catch (_) {}
         const fcmTokens: string[] = [];
 
         users.forEach((u: any) => {
@@ -168,7 +177,7 @@ export const sendSystemNotification = async (req: AuthRequest, res: Response) =>
                 fcmTokens.push(u.fcmToken);
             }
             try {
-                io.to(getUserRoom(String(u._id))).emit("notification:new", {
+                io?.to(getUserRoom(String(u._id))).emit("notification:new", {
                     title,
                     message: msgText,
                     type: "system",
@@ -183,7 +192,7 @@ export const sendSystemNotification = async (req: AuthRequest, res: Response) =>
             sendPushNotification(fcmTokens, {
                 title,
                 body: msgText,
-                type: 'system'
+                data: { type: 'system', action: 'open_system_messages' }
             }).catch((err: any) => console.warn('FCM Push broadcast notice:', err.message));
         }
 

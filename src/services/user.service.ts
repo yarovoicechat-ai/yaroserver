@@ -349,7 +349,7 @@ export const getAllHostsService = async ({
   }
 
   let fields =
-    "userId name image isOnline audio audioPrice videoPrice language languages hobbies isActive bio country role isVerified faceVerificationStatus kycVerificationStatus hostTypes canVoiceCall canVideoCall canRoomHost";
+    "userId name image isOnline audio audioPrice videoPrice language languages hobbies isActive bio country age role isVerified faceVerificationStatus kycVerificationStatus hostTypes canVoiceCall canVideoCall canRoomHost";
 
   // Role-based access
   switch (role) {

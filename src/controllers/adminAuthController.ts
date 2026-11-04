@@ -1,3 +1,4 @@
+import { deriveHiringScope, validateManagerDocuments } from '../utils/hiringScope';
 import { Request, Response, NextFunction } from 'express';
 import { User } from '../models/user.model';
 import { Request as RequestModel } from '../models/request.model';
@@ -497,14 +498,19 @@ const generateEmployeeCode = (prefix: string, userId: number): string => {
 // admin          -> agency, coinSeller, host, user
 // agency         -> host, user
 const canCreate: Record<string, string[]> = {
-    owner:      ['operator', 'superAdmin', 'admin', 'agency', 'coinSeller', 'customerSupport', 'host', 'user'],
-    operator:   ['superAdmin', 'admin', 'agency', 'coinSeller', 'customerSupport', 'host', 'user'],
-    superAdmin: ['admin', 'agency', 'coinSeller', 'customerSupport', 'host'],
-    admin:      ['agency', 'coinSeller', 'customerSupport', 'host'],
+    countryManager: ['superAdmin', 'admin', 'bdLeader', 'bd', 'agency', 'host', 'customerSupport'],
+    stateManager: ['superAdmin', 'admin', 'bdLeader', 'bd', 'agency', 'host', 'customerSupport'],
+    owner:      ['countryManager', 'stateManager', 'bdLeader', 'bd', 'operator', 'superAdmin', 'admin', 'agency', 'coinSeller', 'customerSupport', 'host', 'user'],
+    operator:   ['countryManager', 'stateManager', 'bdLeader', 'bd', 'superAdmin', 'admin', 'agency', 'coinSeller', 'customerSupport', 'host', 'user'],
+    superAdmin: ['bdLeader', 'bd', 'admin', 'agency', 'coinSeller', 'customerSupport', 'host'],
+    bdLeader: ['bd', 'agency', 'host', 'customerSupport'],
+    bd: ['agency', 'host', 'customerSupport'],
+    admin:      ['bdLeader', 'bd', 'agency', 'coinSeller', 'customerSupport', 'host'],
     agency:     ['host'],
 };
 
 const roleCodePrefix: Record<string, string> = {
+    countryManager: 'CM', stateManager: 'SM',
     operator:   'OPR',
     superAdmin: 'SA',
     admin:      'ADM',
@@ -584,6 +590,11 @@ export const createEmployee = async (req: AuthRequest, res: Response) => {
         if (!creator) {
             return sendResponse(res, 401, false, 'Creator account not found');
         }
+        let hiringScope;
+        try {
+            hiringScope = deriveHiringScope(creator, roleToCreate, req.body);
+            validateManagerDocuments(roleToCreate, rawDocs);
+        } catch (error: any) { return sendResponse(res, 400, false, error.message); }
         const creatorPath = creator.hierarchyPath
             ? `${creator.hierarchyPath}/${creator._id}`
             : String(creator._id);
@@ -612,6 +623,9 @@ export const createEmployee = async (req: AuthRequest, res: Response) => {
             referrerId: String(creator._id),
             referrerRole: creatorRole,
             hierarchyPath: creatorPath,
+            hiringScope,
+            country: typeof req.body.country === "string" ? { name: req.body.country } : req.body.country,
+            state: req.body.state,
             documents: docList,
             device: {
                 createdDeviceId: 'ADMIN_PANEL',

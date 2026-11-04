@@ -1,3 +1,4 @@
+import { canEnterLockedRoom, roomPinGrantKey } from '../utils/roomLockAccess';
 import { notifyRoomFollowers } from '../services/roomOpenNotification.service';
 import { explicitRoomPowers } from '../utils/roomOfficialPowers';
 import { chargeRoomBullet } from '../services/roomBullet.service';
@@ -76,7 +77,7 @@ const buildInitialSeats = (count: number, hostUser: any = null): VoiceRoomSeat[]
     isLocked: false,
   });
 
-  for (let i = 1; i < count; i++) {
+  for (let i = 1; i < count + 2; i++) {
     seats.push({
       seatIndex: i,
       isHost: false,
@@ -256,7 +257,7 @@ const getCanonicalRoomUser = async (socketUser: any, fallback: any = {}) => {
   const dbUser: any = query
     ? await User.findOne(query)
         .select(
-          "userId name image avatar gender level wealthLevel wealthExp charmLevel charmExp customDisplayId uniqueId storeInventory equippedVehicle equippedVehicleAsset equippedFrame equippedFrameAsset equippedEntry equippedEntryAsset equippedEntryEffect equippedEntryTag equippedEntrance equippedEntranceAsset equippedTassel equippedTasselAsset equippedBadge equippedBadges equippedChatBubble equippedChatBubbleAsset equippedVipId equippedSvipId isGlobalRoomManager officialPowers",
+          "userId name image avatar gender level wealthLevel wealthExp charmLevel charmExp country age equippedCustomId customDisplayId uniqueId storeInventory equippedVehicle equippedVehicleAsset equippedFrame equippedFrameAsset equippedEntry equippedEntryAsset equippedEntryEffect equippedEntryTag equippedEntrance equippedEntranceAsset equippedTassel equippedTasselAsset equippedBadge equippedBadges equippedChatBubble equippedChatBubbleAsset equippedVipId equippedSvipId isGlobalRoomManager officialPowers",
         )
         .lean()
     : null;
@@ -283,8 +284,14 @@ const getCanonicalRoomUser = async (socketUser: any, fallback: any = {}) => {
     gender: source?.gender || fallback?.gender || "male",
     level: source?.level || 1,
     wealthLevel: source?.wealthLevel || source?.level || 1,
-    customDisplayId: source?.customDisplayId || source?.uniqueId || null,
-    uniqueId: source?.uniqueId || source?.customDisplayId || null,
+    displayId: identity?.displayId || String(source?.userId || ""),
+    effectiveIdentity: identity,
+    isOfficial: Boolean(identity?.isOfficial),
+    officialDisplayId: identity?.isOfficial ? identity.displayId : null,
+    officialBadge: identity?.officialBadge || null,
+    uniqueIdBadge: identity?.uniqueIdBadge || null,
+    customDisplayId: identity?.customDisplayId || source?.equippedCustomId || source?.customDisplayId || source?.uniqueId || null,
+    uniqueId: identity?.customDisplayId || source?.equippedCustomId || source?.uniqueId || source?.customDisplayId || null,
     storeInventory: source?.storeInventory || [],
     equippedFrame: source?.equippedFrameAsset || source?.equippedFrame || null,
     equippedFrameAsset: source?.equippedFrameAsset || null,
@@ -532,7 +539,7 @@ export const registerVoiceRoomHandlers = (io: Server, socket: AuthenticatedSocke
             ...(Types.ObjectId.isValid(roomId) ? [{ _id: roomId }] : []),
           ],
         })
-          .select("ownerId channelName isLocked isBanned banReason")
+          .select("ownerId channelName isLocked isBanned banReason +pinHash")
           .lean(),
         getCanonicalRoomUser(user, data?.user),
       ]);
@@ -548,6 +555,11 @@ export const registerVoiceRoomHandlers = (io: Server, socket: AuthenticatedSocke
         roomChannelName: roomDocument?.channelName,
         requestedRoomId: roomId,
       });
+      const pinGrant = roomDocument?.isLocked ? await redis.get(roomPinGrantKey(roomDocument, authUserDbId)) : null;
+      if (roomDocument && !canEnterLockedRoom(roomDocument, user, pinGrant, isGlobalManager)) {
+        socket.emit('voice_room:error', { roomId, message: 'Enter the room PIN before joining.', code: 'ROOM_PIN_REQUIRED' });
+        return;
+      }
       // 24-hour ban check
       try {
         const isBanned24h = await redis.get(`voice_room_ban24h:${roomId}:${userData.userId}`);
@@ -877,13 +889,6 @@ export const registerVoiceRoomHandlers = (io: Server, socket: AuthenticatedSocke
         io.to(`voice_room_channel:${rawRoomId}`).emit("voice_room:seat_updated", updatePayload);
       }
 
-      io.to(socketRoomChannel).emit("voice_room:chat_message", {
-        id: "sys-" + Date.now(),
-        type: "system",
-        text: `💺 ${userData.name} took seat #${seatIndex + 1}`,
-        timestamp: Date.now(),
-      });
-
       console.log(`[VoiceRoom] ${userData.name} took seat #${seatIndex + 1} in room ${roomId}`);
       });
     } catch (err: any) {
@@ -933,13 +938,6 @@ export const registerVoiceRoomHandlers = (io: Server, socket: AuthenticatedSocke
           io.to(`voice_room_channel:${rawRoomId}`).emit("voice_room:seat_updated", leaveSeatPayload);
         }
         io.to(socketRoomChannel).emit("voice_room:force_mute", { roomId, targetUserId, isMuted: true });
-
-        io.to(socketRoomChannel).emit("voice_room:chat_message", {
-          id: "sys-" + Date.now(),
-          type: "system",
-          text: `🚶 ${userName} vacated seat #${vacatedIndex + 1}`,
-          timestamp: Date.now(),
-        });
       }
       });
     } catch (err: any) {
@@ -1294,13 +1292,6 @@ export const registerVoiceRoomHandlers = (io: Server, socket: AuthenticatedSocke
           targetUserId: requesterId,
         });
 
-        io.to(socketRoomChannel).emit("voice_room:chat_message", {
-          id: "sys-" + Date.now(),
-          type: "system",
-          text: `🎉 ${requesterData.name} was approved for Live seat #${seatIndex + 1}!`,
-          timestamp: Date.now(),
-        });
-
         console.log(`[VoiceRoom] Owner approved ${requesterData.name} for seat #${seatIndex + 1} in room ${roomId}`);
       } else {
         if (state.pendingLiveRequests) {
@@ -1571,20 +1562,9 @@ export const registerVoiceRoomHandlers = (io: Server, socket: AuthenticatedSocke
   });
 
   // 7. Subscribe to Gifts in Voice Room
-  socket.on("voice_room:subscribe_gifts", async (data: { roomId: string }) => {
-    try {
-      const rawRoomId = String(data?.roomId || "").trim();
-      if (!rawRoomId) return;
-      const roomId = normalizeRoomId(rawRoomId);
-      await socket.join(`voice_room_channel:${roomId}`);
-      await socket.join(`room:${roomId}`);
-      if (rawRoomId !== roomId) {
-        await socket.join(`voice_room_channel:${rawRoomId}`);
-        await socket.join(`room:${rawRoomId}`);
-      }
-    } catch (_) {}
+  socket.on("voice_room:subscribe_gifts", () => {
+    // Main room join performs authorization and subscribes to gift channels.
   });
-
   // 8. Send Reaction
   socket.on("voice_room:reaction", async (data: { roomId: string; emoji: string; user?: string; userId?: string | number; seatIndex?: number | null }) => {
     try {
@@ -1823,19 +1803,6 @@ export const registerVoiceRoomHandlers = (io: Server, socket: AuthenticatedSocke
 
       io.to(getVoiceRoomChannels(roomId, rawRoomId)).emit("voice_room:user_left", userLeftPayload);
 
-      if (isExplicitLeave && targetName && targetUserId) {
-        const leaveKey = `voice_room_leave_announcement:${roomId}:${targetUserId}`;
-        const alreadyAnnounced = await redis.get(leaveKey).catch(() => null);
-        if (!alreadyAnnounced) {
-          await redis.set(leaveKey, '1', 'EX', 5).catch(() => {});
-          io.to(socketRoomChannel).emit("voice_room:chat_message", {
-            id: "sys-leave-" + Date.now(),
-            type: "system",
-            text: `👋 ${targetName} left the room.`,
-            timestamp: Date.now(),
-          });
-        }
-      }
 
       console.log(`[VoiceRoom] ${targetName} (${targetUserId}) left room ${roomId} - seats vacated: ${vacatedIndices.join(",")}`);
       });
@@ -2438,15 +2405,18 @@ export const registerVoiceRoomHandlers = (io: Server, socket: AuthenticatedSocke
         Object.assign(state, resizeRoomSeats(state, data.seatCount));
         if (roomDocument) (roomDocument as any).seatCount = data.seatCount;
       }
-      if (typeof data.isLocked === "boolean") {
-        state.isLocked = data.isLocked;
-        if (roomDocument) (roomDocument as any).isLocked = data.isLocked;
+      if (data.isLocked === true && !roomDocument?.isLocked) {
+        socket.emit('voice_room:error', { message: 'Set a room PIN through room settings before locking.' });
+        return;
       }
-      if (data.mode) {
-        state.mode = data.mode;
-        if (roomDocument) (roomDocument as any).mode = data.mode;
+      if (data.isLocked === false && roomDocument?.isLocked) {
+        socket.emit('voice_room:error', { message: 'Use the room unlock control to remove the PIN.' });
+        return;
       }
-      if (typeof data.hasPin === "boolean") state.hasPin = data.hasPin;
+      state.isLocked = Boolean(roomDocument?.isLocked);
+      state.mode = state.isLocked ? 'Private (PIN)' : 'Public';
+      state.hasPin = state.isLocked;
+      if (roomDocument) roomDocument.mode = state.mode;
 
       await saveVoiceRoomState(state);
       if (roomDocument) await roomDocument.save();

@@ -1,8 +1,8 @@
 import { Types } from 'mongoose';
-export const TEAM_ROLES = ['owner', 'operator', 'superAdmin', 'admin', 'bdLeader', 'bd', 'agency', 'host'] as const;
+export const TEAM_ROLES = ['owner', 'operator', 'countryManager', 'stateManager', 'superAdmin', 'admin', 'bdLeader', 'bd', 'agency', 'host'] as const;
 export const CHANNELS = ['voice', 'video', 'room'] as const;
 export type Channel = typeof CHANNELS[number];
-const roleAliases: Record<string, string> = { superadmin: 'superAdmin', bdleader: 'bdLeader' };
+const roleAliases: Record<string, string> = { countrymanager: 'countryManager', statemanager: 'stateManager', superadmin: 'superAdmin', bdleader: 'bdLeader' };
 export const normalizeTeamRole = (role: unknown) => roleAliases[String(role).replace(/[\s_-]/g, '').toLowerCase()] || String(role).toLowerCase();
 export function effectiveTeamRole(user: any): string {
   const role = normalizeTeamRole(user.role);
@@ -54,6 +54,7 @@ export function teamScope(id: string, role: string): Record<string, any> {
   const objId = Types.ObjectId.isValid(id) ? new Types.ObjectId(id) : null;
   const idList: any[] = objId ? [id, objId] : [id];
   const own = { _id: { $in: idList } };
+  if (['countryManager', 'stateManager'].includes(canonical)) return { isDeleted: { $ne: true }, $and: [teamPeople], $or: [own, { parentId: { $in: idList } }, { hierarchyPath: { $regex: `(^|/)${id}(/|$)` } }] };
   if (!field) return { ...own, isDeleted: { $ne: true } };
   return {
     isDeleted: { $ne: true },

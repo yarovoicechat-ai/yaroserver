@@ -7,7 +7,7 @@ import { config } from "../configs/envConfig";
 
 export interface AuthRequest extends Request {
   user?: {
-    role: "owner" | "operator" | "superAdmin" | "admin" | "agency" | "coinSeller" | "customerSupport" | "host" | "user";
+    role: "countryManager" | "stateManager" | "bdLeader" | "bd" | "owner" | "operator" | "superAdmin" | "admin" | "agency" | "coinSeller" | "customerSupport" | "host" | "user";
     userId: number;
     id: Types.ObjectId;
     name: string;

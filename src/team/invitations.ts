@@ -1,5 +1,6 @@
 import { randomUUID } from 'crypto';
 import { Types } from 'mongoose';
+import { deriveHiringScope, validateManagerDocuments } from '../utils/hiringScope';
 import { User } from '../models/user.model';
 import Notification from '../models/notification.model';
 import { RecruitmentApplication, RecruitmentRole } from '../models/recruitmentApplication.model';
@@ -11,9 +12,9 @@ import { atomic } from '../economy/service';
 import { canInviteRole, effectiveTeamRole, normalizeTeamRole, scopeFields, teamScope } from './rules';
 import { TeamInvitation } from './models';
 
-const applicationAliases: Record<string, string> = { superAdmin: 'super-admin', bdLeader: 'bd-leader' };
+const applicationAliases: Record<string, string> = { countryManager: 'country-manager', stateManager: 'state-manager', superAdmin: 'super-admin', bdLeader: 'bd-leader' };
 const applicationRole = (role: string): RecruitmentRole => (applicationAliases[role] || role) as RecruitmentRole;
-const titles: Record<string, string> = { operator: 'Operator', superAdmin: 'Super Admin', admin: 'Admin', bdLeader: 'BD Leader', bd: 'BD', agency: 'Agency', host: 'Host' };
+const titles: Record<string, string> = { countryManager: 'Country Manager', stateManager: 'State Manager', operator: 'Operator', superAdmin: 'Super Admin', admin: 'Admin', bdLeader: 'BD Leader', bd: 'BD', agency: 'Agency', host: 'Host' };
 export async function sendTeamInvitation(actorId: string, recipientUserId: number, role: string, requestKey: string) {
   role = normalizeTeamRole(role);
   if (!Number.isSafeInteger(recipientUserId) || !/^[A-Za-z0-9_-]{8,100}$/.test(requestKey)) throw new Error('Valid YARO user ID and request key required');
@@ -74,8 +75,9 @@ export async function submitTeamInvitation(recipientId: string, id: string, inpu
     if (bound && !await User.exists({ $and: [teamScope(String(inviter._id), effectiveTeamRole(inviter)), { _id: recipient._id }] }).session(session)) throw new Error('A transfer approval is required for the current team');
     await User.updateOne({ _id: recipientId }, { $inc: { recruitmentRevision: 1 } }, { session });
     const role = applicationRole(invite.role), config = await RecruitmentRoleConfig.findOne({ role, isActive: true }).session(session);
-    const roleData: Record<string, any> = {};
-    const protectedKeys = /password|role|permission|parent|hierarchy|referr|owner|operator|admin|agencyId|bdId|userId|yaroId|__proto__|constructor/i;
+    const roleData: Record<string, any> = { country: String(input.country || "").trim(), state: String(input.state || "").trim(), documents: input.documents || [], hiringScope: deriveHiringScope(inviter, invite.role, input) };
+    validateManagerDocuments(invite.role, Array.isArray(input.documents) ? input.documents : []);
+    const protectedKeys = /hiringScope|password|role|permission|parent|hierarchy|referr|owner|operator|admin|agencyId|bdId|userId|yaroId|__proto__|constructor/i;
     for (const field of config?.fields || []) {
       const key = field.fieldKey; if (protectedKeys.test(key) || ['name', 'email', 'phone', 'hostTypes'].includes(key)) continue;
       const value = input[key];
@@ -107,7 +109,7 @@ export async function submitTeamInvitation(recipientId: string, id: string, inpu
     if (existing) throw new Error('An application for this role is already being reviewed');
     const [application] = await RecruitmentApplication.create([{ applicationId: `APP-${invite.role.toUpperCase()}-${randomUUID()}`, role,
       status: 'pending', applicant: { name, email, phone, gender: text('gender') || 'other', country: text('country') || 'India', city: text('city'),
-        experienceYears: text('experienceYears'), yaroId: String(recipient.userId), userId: recipient.userId }, roleData,
+        experienceYears: text('experienceYears'), yaroId: String(recipient.userId), userId: recipient.userId }, roleData, documents: input.documents || [],
       referrer: { referrerId: inviter._id, referrerRole: effectiveTeamRole(inviter), referrerName: inviter.name, code: inviter.employeeCode || inviter.referralCode || '' },
       reviewNotes: [{ authorName: 'System', text: 'Authenticated invitation submitted by the recipient; approval required.' }] }], { session });
     const [request] = await RequestModel.create([{ requestType: `${titles[invite.role]} Request`, role,
@@ -115,6 +117,7 @@ export async function submitTeamInvitation(recipientId: string, id: string, inpu
       createdBy: String(inviter._id), createdByRole: effectiveTeamRole(inviter), referralUserId: String(inviter._id), referralRole: effectiveTeamRole(inviter), referralOwner: inviter.name,
       referralCode: inviter.employeeCode || inviter.referralCode || '',
       data: { ...roleData, name, email, phoneNumber: phone, mobile: phone, city: text('city'), gender: text('gender') || 'other',
+        country: text("country"), state: text("state"),
         recruitmentAppId: String(application._id), mithiChatId: application.applicationId, invitedBy: inviter.name },
       timeline: [{ action: 'INVITATION_SUBMITTED', actor: name, actorRole: recipient.role, remarks: `Invitation ${invite._id}` }] }], { session });
     invite.state = 'submitted'; invite.applicationId = application._id; invite.requestId = request._id; await invite.save({ session });

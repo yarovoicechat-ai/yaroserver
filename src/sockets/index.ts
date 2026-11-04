@@ -1,3 +1,4 @@
+import { sendMissedCallNotification } from '../utils/pushNotification';
 import { Server } from "socket.io";
 import { Types } from "mongoose";
 import { createAdapter } from "@socket.io/redis-adapter";
@@ -37,7 +38,7 @@ const publishCallActivityState = async (
     try {
         const [caller, host] = await Promise.all([
             User.findById(callerId).select('name image').lean(),
-            User.findById(hostId).select('name image').lean(),
+            User.findById(hostId).select('name image fcmToken').lean(),
         ]);
         const callerIdString = String(callerId);
         const hostIdString = String(hostId);
@@ -51,6 +52,9 @@ const publishCallActivityState = async (
                 peerId: callerIdString, peerName: caller?.name || 'User', peerImage: caller?.image || '',
             }),
         ]);
+        if (['expired', 'missed'].includes(hostStatus) && host?.fcmToken) {
+            await sendMissedCallNotification(host.fcmToken, caller?.name || 'User', caller?.image || '', callerIdString, transactionId);
+        }
         await Promise.all(updates.map(async (notification, index) => {
             if (!notification) return;
             const recipientId = index === 0 ? callerIdString : hostIdString;

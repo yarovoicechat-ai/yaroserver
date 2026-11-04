@@ -38,6 +38,10 @@ router.post('/forms/:type', async (req: Request, res: Response) => {
             return sendResponse(res, 400, false, 'Form type is required');
         }
 
+        if (['country-manager', 'state-manager', 'countryManager', 'stateManager'].includes(type) || (type === 'employee' && ['countryManager', 'stateManager', 'country-manager', 'state-manager'].includes(payload.role))) {
+            (req.params as any).role = type === 'employee' ? payload.role : type;
+            return submitApplication(req, res);
+        }
         const user = await createUserFromPublicForm(payload, type);
         return sendResponse(res, 201, true, 'Form submitted successfully', {
             userId: user.userId,

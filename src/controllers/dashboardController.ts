@@ -28,7 +28,7 @@ const getHostFilter = async (req: Request): Promise<any> => {
         return {};
     }
 
-    if (['superAdmin', 'super-admin', 'admin', 'agency'].includes(role)) {
+    if (['countryManager', 'stateManager', 'superAdmin', 'super-admin', 'admin', 'agency'].includes(role)) {
         const myHosts = await User.find({
             $and: [
                 HierarchyScopeService.buildDashboardScope({ id: String(actor.id), role }),

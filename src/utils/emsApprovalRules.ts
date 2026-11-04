@@ -2,6 +2,8 @@ import { RequestStatus } from '../models/request.model';
 
 export const normalizeRoleKey = (role: string = ''): string => {
   const clean = role.toLowerCase().replace(/[\s_-]/g, '');
+  if (clean.includes('countrymanager')) return 'countryManager';
+  if (clean.includes('statemanager')) return 'stateManager';
   if (clean.includes('superadmin')) return 'superAdmin';
   if (clean.includes('bdleader')) return 'bdLeader';
   if (clean === 'bd' || clean.includes('bdrequest')) return 'bd';
@@ -34,6 +36,8 @@ export interface WorkflowDefinition {
  * 8. Operator: Owner Only
  */
 export const ROLE_APPROVAL_CONFIG: Record<string, WorkflowDefinition> = {
+  countryManager: { targetRole: 'countryManager', steps: ['Owner / Operator Approval'], stepRoles: ['operator', 'owner'], directApprovers: ['operator', 'owner'] },
+  stateManager: { targetRole: 'stateManager', steps: ['Owner / Operator Approval'], stepRoles: ['operator', 'owner'], directApprovers: ['operator', 'owner'] },
   host: {
     targetRole: 'host',
     steps: [
@@ -133,6 +137,7 @@ export const isDirectApprover = (actorRole: string, targetRole: string): boolean
     return normActor === 'owner';
   }
 
+  if (['countryManager', 'stateManager'].includes(normActor) && ['superAdmin', 'admin', 'bdLeader', 'bd', 'agency', 'host', 'customerSupport'].includes(normTarget)) return true;
   const config = ROLE_APPROVAL_CONFIG[normTarget];
   if (config && config.directApprovers.includes(normActor)) {
     return true;

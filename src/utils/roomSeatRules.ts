@@ -14,11 +14,12 @@ export const validateRoomSeatCount = (value: unknown): number => {
 // before shrinking, and reject layouts that cannot retain every occupant.
 export const resizeRoomSeats = <T extends { seats: any[]; seatCount?: number }>(state: T, value: unknown): T => {
   const count = validateRoomSeatCount(value);
-  const seats = Array.from({ length: count }, (_, index) => ({
+  const totalCount = count + 2;
+  const seats = Array.from({ length: totalCount }, (_, index) => ({
     seatIndex: index, isHost: index === 0, user: null, isMuted: true, isLocked: false,
     ...state.seats[index],
   }));
-  const displaced = state.seats.slice(count).filter(seat => seat.user);
+  const displaced = state.seats.slice(totalCount).filter(seat => seat.user);
   for (const oldSeat of displaced) {
     const target = seats.findIndex((seat, index) => index > 1 && !seat.user && !seat.isLocked);
     if (target < 0) throw new Error('Not enough empty seats. Ask users to leave a mic before reducing the layout.');

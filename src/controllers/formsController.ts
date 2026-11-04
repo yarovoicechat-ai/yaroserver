@@ -1,3 +1,4 @@
+import { deriveHiringScope, validateManagerDocuments } from '../utils/hiringScope';
 import { User } from "../models/user.model";
 import { UserRole } from "../constants/user";
 import { generateUniqueId } from "../utils/generator";
@@ -6,6 +7,8 @@ const normalizeRole = (role: string) => {
   const value = (role || "").toLowerCase();
   if (value === "coin-seller" || value === "coinseller" || value === "coinSeller") return UserRole.COIN_SELLER;
   if (value === "super-admin" || value === "superadmin" || value === "superAdmin") return UserRole.SUPER_ADMIN;
+  if (value === "country-manager" || value === "countrymanager") return UserRole.COUNTRY_MANAGER;
+  if (value === "state-manager" || value === "statemanager") return UserRole.STATE_MANAGER;
   if (value === "operator") return UserRole.OPERATOR;
   if (value === "owner") return UserRole.OWNER;
   if (value === "agency") return UserRole.AGENCY;
@@ -84,6 +87,8 @@ export const createUserFromPublicForm = async (payload: any, formType: string) =
       ? [payload.documents]
       : [];
 
+  const hiringScope = deriveHiringScope(seniorUser, role, payload);
+  validateManagerDocuments(role, documents);
   const newUser = await User.create({
     userId,
     name,
@@ -93,7 +98,11 @@ export const createUserFromPublicForm = async (payload: any, formType: string) =
     role,
     meethiId: payload.meethiId || `${role.toUpperCase()}-${userId}`,
     employeeCode,
-    documents,
+    documents: documents.map((d: any) => typeof d === "string" ? d : d.url),
+    hiringScope,
+    country: typeof payload.country === "string" ? { name: payload.country } : payload.country,
+    state: payload.state,
+    hierarchyPath: seniorUser ? `${seniorUser.hierarchyPath || ""}/${seniorUser._id}` : "",
     parentId: seniorUser?._id,
     createdBy: seniorUser?._id,
     emailVerified: Boolean(email),
