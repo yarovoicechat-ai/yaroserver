@@ -321,9 +321,11 @@ export const userLogin = async (req: Request, res: Response, next: NextFunction)
 
     let user = await User.findOne({
       $or: findConditions,
-      ...(isReviewAccount ? {} : { role: { $ne: 'owner' } }),
-      isDeleted: false
-    }).select("+password");
+      ...(isReviewAccount ? {} : { role: { $in: APP_ACCOUNT_ROLES } }),
+      $and: [
+        { $or: [{ isDeleted: false }, { isDeleted: { $exists: false } }] }
+      ]
+    }).sort({ createdAt: 1, userId: 1 }).select("+password");
 
     if (!user && isReviewAccount && password === 'password123') {
       const hashedPassword = await generateSecureHash('password123');
@@ -491,21 +493,43 @@ export const userGoogleAuth = async (req: Request, res: Response) => {
     const payload = ticket.getPayload();
     if (!payload) return sendResponse(res, 400, false, "Invalid credentials");
 
+    const normalizedEmail = (payload.email || '').toLowerCase().trim();
     const googleUserInfo = {
-      email: payload.email,
+      email: normalizedEmail,
       name: payload.name,
       googleId: payload.sub,
     };
 
-    let user = await User.findOne({ googleId: googleUserInfo.googleId, role: { $in: APP_ACCOUNT_ROLES }, isDeleted: false });
+    // First check: Find existing App User by googleId OR email (oldest account first)
+    const existingSearch: any[] = [{ googleId: googleUserInfo.googleId }];
+    if (normalizedEmail) {
+      existingSearch.push({ email: normalizedEmail });
+    }
+
+    let user = await User.findOne({
+      $or: existingSearch,
+      role: { $in: APP_ACCOUNT_ROLES },
+      $and: [
+        { $or: [{ isDeleted: false }, { isDeleted: { $exists: false } }] }
+      ]
+    }).sort({ createdAt: 1, userId: 1 });
 
     if (user) {
+      if (!user.googleId || user.googleId !== googleUserInfo.googleId) {
+        user.googleId = googleUserInfo.googleId;
+      }
+      if (!user.emailVerified && payload.email_verified) {
+        user.emailVerified = true;
+      }
+      if (normalizedEmail && (!user.email || user.email.toLowerCase() !== normalizedEmail)) {
+        user.email = normalizedEmail;
+      }
+
       if (userFrom === "app") {
         user.device = user.device || { createdDeviceId: "", currentDeviceId: "", loggedInDeviceIds: [] };
         if (!user.device.createdDeviceId) user.device.createdDeviceId = deviceId || '';
         if (deviceId && !user.device.loggedInDeviceIds.includes(deviceId)) user.device.loggedInDeviceIds.push(deviceId);
         user.device.currentDeviceId = deviceId || user.device.currentDeviceId;
-        await user.save();
       }
 
       const accessToken = await generateToken(user.userId.toString(), "access");
@@ -549,7 +573,13 @@ export const userGoogleAuth = async (req: Request, res: Response) => {
     const googleNameError = validateNameAgainstPolicy(approvedGoogleName, namePolicy);
     if (googleNameError) return sendResponse(res, 400, false, googleNameError);
 
-    const existingEmailUser = await User.findOne({ email: googleUserInfo.email, role: { $in: APP_ACCOUNT_ROLES }, isDeleted: false });
+    const existingEmailUser = await User.findOne({
+      email: normalizedEmail,
+      role: { $in: APP_ACCOUNT_ROLES },
+      $and: [
+        { $or: [{ isDeleted: false }, { isDeleted: { $exists: false } }] }
+      ]
+    }).sort({ createdAt: 1, userId: 1 });
     if (existingEmailUser) {
       if (!payload.email_verified) {
         return sendResponse(res, 403, false, "Google email must be verified");
@@ -613,6 +643,7 @@ export const userGoogleAuth = async (req: Request, res: Response) => {
       userId,
       name: approvedGoogleName,
       email: googleUserInfo.email,
+      role: UserRole.USER,
       googleId: googleUserInfo.googleId,
       gender,
       image: finalGoogleImage,

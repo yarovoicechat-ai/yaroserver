@@ -1,4 +1,5 @@
 import { deriveHiringScope, validateManagerDocuments } from '../utils/hiringScope';
+import { isAppRole, isPanelRole } from '../utils/accountScope';
 import { invitationSponsor } from '../team/approval';
 import { Response, NextFunction } from 'express';
 import { AuthRequest } from '../middlewares/authorize.middleware';
@@ -631,7 +632,8 @@ export const createRequest = async (req: AuthRequest, res: Response) => {
     const autoApprove = false;
 
     // Generate password (stored for reference, only hashed on approval)
-    const passwordBeforeApproval = generateStrongPassword();
+    const passwordBeforeApproval = data.password || data.accountPassword || (req.body as any)?.password || generateStrongPassword(data.name, data.phone || data.phoneNumber, data.email);
+    data.password = passwordBeforeApproval;
 
     // Resolve and bind referral info so operator and staff referrals show properly
     let referralCode = data.referralCode || data.referrerCode || data.code || (creator ? ((creator as any).specialCode || (creator as any).referralCode) : undefined);
@@ -1730,7 +1732,90 @@ export const finalizeUserApproval = async (
 
   let newUser: any = null;
 
-  if (existingUser) {
+  // Separation of App account vs Panel account:
+  // If targetRole is a Panel role (operator, admin, superAdmin, etc.) and existingUser is an App user (user, host):
+  // DO NOT overwrite the App user's role! The App account keeps its role ('user'/'host') and balances (diamonds/coins).
+  if (existingUser && isPanelRole(targetRole) && isAppRole(existingUser.role || '')) {
+    // 1. Activate power / role link on the App User
+    existingUser.yaroId = String(existingUser.userId || rawTargetYaroId);
+    existingUser.appRole = targetRole;
+    existingUser.hasAppAccess = true;
+    existingUser.hasAppOption = true;
+    if (targetRole === 'agency') existingUser.isAgencyOwner = true;
+    if (targetRole === 'bdLeader') existingUser.isBdLeader = true;
+    if (targetRole === 'bd') existingUser.isBD = true;
+    if (userHierarchyPath) existingUser.hierarchyPath = userHierarchyPath;
+    await existingUser.save();
+
+    // 2. Check if a dedicated Panel User already exists for this email and role
+    let panelUser = await User.findOne({
+      email: userEmail,
+      role: targetRole,
+      isDeleted: false
+    });
+
+    if (panelUser) {
+      panelUser.password = hashedPassword;
+      panelUser.isActive = true;
+      panelUser.status = 'Active';
+      panelUser.isBlocked = false;
+      panelUser.yaroId = String(existingUser.userId || rawTargetYaroId);
+      if (employeeCode) panelUser.employeeCode = employeeCode;
+      if (roleCode) panelUser.specialCode = roleCode;
+      if (loginUrl) panelUser.loginUrl = loginUrl;
+      if (referralCode) panelUser.referralCode = referralCode;
+      if (referralLink) panelUser.referralLink = referralLink;
+      panelUser.emsRequestId = (requestObj as any)._id;
+      await panelUser.save();
+      newUser = panelUser;
+    } else {
+      newUser = await User.create({
+        userId: newUserId,
+        name: userName,
+        email: userEmail,
+        phoneNumber: userPhone,
+        password: hashedPassword,
+        role: targetRole,
+        yaroId: String(existingUser.userId || rawTargetYaroId),
+        gender: data.gender || 'other',
+        emailVerified: true,
+        phoneVerified: true,
+        isActive: true,
+        employeeCode,
+        specialCode: roleCode,
+        meethiId,
+        referralCode: referralCode || undefined,
+        referralLink,
+        referrerId: referrerUser ? referrerUser._id.toString() : '',
+        referrerRole: referrerUser ? referrerUser.role : '',
+        referrerCode: referrerUser ? (referrerUser.referralCode || referrerUser.specialCode || '') : '',
+        loginUrl,
+        mustChangePassword: false,
+        emsRequestId: (requestObj as any)._id,
+        parentId,
+        parentRole,
+        referredBy: parentId ? parentId.toString() : '',
+        ownerId,
+        operatorId,
+        superAdminId,
+        adminId,
+        bdLeaderId,
+        bdId,
+        agencyId,
+        hierarchyPath: userHierarchyPath,
+        hiringScope: inheritedHiringScope,
+        documents: Array.isArray(data.documents)
+          ? data.documents.map((d: any) => (typeof d === 'string' ? d : (d?.url || d?.uri || JSON.stringify(d)))).filter(Boolean)
+          : (data.documents ? [typeof data.documents === 'string' ? data.documents : (data.documents.url || JSON.stringify(data.documents))] : []),
+        sourceForm: requestType,
+        device: {
+          createdDeviceId: 'EMS_PORTAL',
+          currentDeviceId: '',
+          loggedInDeviceIds: [],
+        },
+      });
+    }
+  } else if (existingUser) {
     const protectedRoles = ['superAdmin', 'owner', 'admin'];
     if (!protectedRoles.includes((existingUser.role as string) || '') || existingUser.role === targetRole) {
       existingUser.role = targetRole as any;
