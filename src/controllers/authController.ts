@@ -10,7 +10,7 @@ import { Logger } from "../utils/logger";
 import { generateSecureHash, verifySecureHash } from "../utils/passwordHelper";
 import { verifyFirebasePhoneToken } from "../utils/firebasePhoneVerification";
 import { GoogleIdTokenVerificationError, verifyGoogleIdToken } from "../utils/googleIdToken";
-import { APP_ACCOUNT_ROLES } from "../utils/accountScope";
+import { APP_ACCOUNT_ROLES, isPanelRole } from "../utils/accountScope";
 import { UserRole, Gender, AuthType } from "../constants/user";
 import { DeviceLimit } from "../models/deviceLimit.model";
 import { getCachedSettings } from "./settingsController";
@@ -513,6 +513,33 @@ export const userGoogleAuth = async (req: Request, res: Response) => {
         { $or: [{ isDeleted: false }, { isDeleted: { $exists: false } }] }
       ]
     }).sort({ createdAt: 1, userId: 1 });
+
+    // Fallback: If no app account found, find existing account by email to prevent duplicate IDs
+    if (!user && normalizedEmail) {
+      const existingAnyUser = await User.findOne({
+        email: normalizedEmail,
+        $and: [
+          { $or: [{ isDeleted: false }, { isDeleted: { $exists: false } }] }
+        ]
+      }).sort({ createdAt: 1, userId: 1 });
+
+      if (existingAnyUser) {
+        if (isPanelRole(String(existingAnyUser.role || ''))) {
+          const linkedApp = await User.findOne({
+            $or: [
+              { yaroId: String(existingAnyUser.userId) },
+              { email: normalizedEmail, role: { $in: APP_ACCOUNT_ROLES } }
+            ],
+            $and: [
+              { $or: [{ isDeleted: false }, { isDeleted: { $exists: false } }] }
+            ]
+          }).sort({ createdAt: 1 });
+          user = linkedApp || existingAnyUser;
+        } else {
+          user = existingAnyUser;
+        }
+      }
+    }
 
     if (user) {
       if (!user.googleId || user.googleId !== googleUserInfo.googleId) {

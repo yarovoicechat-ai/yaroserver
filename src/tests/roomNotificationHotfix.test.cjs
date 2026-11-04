@@ -15,7 +15,7 @@ const load = (relative, dependencies) => {
     console, process: { env: {}, cwd: () => __dirname }, Buffer,
     require: name => {
       if (name in dependencies) return dependencies[name];
-      if (['path', 'fs'].includes(name)) return require(name);
+      if (['path', 'fs', 'crypto'].includes(name)) return require(name);
       throw new Error('Unexpected dependency: ' + name);
     },
   }, { filename });
