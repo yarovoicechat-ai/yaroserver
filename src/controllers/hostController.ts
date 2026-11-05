@@ -4,6 +4,7 @@ import sendResponse from "../utils/reponse";
 import { AuthRequest } from "../middlewares/authorize.middleware";
 import { generateUniqueId } from "../utils/generator";
 import { User } from "../models/user.model";
+import { APP_ACCOUNT_ROLES, isAppRole } from "../utils/accountScope";
 import { sendCustomEmail } from "../utils/emailUtils";
 import TempHostModel from "../models/temp.host.model";
 import jwt from "jsonwebtoken";
@@ -38,7 +39,11 @@ export const applyHost = async (req: AuthRequest, res: Response, next: NextFunct
 
         let userObj = req.user?.id ? await User.findById(req.user.id) : null;
         if (!userObj && findConditions.length > 0) {
-            userObj = await User.findOne({ $or: findConditions });
+            userObj = await User.findOne({ $or: findConditions, role: { $in: APP_ACCOUNT_ROLES } });
+        }
+
+        if (userObj && !isAppRole(userObj.role || '')) {
+            return sendResponse(res, 403, false, "Host applications require a separate app account.");
         }
 
         
@@ -366,7 +371,7 @@ export const approveHost = async (req: AuthRequest, res: Response) => {
         // If meethiId was userId, then maybe meethiId is also userId? 
         // Request says "use meethiId and there is only role admin...".
         // I'll search by meethiId field on User.
-        const user = await User.findOne({ meethiId: host.meethiId });
+        const user = await User.findOne({ meethiId: host.meethiId, role: { $in: APP_ACCOUNT_ROLES } });
 
         if (!user) {
             return sendResponse(res, 404, false, "User with this Meethi ID not found");
@@ -623,6 +628,10 @@ export const getMyHostStatus = async (req: AuthRequest, res: Response) => {
         const user = await User.findById(userId);
         if (!user) {
             return sendResponse(res, 404, false, "User record not found");
+        }
+
+        if (!isAppRole(user.role || '')) {
+            return sendResponse(res, 403, false, "Host status requires an app account. Sign in with your separate app account.");
         }
 
         const agencyDetails = await resolveAgencyDetails(user);

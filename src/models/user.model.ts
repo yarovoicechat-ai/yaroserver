@@ -2,6 +2,7 @@
 import mongoose, { Schema } from "mongoose";
 import { UserInterface } from "../interfaces/user.interface";
 import { AuthType, Gender, UserRole } from "../constants/user";
+import { ACCOUNT_IDENTITY_INDEXES } from "../utils/accountScope";
 
 const DeviceSchema = new Schema(
   {
@@ -275,29 +276,6 @@ userSchema.index({ superAdminId: 1 }, { sparse: true });
 userSchema.index({ adminId: 1 }, { sparse: true });
 userSchema.index({ agencyId: 1 }, { sparse: true });
 userSchema.index({ createdAt: -1 });
-userSchema.index(
-  { email: 1, role: 1 },
-  {
-    unique: true,
-    partialFilterExpression: { email: { $type: 'string' } },
-    name: 'email_role_unique',
-  }
-);
-userSchema.index(
-  { phoneNumber: 1 },
-  {
-    unique: true,
-    partialFilterExpression: { phoneNumber: { $type: 'string' }, role: 'user' },
-    name: 'phone_user_unique',
-  }
-);
-userSchema.index(
-  { phoneNumber: 1 },
-  {
-    unique: true,
-    partialFilterExpression: { phoneNumber: { $type: 'string' }, role: 'host' },
-    name: 'phone_host_unique',
-  }
-);
+for (const { key, options } of ACCOUNT_IDENTITY_INDEXES) userSchema.index(key, options);
 
 export const User = mongoose.model<UserInterface>("User", userSchema);

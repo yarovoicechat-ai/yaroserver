@@ -6,6 +6,7 @@
   "scripts": {
     "dev": "nodemon --exec ts-node --transpile-only src/index.ts",
     "build": "tsc",
+    "test:admin-login": "node --test src/tests/adminLogin.test.cjs src/tests/accountSeparation.test.cjs",
     "test:verification": "node --test -r ts-node/register src/tests/verificationRules.test.ts src/tests/verificationSecurity.test.ts",
     "test:avatar": "node --test -r ts-node/register src/tests/avatarVerificationRemoval.test.ts",
     "test:moderation": "node --test -r ts-node/register src/tests/messageModeration.test.ts src/tests/moderationRisk.test.ts",

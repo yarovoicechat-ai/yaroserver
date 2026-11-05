@@ -10,7 +10,7 @@ import { Logger } from "../utils/logger";
 import { generateSecureHash, verifySecureHash } from "../utils/passwordHelper";
 import { verifyFirebasePhoneToken } from "../utils/firebasePhoneVerification";
 import { GoogleIdTokenVerificationError, verifyGoogleIdToken } from "../utils/googleIdToken";
-import { APP_ACCOUNT_ROLES, isPanelRole } from "../utils/accountScope";
+import { APP_ACCOUNT_ROLES } from "../utils/accountScope";
 import { UserRole, Gender, AuthType } from "../constants/user";
 import { DeviceLimit } from "../models/deviceLimit.model";
 import { getCachedSettings } from "./settingsController";
@@ -283,6 +283,7 @@ export const userRegister = async (req: AuthRequest, res: Response) => {
     });
   } catch (error: any) {
     await Logger("userRegister", error);
+    if (error?.code === 11000) return sendResponse(res, 409, false, "An app account with this email or phone number already exists.");
     return sendResponse(res, 500, false, error.message);
   }
 };
@@ -321,7 +322,7 @@ export const userLogin = async (req: Request, res: Response, next: NextFunction)
 
     let user = await User.findOne({
       $or: findConditions,
-      ...(isReviewAccount ? {} : { role: { $in: APP_ACCOUNT_ROLES } }),
+      role: { $in: APP_ACCOUNT_ROLES },
       $and: [
         { $or: [{ isDeleted: false }, { isDeleted: { $exists: false } }] }
       ]
@@ -514,32 +515,8 @@ export const userGoogleAuth = async (req: Request, res: Response) => {
       ]
     }).sort({ createdAt: 1, userId: 1 });
 
-    // Fallback: If no app account found, find existing account by email to prevent duplicate IDs
-    if (!user && normalizedEmail) {
-      const existingAnyUser = await User.findOne({
-        email: normalizedEmail,
-        $and: [
-          { $or: [{ isDeleted: false }, { isDeleted: { $exists: false } }] }
-        ]
-      }).sort({ createdAt: 1, userId: 1 });
-
-      if (existingAnyUser) {
-        if (isPanelRole(String(existingAnyUser.role || ''))) {
-          const linkedApp = await User.findOne({
-            $or: [
-              { yaroId: String(existingAnyUser.userId) },
-              { email: normalizedEmail, role: { $in: APP_ACCOUNT_ROLES } }
-            ],
-            $and: [
-              { $or: [{ isDeleted: false }, { isDeleted: { $exists: false } }] }
-            ]
-          }).sort({ createdAt: 1 });
-          user = linkedApp || existingAnyUser;
-        } else {
-          user = existingAnyUser;
-        }
-      }
-    }
+    // A panel identity with this email is independent. Never issue an app session
+    // for it: continue through app signup when no app account exists.
 
     if (user) {
       if (!user.googleId || user.googleId !== googleUserInfo.googleId) {
@@ -694,6 +671,7 @@ export const userGoogleAuth = async (req: Request, res: Response) => {
     return sendResponse(res, 201, true, "Google signup successful", { accessToken, refreshToken, role: userCreated.role, gender: userCreated.gender });
 
   } catch (error: any) {
+    if (error?.code === 11000) return sendResponse(res, 409, false, "An app account with this email or phone number already exists. Please sign in.");
     if (error instanceof GoogleIdTokenVerificationError) {
       console.warn("[GOOGLE AUTH] Token rejected: " + error.reason + "; allowed audience count=" + config.GOOGLE_CLIENT_IDS.length);
       await Logger("googleAuth", error.originalError);
@@ -748,7 +726,7 @@ export const linkAccount = async (req: AuthRequest, res: Response) => {
 
     if (!userId) return sendResponse(res, 401, false, "Unauthorized");
 
-    const user = await User.findOne({ userId: Number(userId), isDeleted: false });
+    const user = await User.findOne({ userId: Number(userId), role: { $in: APP_ACCOUNT_ROLES }, isDeleted: false });
     if (!user) return sendResponse(res, 404, false, "User not found");
 
     if (googleIdToken) {

@@ -1,5 +1,5 @@
 import { deriveHiringScope, validateManagerDocuments } from '../utils/hiringScope';
-import { isAppRole, isPanelRole } from '../utils/accountScope';
+import { isAppRole, isPanelRole, getAccountRoleScope } from '../utils/accountScope';
 import { invitationSponsor } from '../team/approval';
 import { Response, NextFunction } from 'express';
 import { AuthRequest } from '../middlewares/authorize.middleware';
@@ -1543,13 +1543,15 @@ export const finalizeUserApproval = async (
   const { requestType, data, passwordBeforeApproval } = requestObj;
 
   // Resolve field names across different form schemas FIRST
-  const userEmail = (data.email || data.emailId || data.officialEmail || '').toLowerCase();
+  const userEmail = (data.email || data.emailId || data.officialEmail || '').toLowerCase().trim();
   const userName = data.name || data.fullName || data.ownerName || data.agencyName || 'Unknown';
   const userPhone = data.mobile || data.phoneNumber || data.phone || data.mobileNo || '';
 
-  // Use explicit passwordBeforeApproval if provided; otherwise fallback to formula
-  const plainPassword = (passwordBeforeApproval && passwordBeforeApproval.trim() !== '')
-    ? passwordBeforeApproval.trim()
+  // Preserve the credentials supplied by the approval form before generating a fallback.
+  const requestedPassword = [passwordBeforeApproval, data.password, data.accountPassword]
+    .find(value => typeof value === 'string' && value.trim() !== '');
+  const plainPassword = (typeof requestedPassword === 'string' && requestedPassword.trim() !== '')
+    ? requestedPassword.trim()
     : generateApplicantPassword(userName, userPhone, userEmail);
   const hashedPassword = await generateSecureHash(plainPassword);
   const newUserId = await generateUniqueId();
@@ -1705,7 +1707,7 @@ export const finalizeUserApproval = async (
   }
 
   if (!existingUser && userEmail) {
-    existingUser = await User.findOne({ email: userEmail });
+    existingUser = await User.findOne({ email: userEmail, role: { $in: getAccountRoleScope(targetRole) } });
   }
 
   if (!existingUser && (data.meethiChatId || data.meethiId)) {
@@ -1731,6 +1733,18 @@ export const finalizeUserApproval = async (
   }
 
   let newUser: any = null;
+
+  // Host approval must not turn an existing operator/admin identity into an app
+  // account. Resolve an app identity or create it with its own userId instead.
+  if (existingUser && isAppRole(targetRole) && isPanelRole(existingUser.role || '')) {
+    existingUser = await User.findOne({
+      role: { $in: getAccountRoleScope(targetRole) },
+      $or: [
+        ...(userEmail ? [{ email: userEmail }] : []),
+        ...(userPhone ? [{ phoneNumber: userPhone }] : []),
+      ],
+    });
+  }
 
   // Separation of App account vs Panel account:
   // If targetRole is a Panel role (operator, admin, superAdmin, etc.) and existingUser is an App user (user, host):

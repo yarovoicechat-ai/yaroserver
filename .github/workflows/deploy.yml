@@ -30,6 +30,9 @@ jobs:
       - name: Build
         run: npm run build
 
+      - name: Account separation and admin login regression tests
+        run: npm run test:admin-login
+
       - name: Verification tests
         run: npm run test:verification
 
@@ -101,6 +104,7 @@ jobs:
               npm ci --no-audit --no-fund
             fi
             npm run build
+            node scripts/migrate-account-identity-indexes.cjs --apply
             pm2 reload yaro-backend --update-env
             sleep 5
             curl --fail --silent --show-error --retry 15 --retry-delay 2 --retry-connrefused --max-time 5 http://127.0.0.1:3101/health

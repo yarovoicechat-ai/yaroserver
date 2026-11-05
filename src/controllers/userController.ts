@@ -1,5 +1,6 @@
 import { Response } from "express";
 import { User } from "../models/user.model";
+import { getAccountRoleScope, isAppRole } from "../utils/accountScope";
 import sendResponse from "../utils/reponse";
 import admin from "firebase-admin";
 import { AuthRequest } from "../middlewares/authorize.middleware";
@@ -445,6 +446,10 @@ export const updateUser = async (req: AuthRequest, res: Response) => {
       return sendResponse(res, 403, false, "User is blocked and cannot be updated");
     }
 
+    if (role !== undefined && isAppRole(role) !== isAppRole(userToUpdate.role || '')) {
+      return sendResponse(res, 409, false, "App and panel accounts are separate. Create or update the account in the correct portal.");
+    }
+
     if (userToUpdate.role === 'host' && bio !== undefined && String(bio).trim() !== '') {
       const isUnchangedBio = String(bio).trim() === String(userToUpdate.bio || '').trim();
       if (!isUnchangedBio) {
@@ -460,7 +465,7 @@ export const updateUser = async (req: AuthRequest, res: Response) => {
 
     // 📞 Check for duplicate phoneNumber
     if (phoneNumber && phoneNumber !== userToUpdate.phoneNumber) {
-      const existingPhone = await User.findOne({ phoneNumber, isDeleted: false });
+      const existingPhone = await User.findOne({ phoneNumber, role: { $in: getAccountRoleScope(userToUpdate.role || '') }, isDeleted: false });
       if (existingPhone && existingPhone.userId !== userToUpdate.userId) { // Ensure it's not the same user
         return sendResponse(res, 400, false, "Phone number already in use by another user");
       }
@@ -618,8 +623,10 @@ export const deleteUser = async (req: AuthRequest, res: Response) => {
       return sendResponse(res, 404, false, "User not found");
     }
 
-    // Ensure Firebase is initialized
-    if (!admin.apps.length) {
+    // Firebase belongs to the app identity; deleting a panel account must not
+    // remove the independent app login sharing its email or phone.
+    const deletingAppAccount = isAppRole(userToDelete.role || '');
+    if (deletingAppAccount && !admin.apps.length) {
       try {
         await import("../utils/pushNotification");
       } catch (e) {
@@ -629,7 +636,7 @@ export const deleteUser = async (req: AuthRequest, res: Response) => {
     }
 
     // 1. Delete Firebase Auth user if present
-    if (userToDelete.phoneNumber) {
+    if (deletingAppAccount && userToDelete.phoneNumber) {
       try {
         const firebaseUser = await admin.auth().getUserByPhoneNumber(userToDelete.phoneNumber);
         if (firebaseUser) {
@@ -643,7 +650,7 @@ export const deleteUser = async (req: AuthRequest, res: Response) => {
       }
     }
 
-    if (userToDelete.email) {
+    if (deletingAppAccount && userToDelete.email) {
       try {
         const firebaseUser = await admin.auth().getUserByEmail(userToDelete.email);
         if (firebaseUser) {
