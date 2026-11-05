@@ -13,9 +13,85 @@ import { GoogleIdTokenVerificationError, verifyGoogleIdToken } from "../utils/go
 import { APP_ACCOUNT_ROLES } from "../utils/accountScope";
 import { UserRole, Gender, AuthType } from "../constants/user";
 import { DeviceLimit } from "../models/deviceLimit.model";
+import { StoreItem } from "../models/storeItem.model";
 import { getCachedSettings } from "./settingsController";
 import { checkAndLockDeviceRegistration } from "../services/deviceLimitService";
 import { getDefaultNameForPolicy, getNamePolicy, validateNameAgainstPolicy } from "../services/namePolicy.service";
+
+/**
+ * Generates 3-day welcome frame & tag for newly registered users.
+ */
+export const getNewUserWelcomeCosmetics = async () => {
+  const threeDaysMs = 3 * 24 * 60 * 60 * 1000;
+  const expiresAt = new Date(Date.now() + threeDaysMs);
+
+  let frameName = "Welcome Frame";
+  let frameImage = "https://api.yaroapp.in/uploads/frames/welcome_frame.png";
+  let frameAnim = "";
+
+  try {
+    const existingFrame = await StoreItem.findOne({
+      category: { $in: ["Frames", "Frame"] },
+      imageUrl: { $exists: true, $ne: "" },
+    }).lean();
+
+    if (existingFrame) {
+      frameName = existingFrame.name || frameName;
+      frameImage = existingFrame.imageUrl || frameImage;
+      frameAnim = existingFrame.animationUrl || "";
+    }
+  } catch (_) {}
+
+  const frameAsset = {
+    name: frameName,
+    imageUrl: frameImage,
+    animationUrl: frameAnim,
+    previewColor: "#10B981",
+    expiresAt,
+  };
+
+  const tagAsset = {
+    name: "New User",
+    tagText: "New User",
+    tagColor: "#10B981",
+    previewColor: "#10B981",
+    expiresAt,
+  };
+
+  const inventory = [
+    {
+      name: frameName,
+      category: "Frames",
+      durationDays: 3,
+      purchasedAt: new Date(),
+      expiresAt,
+      imageUrl: frameImage,
+      animationUrl: frameAnim,
+      source: "admin_grant",
+      message: "New user welcome frame (3 days)",
+    },
+    {
+      name: "New User",
+      category: "Tag",
+      durationDays: 3,
+      purchasedAt: new Date(),
+      expiresAt,
+      imageUrl: "",
+      source: "admin_grant",
+      message: "New user welcome tag (3 days)",
+      metadata: { tagText: "New User", tagColor: "#10B981" },
+    },
+  ];
+
+  return {
+    equippedFrame: frameName,
+    equippedFrameAsset: frameAsset,
+    equippedTag: "New User",
+    equippedTagAsset: tagAsset,
+    equippedEntryTag: "New User",
+    storeInventory: inventory,
+  };
+};
 
 // ==================== RESET PASSWORD ====================
 export const resetPassword = async (req: Request, res: Response) => {
@@ -244,6 +320,8 @@ export const userRegister = async (req: AuthRequest, res: Response) => {
       ? country
       : { name: typeof country === 'string' ? country : '', code: '', flag: '' };
 
+    const welcomeCosmetics = await getNewUserWelcomeCosmetics();
+
     const newUser = new User({
       phoneNumber,
       password: hashedPassword,
@@ -260,6 +338,12 @@ export const userRegister = async (req: AuthRequest, res: Response) => {
       profileCompleted: true,
       welcomeRewardClaimed: true,
       diamonds: (process.env.ENABLE_TEST_DIAMONDS === 'true' && process.env.NODE_ENV !== 'production') ? 1000000 : 0,
+      equippedFrame: welcomeCosmetics.equippedFrame,
+      equippedFrameAsset: welcomeCosmetics.equippedFrameAsset,
+      equippedTag: welcomeCosmetics.equippedTag,
+      equippedTagAsset: welcomeCosmetics.equippedTagAsset,
+      equippedEntryTag: welcomeCosmetics.equippedEntryTag,
+      storeInventory: welcomeCosmetics.storeInventory,
       device: {
         createdDeviceId: deviceId || "",
         currentDeviceId: deviceId || "",
@@ -643,6 +727,8 @@ export const userGoogleAuth = async (req: Request, res: Response) => {
       ? String(req.body.avatar || req.body.image)
       : image;
 
+    const welcomeCosmetics = await getNewUserWelcomeCosmetics();
+
     const newUser = new User({
       userId,
       name: approvedGoogleName,
@@ -659,6 +745,12 @@ export const userGoogleAuth = async (req: Request, res: Response) => {
       profileCompleted: true,
       welcomeRewardClaimed: true,
       diamonds: (process.env.ENABLE_TEST_DIAMONDS === 'true' && process.env.NODE_ENV !== 'production') ? 1000000 : 0,
+      equippedFrame: welcomeCosmetics.equippedFrame,
+      equippedFrameAsset: welcomeCosmetics.equippedFrameAsset,
+      equippedTag: welcomeCosmetics.equippedTag,
+      equippedTagAsset: welcomeCosmetics.equippedTagAsset,
+      equippedEntryTag: welcomeCosmetics.equippedEntryTag,
+      storeInventory: welcomeCosmetics.storeInventory,
       device: userFrom === "app" ? { createdDeviceId: deviceId || "", currentDeviceId: deviceId || "", loggedInDeviceIds: deviceId ? [deviceId] : [] } : {},
     });
 

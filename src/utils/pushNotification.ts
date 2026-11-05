@@ -92,9 +92,11 @@ export const sendPushNotification = async (
     for (let offset = 0; offset < tokens.length; offset += 500) {
       results.push(await sendPushNotification(tokens.slice(offset, offset + 500), payload));
     }
-    return { success: results.every(result => result.success),
+    return {
+      success: results.every(result => result.success),
       successCount: results.reduce((sum, result) => sum + (result.successCount || 0), 0),
-      failureCount: results.reduce((sum, result) => sum + (result.failureCount || 0), 0) };
+      failureCount: results.reduce((sum, result) => sum + (result.failureCount || 0), 0)
+    };
   }
   deviceTokens = tokens;
   try {
@@ -104,7 +106,7 @@ export const sendPushNotification = async (
       // Can be met by passing a specific action flag in data for the client to handle
       data: {
         ...payload.data,
-        action: payload.data?.action || "login_redirect", // Default route to login before showing notification content
+        action: payload.data?.action || (payload.data?.type === 'room_open' ? 'open_room' : payload.data?.type === 'message' ? 'open_chat' : 'open_activity'),
         title: payload.title,
         body: payload.body,
       },
@@ -117,9 +119,14 @@ export const sendPushNotification = async (
           body: payload.body,
         },
       }),
-      android: { priority: "high", ...(payload.data?.type === 'room_open' ? {
-        notification: { channelId: 'activity_notifications_v1', sound: 'default', tag: payload.data.notificationId },
-      } : {}) },
+      android: {
+        priority: "high",
+        notification: {
+          channelId: 'activity_notifications_v1',
+          sound: 'default',
+          ...(payload.data?.notificationId ? { tag: payload.data.notificationId } : {}),
+        },
+      },
       ...(payload.data?.type === 'room_open' ? { apns: { payload: { aps: { sound: 'default' } } } } : {}),
     };
 
@@ -132,9 +139,9 @@ export const sendPushNotification = async (
           const code = res.error.code;
           const msg = res.error.message || "";
           if (code === 'messaging/registration-token-not-registered' ||
-              code === 'messaging/invalid-registration-token' ||
-              msg.includes('registration-token-not-registered') ||
-              msg.includes('invalid-registration-token')) {
+            code === 'messaging/invalid-registration-token' ||
+            msg.includes('registration-token-not-registered') ||
+            msg.includes('invalid-registration-token')) {
             tokensToRemove.push(deviceTokens[index]);
           }
         }
@@ -185,9 +192,9 @@ export const sendLoginRedirectNotification = async (
           const code = res.error.code;
           const msg = res.error.message || "";
           if (code === 'messaging/registration-token-not-registered' ||
-              code === 'messaging/invalid-registration-token' ||
-              msg.includes('registration-token-not-registered') ||
-              msg.includes('invalid-registration-token')) {
+            code === 'messaging/invalid-registration-token' ||
+            msg.includes('registration-token-not-registered') ||
+            msg.includes('invalid-registration-token')) {
             tokensToRemove.push(deviceTokens[index]);
           }
         }
@@ -256,9 +263,9 @@ export const sendCallNotification = async (
   } catch (error: any) {
     console.error("sendCallNotification error:", error);
     if (error.code === 'messaging/registration-token-not-registered' ||
-        error.code === 'messaging/invalid-registration-token' ||
-        error.message?.includes('registration-token-not-registered') ||
-        error.message?.includes('invalid-registration-token')) {
+      error.code === 'messaging/invalid-registration-token' ||
+      error.message?.includes('registration-token-not-registered') ||
+      error.message?.includes('invalid-registration-token')) {
       console.log(`🧹 FCM token is not registered or invalid. Removing from DB: ${token}`);
       const { User } = require("../models/user.model");
       await User.updateOne({ fcmToken: token }, { $set: { fcmToken: "" } });

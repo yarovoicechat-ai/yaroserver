@@ -841,6 +841,38 @@ export const registerVoiceRoomHandlers = (io: Server, socket: AuthenticatedSocke
     }
   });
 
+  // 1.5 Invite User to Seat
+  socket.on("voice_room:invite_seat", async (data: { roomId: string; targetUserId: string | number; seatIndex?: number }) => {
+    try {
+      const rawRoomId = String(data?.roomId || (socket as any).voiceRawRoomId || (socket as any).voiceRoomId || "").trim();
+      const targetUserId = String(data?.targetUserId || '').trim();
+      const seatIndex = typeof data?.seatIndex === 'number' ? data.seatIndex : 1;
+      if (!rawRoomId || !targetUserId) return;
+      const roomId = normalizeRoomId(rawRoomId);
+
+      const senderName = user?.name || (socket as any).voiceUser?.name || 'Room Host';
+      const senderAvatar = (user as any)?.image || (user as any)?.avatar || (socket as any).voiceUser?.image || (socket as any).voiceUser?.avatar || '';
+
+      const invitePayload = {
+        roomId,
+        seatIndex,
+        hostName: senderName,
+        hostAvatar: senderAvatar,
+        hostUserId: user?.userId || (socket as any).voiceUser?.userId,
+      };
+
+      const { getUserRoom } = require("./index");
+      io.to(getUserRoom(targetUserId)).emit("voice_room:seat_invitation", invitePayload);
+      io.to(`voice_room_channel:${roomId}`).emit("voice_room:seat_invitation_sent", {
+        targetUserId,
+        seatIndex,
+        hostName: senderName,
+      });
+    } catch (err: any) {
+      console.error("[VoiceRoom] Invite seat error:", err);
+    }
+  });
+
   // 2. Take Seat
   socket.on("voice_room:take_seat", async (data: { roomId: string; seatIndex: number; user?: any }) => {
     try {

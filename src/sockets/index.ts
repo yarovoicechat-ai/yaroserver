@@ -205,13 +205,15 @@ const chatSocket = (io: Server) => {
             socket.to(conversationId).emit("userTyping", { userId: userIdStr });
         });
 
-        socket.on("markSeen", async ({ conversationId }: { conversationId: string }) => {
+        socket.on("markSeen", async ({ conversationId, messageIds }: { conversationId: string; messageIds?: string[] }) => {
             if (!Types.ObjectId.isValid(String(conversationId || '')) || !await Conversation.exists({
                 _id: conversationId,
                 participants: socket.user!.id,
             })) return;
-            await markMessagesSeen(conversationId, socket.user!.id);
-            io.to(conversationId).emit("messagesSeen", { conversationId, id: userIdStr });
+            const ids = Array.isArray(messageIds) ? messageIds.slice(0, 200).map(String) : undefined;
+            const unreadCount = await markMessagesSeen(conversationId, socket.user!.id, ids);
+            io.to(conversationId).emit("messagesSeen", { conversationId, id: userIdStr, messageIds: ids });
+            io.to(getUserRoom(String(socket.user!.id))).emit('chatUnreadUpdated', { conversationId, unreadCount });
         });
 
         socket.on("exitChat", async ({ conversationId }: { conversationId: string }) => {

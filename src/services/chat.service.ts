@@ -134,7 +134,7 @@ export const getConversations = async (
     const conversations = await Conversation.find({
         participants: uid,
     })
-        .populate("participants", "name image _id lastOnline")
+        .populate("participants", "name image _id userId lastOnline role hostTypes canVoiceCall canVideoCall")
         .populate("lastMessage");
 
     // ⚡ Fetch Online Users from Redis (Scalable)
@@ -197,15 +197,19 @@ export const getConversations = async (
 // Mark messages seen
 export const markMessagesSeen = async (
     conversationId: string | Types.ObjectId,
-    userId: string | Types.ObjectId
-): Promise<void> => {
+    userId: string | Types.ObjectId,
+    messageIds?: string[]
+): Promise<number> => {
     const convId = new Types.ObjectId(conversationId);
     const uid = new Types.ObjectId(userId);
 
     await Message.updateMany(
-        { conversationId: convId, receiver: uid, status: { $ne: "seen" } },
+        { conversationId: convId, receiver: uid, status: { $ne: "seen" },
+          ...(messageIds ? { _id: { $in: messageIds.filter(id => Types.ObjectId.isValid(id)).map(id => new Types.ObjectId(id)) } } : {}),
+        },
         { $set: { status: "seen" } }
     );
+    return Message.countDocuments({ conversationId: convId, receiver: uid, status: { $ne: 'seen' } });
 };
 
 // Delete seen messages

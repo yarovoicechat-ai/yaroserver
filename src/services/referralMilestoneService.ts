@@ -241,3 +241,157 @@ export const evaluateReferralCallMilestone = async (
     console.error("Error in evaluateReferralCallMilestone:", err.message);
   }
 };
+
+/**
+ * Evaluates Referral Registration/Login Milestone:
+ * For every 10 invited users who register and log in, the referrer receives 3 Diamonds!
+ */
+export const evaluateReferralLoginMilestone = async (referrerUserId: any, refereeUser: any) => {
+  try {
+    if (!referrerUserId) return;
+    const referrer = await User.findById(referrerUserId);
+    if (!referrer) return;
+
+    const totalReferrals = Number(referrer.totalReferrals || 0);
+    // Every 10 referrals milestone: 10, 20, 30, ...
+    if (totalReferrals > 0 && totalReferrals % 10 === 0) {
+      const milestoneDiamonds = 3;
+      await User.findByIdAndUpdate(referrer._id, { $inc: { diamonds: milestoneDiamonds } });
+
+      const txId = `REF_10MILESTONE_${referrer._id}_${totalReferrals}`;
+      await RechargeHistory.create({
+        userId: referrer.userId,
+        type: RechargeType.REFERRAL_REGISTRATION_REWARD,
+        diamonds: milestoneDiamonds,
+        coins: 0,
+        amount: 0,
+        currency: 'DIAMOND',
+        status: 'COMPLETED',
+        productId: 'REFERRAL_10_USERS_MILESTONE',
+        transactionId: txId,
+        date: new Date(),
+        processedAt: new Date(),
+        rawGoogleData: {
+          note: `🎉 10-User Referral Milestone: 3 Diamonds awarded for reaching ${totalReferrals} successful invites!`,
+          totalReferrals,
+          latestRefereeUserId: refereeUser?.userId,
+        },
+      }).catch((e: any) => console.warn('[MilestoneTx] Warning:', e.message));
+
+      try {
+        const { getIO, getUserRoom } = require('../sockets');
+        const { sendCallNotification } = require('../utils/pushNotification');
+        const io = getIO();
+        if (io) {
+          io.to(getUserRoom(String(referrer._id))).emit('referralReward:milestone', {
+            diamonds: milestoneDiamonds,
+            totalReferrals,
+            message: `🎉 Congratulations! You invited ${totalReferrals} users to Yaro. You received 3 Diamonds!`,
+          });
+        }
+        if (referrer.fcmToken) {
+          await sendCallNotification(
+            referrer.fcmToken,
+            '🎉 3 Diamonds Milestone Reward!',
+            `Congratulations! You invited ${totalReferrals} users to Yaro. 3 Diamonds have been added to your wallet!`,
+            '',
+            false
+          ).catch(() => {});
+        }
+      } catch (notifErr: any) {
+        console.warn('Milestone notification warning:', notifErr?.message);
+      }
+    }
+  } catch (err: any) {
+    console.error('Error in evaluateReferralLoginMilestone:', err.message);
+  }
+};
+
+/**
+ * Evaluates Referral Recharge Reward:
+ * If an invited user recharges, their referrer receives 2 Diamonds!
+ */
+export const evaluateReferralRechargeReward = async (
+  refereeUserIdOrDocId: any,
+  rechargeAmount: number = 0,
+  rechargeHistoryId?: any
+) => {
+  try {
+    if (!refereeUserIdOrDocId) return;
+
+    // Find referee user
+    let referee = await User.findOne({
+      $or: [
+        { _id: typeof refereeUserIdOrDocId === 'string' && refereeUserIdOrDocId.length === 24 ? refereeUserIdOrDocId : null },
+        { userId: Number(refereeUserIdOrDocId) || -1 },
+      ],
+    }).lean();
+
+    if (!referee) return;
+
+    // Find active referral record where referee is this user
+    const referral = await Referral.findOne({ referee: referee._id });
+    if (!referral) return;
+
+    // Check if recharge diamond reward was already claimed for this referee
+    if (referral.rechargeDiamonds && referral.rechargeDiamonds > 0) {
+      return; // Already granted
+    }
+
+    const referrer = await User.findById(referral.referrer);
+    if (!referrer) return;
+
+    const rewardDiamonds = 2;
+    await User.findByIdAndUpdate(referrer._id, { $inc: { diamonds: rewardDiamonds } });
+
+    referral.rechargeDiamonds = rewardDiamonds;
+    if (rechargeHistoryId) referral.firstRechargeId = rechargeHistoryId;
+    await referral.save();
+
+    const txId = `REF_RECHARGE_REWARD_${referee._id}`;
+    await RechargeHistory.create({
+      userId: referrer.userId,
+      type: RechargeType.REFERRAL_REGISTRATION_REWARD,
+      diamonds: rewardDiamonds,
+      coins: 0,
+      amount: 0,
+      currency: 'DIAMOND',
+      status: 'COMPLETED',
+      productId: 'REFERRAL_RECHARGE_BONUS',
+      transactionId: txId,
+      date: new Date(),
+      processedAt: new Date(),
+      rawGoogleData: {
+        note: `🎉 Referral Recharge Bonus: 2 Diamonds awarded because your invited friend (ID: ${referee.userId}) recharged!`,
+        refereeUserId: referee.userId,
+        rechargeAmount,
+      },
+    }).catch((e: any) => console.warn('[RechargeRewardTx] Warning:', e.message));
+
+    try {
+      const { getIO, getUserRoom } = require('../sockets');
+      const { sendCallNotification } = require('../utils/pushNotification');
+      const io = getIO();
+      if (io) {
+        io.to(getUserRoom(String(referrer._id))).emit('referralReward:recharge', {
+          diamonds: rewardDiamonds,
+          refereeUserId: referee.userId,
+          message: `🎉 2 Diamonds Earned! Your invited friend (ID: ${referee.userId}) recharged. You received 2 Diamonds!`,
+        });
+      }
+      if (referrer.fcmToken) {
+        await sendCallNotification(
+          referrer.fcmToken,
+          '🎉 2 Diamonds Referral Recharge Reward!',
+          `Your invited friend (ID: ${referee.userId}) recharged their account. 2 Diamonds have been added to your wallet!`,
+          '',
+          false
+        ).catch(() => {});
+      }
+    } catch (notifErr: any) {
+      console.warn('Recharge reward notification warning:', notifErr?.message);
+    }
+  } catch (err: any) {
+    console.error('Error in evaluateReferralRechargeReward:', err.message);
+  }
+};

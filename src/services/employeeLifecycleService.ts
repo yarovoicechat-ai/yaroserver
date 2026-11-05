@@ -8,8 +8,9 @@ import { generateSecureHash } from '../utils/passwordHelper';
 import { generateUniqueId } from '../utils/generator';
 import { Logger } from '../utils/logger';
 import { PANEL_ACCOUNT_ROLES } from '../utils/accountScope';
+import { randomBytes } from 'crypto';
 
-export async function automateEmployeeCreationOnApproval(applicationId: string) {
+export async function automateEmployeeCreationOnApproval(applicationId: string, options: { password?: string } = {}) {
     try {
         const app = await RecruitmentApplication.findOne({
             $or: [...(Types.ObjectId.isValid(applicationId) ? [{ _id: applicationId }] : []), { applicationId }]
@@ -26,7 +27,7 @@ export async function automateEmployeeCreationOnApproval(applicationId: string) 
         const rawYaroId = app.applicant?.yaroId || app.applicant?.userId || (app.roleData as any)?.yaroId || (app.roleData as any)?.userId;
         let user: any = null;
         if (rawYaroId && !isNaN(Number(rawYaroId))) {
-            user = await User.findOne({ userId: Number(rawYaroId) });
+            user = await User.findOne({ userId: Number(rawYaroId), role: { $in: PANEL_ACCOUNT_ROLES } });
         }
         if (!user) {
             user = await User.findOne({
@@ -35,9 +36,11 @@ export async function automateEmployeeCreationOnApproval(applicationId: string) 
             });
         }
 
+        let generatedPassword: string | undefined;
         if (!user) {
             const newUserId = await generateUniqueId();
-            const defaultPassword = await generateSecureHash('Welcome@123');
+            generatedPassword = options.password || `Y@${randomBytes(8).toString('hex')}a1`;
+            const defaultPassword = await generateSecureHash(generatedPassword);
             const randomCode = Math.random().toString(36).substring(2, 6).toUpperCase();
             const employeeCode = `EMP${newUserId}${randomCode}`;
 
@@ -83,7 +86,10 @@ export async function automateEmployeeCreationOnApproval(applicationId: string) 
             });
         }
 
-        return { success: true, user, employee };
+        return { success: true, user, employee, generatedCredentials: generatedPassword ? {
+            email: user.email, password: generatedPassword, role: user.role, employeeCode: user.employeeCode,
+            userId: user.userId, loginUrl: 'https://admin.yaroapp.in/login',
+        } : undefined };
     } catch (error: any) {
         await Logger('automateEmployeeCreationOnApproval', error);
         return { success: false, message: error.message || 'Failed to automate employee lifecycle' };

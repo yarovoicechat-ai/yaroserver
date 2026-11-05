@@ -9,6 +9,7 @@ import { SellerPricingConfig } from '../models/sellerPricingConfig.model';
 import { RechargeHistory } from '../models/RechargeHistory';
 import { AuditLog } from '../models/auditLog.model';
 import { Request as RequestModel, RequestStatus } from '../models/request.model';
+import { evaluateReferralRechargeReward } from '../services/referralMilestoneService';
 import sendResponse from '../utils/reponse';
 
 /**
@@ -336,6 +337,9 @@ export const rechargeUserBySeller = async (req: AuthRequest, res: Response) => {
                 date: transaction.createdAt.toLocaleString()
             };
         });
+
+        // Award 2 Diamonds to referrer if referee is recharging via seller
+        void evaluateReferralRechargeReward(targetUser._id, customerAmount);
 
         return sendResponse(res, 200, true, `Successfully credited 💎 ${numDiamonds.toLocaleString()} to ${targetUser.name}`, {
             receipt: result

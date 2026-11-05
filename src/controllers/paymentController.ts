@@ -11,6 +11,7 @@ import path from "path";
 import fs from "fs";
 import mongoose, { ClientSession } from "mongoose";
 import { getProductConfig, GOOGLE_PLAY_PRODUCTS } from "../constants/googlePlayProducts";
+import { evaluateReferralRechargeReward } from "../services/referralMilestoneService";
 
 // Package Name Configuration & RTDN Security Secret
 const GOOGLE_PLAY_PACKAGE_NAME = process.env.GOOGLE_PLAY_PACKAGE_NAME || "yaro.vc.app";
@@ -456,6 +457,9 @@ export const verifyGooglePurchase = async (req: AuthRequest, res: Response) => {
       consumeGooglePurchaseServer(purchaseToken, productId, effectivePackageName).catch((e) =>
         console.warn("[GooglePlay] Async consume attempt error:", e.message)
       );
+
+      // 11. Award 2 Diamonds to referrer if referee is recharging
+      void evaluateReferralRechargeReward(userId, productConfig.diamonds, createdRecord._id);
 
       console.log(`[GOOGLE-VERIFY] RESPONSE SENT (COMPLETED)`);
       return res.status(200).json({

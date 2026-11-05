@@ -29,6 +29,10 @@ export interface IReferral extends Document {
   claimedAt: Date;
   createdAt: Date;
   updatedAt: Date;
+  rewardVersion?: number;
+  loginDiamonds?: number;
+  rechargeDiamonds?: number;
+  firstRechargeId?: mongoose.Types.ObjectId;
 }
 
 const referralSchema = new Schema<IReferral>(
@@ -36,6 +40,10 @@ const referralSchema = new Schema<IReferral>(
     referrer: { type: Schema.Types.ObjectId, ref: 'User', required: true },
     referee: { type: Schema.Types.ObjectId, ref: 'User', required: true, unique: true },
     referralCode: { type: String, required: true, uppercase: true, trim: true },
+    rewardVersion: { type: Number, default: 1 },
+    loginDiamonds: { type: Number, default: 0 },
+    rechargeDiamonds: { type: Number, default: 0 },
+    firstRechargeId: { type: Schema.Types.ObjectId, ref: 'RechargeHistory' },
     referrerReward: { type: Number, default: 25 },
     refereeReward: { type: Number, default: 100 },
     step1Claimed: { type: Boolean, default: true },

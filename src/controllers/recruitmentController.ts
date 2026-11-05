@@ -581,7 +581,10 @@ export const getApplicationById = async (req: Request, res: Response) => {
 export const updateApplicationStatus = async (req: Request, res: Response) => {
     try {
         const { id } = req.params;
-        const { status, note } = req.body;
+        const { status, note, password } = req.body;
+        if (password !== undefined && (typeof password !== 'string' || password.length < 8 || password.length > 128)) {
+            return sendResponse(res, 400, false, 'Password must be 8 to 128 characters');
+        }
 
         const application = await RecruitmentApplication.findOne({
             $or: [{ _id: id }, { applicationId: id }]
@@ -618,6 +621,8 @@ export const updateApplicationStatus = async (req: Request, res: Response) => {
         const evaluation = canActOnRequest({ id: currentUser?.id, role: currentUser?.role }, application);
         if (!evaluation.canAct) return sendResponse(res, 403, false, evaluation.reason || 'Unauthorized application action');
         const prevStatus = application.status;
+        if (status === 'approved' && ['approved', 'joined'].includes(prevStatus)) return sendResponse(res, 409, false, 'Application already approved');
+        let generatedCredentials: any;
         application.status = status;
 
         const authorName = (req as any).user?.name || 'Admin';
@@ -669,16 +674,17 @@ export const updateApplicationStatus = async (req: Request, res: Response) => {
                 await Logger('updateApplicationStatusRoleOptionError', roleOptErr);
             }
 
-            const result = await automateEmployeeCreationOnApproval(application.applicationId);
+            const result = await automateEmployeeCreationOnApproval(application.applicationId, { password });
             if (!result.success) {
                 application.status = prevStatus;
                 await application.save();
                 return sendResponse(res, 500, false, result.message || 'Account provisioning failed. Please retry.');
             }
+            generatedCredentials = result.generatedCredentials;
         }
 
         if (['approved', 'rejected', 'cancelled'].includes(status)) await RequestModel.updateMany({ $or: [{ 'data.recruitmentAppId': String(application._id) }, { 'data.mithiChatId': application.applicationId }] }, { $set: { status } });
-        return sendResponse(res, 200, true, `Application status updated to ${status}`, application);
+        return sendResponse(res, 200, true, `Application status updated to ${status}`, { ...application.toObject(), generatedCredentials });
     } catch (error: any) {
         await Logger('updateApplicationStatus', error);
         return sendResponse(res, 500, false, 'Failed to update application status');

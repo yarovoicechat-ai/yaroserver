@@ -6,6 +6,7 @@ import { RechargeHistory } from '../models/RechargeHistory';
 import { DeviceLimit } from '../models/deviceLimit.model';
 import { RechargeType } from '../constants/user';
 import { getCachedSettings } from './settingsController';
+import { evaluateReferralLoginMilestone } from '../services/referralMilestoneService';
 import sendResponse from '../utils/reponse';
 import { Logger } from '../utils/logger';
 
@@ -278,6 +279,9 @@ export const completeProfile = async (req: AuthRequest, res: Response) => {
             false
           ).catch(() => {});
         }
+
+        // Check if referrer reached a 10-user referral milestone (+3 Diamonds)
+        void evaluateReferralLoginMilestone(referrerUser._id, currentUser);
       } catch (notifErr: any) {
         console.warn("Step 1 referral notification warning:", notifErr?.message);
       }
@@ -534,6 +538,9 @@ export const claimReferralCode = async (req: AuthRequest, res: Response) => {
           false
         ).catch(() => {});
       }
+
+      // Check if referrer reached a 10-user referral milestone (+3 Diamonds)
+      void evaluateReferralLoginMilestone(referrerUser._id, currentUser);
     } catch (notifErr: any) {
       console.warn("Step 1 referral notification warning in claimReferralCode:", notifErr?.message);
     }
