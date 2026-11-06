@@ -36,8 +36,8 @@ export interface WorkflowDefinition {
  * 8. Operator: Owner Only
  */
 export const ROLE_APPROVAL_CONFIG: Record<string, WorkflowDefinition> = {
-  countryManager: { targetRole: 'countryManager', steps: ['Owner / Operator Approval'], stepRoles: ['operator', 'owner'], directApprovers: ['operator', 'owner'] },
-  stateManager: { targetRole: 'stateManager', steps: ['Owner / Operator Approval'], stepRoles: ['operator', 'owner'], directApprovers: ['operator', 'owner'] },
+  countryManager: { targetRole: 'countryManager', steps: ['Stage 1: Operator Review', 'Stage 2: Owner Final Approval'], stepRoles: ['operator', 'owner'], directApprovers: ['owner', 'operator'] },
+  stateManager: { targetRole: 'stateManager', steps: ['Stage 1: Operator Review', 'Stage 2: Owner Final Approval'], stepRoles: ['operator', 'owner'], directApprovers: ['owner', 'operator'] },
   host: {
     targetRole: 'host',
     steps: [

@@ -261,7 +261,7 @@ export class HierarchyScopeService {
       };
     }
 
-    // Super Admin: visible strictly to requests in this Super Admin's branch
+    // Super Admin: visible strictly to requests in this Super Admin's branch + direct unassigned applications
     if (role === 'superAdmin' || role === 'super-admin') {
       return {
         $or: [
@@ -271,12 +271,14 @@ export class HierarchyScopeService {
           { 'data.hierarchyPath': { $regex: userId } },
           { 'referrer.referrerId': userId },
           { 'roleData.superAdminId': userId },
-          { 'roleData.hierarchyPath': { $regex: userId } }
+          { 'roleData.hierarchyPath': { $regex: userId } },
+          { createdBy: { $in: ['public', 'recruitment_sync', '', null] } },
+          { referralUserId: { $in: ['', null, undefined] } }
         ]
       };
     }
 
-    // Admin: visible strictly to requests in this Admin's branch
+    // Admin: visible strictly to requests in this Admin's branch + direct unassigned applications
     if (role === 'admin') {
       return {
         $or: [
@@ -286,7 +288,9 @@ export class HierarchyScopeService {
           { 'data.hierarchyPath': { $regex: userId } },
           { 'referrer.referrerId': userId },
           { 'roleData.adminId': userId },
-          { 'roleData.hierarchyPath': { $regex: userId } }
+          { 'roleData.hierarchyPath': { $regex: userId } },
+          { createdBy: { $in: ['public', 'recruitment_sync', '', null] } },
+          { referralUserId: { $in: ['', null, undefined] } }
         ]
       };
     }

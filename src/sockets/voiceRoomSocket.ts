@@ -742,6 +742,7 @@ export const registerVoiceRoomHandlers = (io: Server, socket: AuthenticatedSocke
         state.onlineUsers[userData.userId] = {
           ...userData,
           socketId: socket.id,
+          membershipId,
         };
       }
 
@@ -850,6 +851,21 @@ export const registerVoiceRoomHandlers = (io: Server, socket: AuthenticatedSocke
       if (!rawRoomId || !targetUserId) return;
       const roomId = normalizeRoomId(rawRoomId);
 
+      const state = await getVoiceRoomState(roomId);
+      const senderId = String((socket as any).voiceUser?.userId || user?.userId || '');
+      if (normalizeRoomId(String((socket as any).voiceRoomId || '')) !== roomId ||
+          !state.onlineUsers?.[senderId]) {
+        socket.emit('voice_room:error', { message: 'Join this room before inviting a user' });
+        return;
+      }
+      const target = Object.values(state.onlineUsers || {}).find((person: any) =>
+        [person.userId, person.id, person._id].some(id => String(id || '') === targetUserId));
+      if (!target || !Number.isInteger(seatIndex) || seatIndex < 1 ||
+          !state.seats[seatIndex] || state.seats[seatIndex].user || state.seats[seatIndex].isLocked) {
+        socket.emit('voice_room:error', { message: 'User or seat is no longer available' });
+        return;
+      }
+
       const senderName = user?.name || (socket as any).voiceUser?.name || 'Room Host';
       const senderAvatar = (user as any)?.image || (user as any)?.avatar || (socket as any).voiceUser?.image || (socket as any).voiceUser?.avatar || '';
 
@@ -861,8 +877,8 @@ export const registerVoiceRoomHandlers = (io: Server, socket: AuthenticatedSocke
         hostUserId: user?.userId || (socket as any).voiceUser?.userId,
       };
 
-      const { getUserRoom } = require("./index");
-      io.to(getUserRoom(targetUserId)).emit("voice_room:seat_invitation", invitePayload);
+      // Presence is bound to the authenticated room socket, independent of ID aliases.
+      io.to(target.socketId).emit("voice_room:seat_invitation", invitePayload);
       io.to(`voice_room_channel:${roomId}`).emit("voice_room:seat_invitation_sent", {
         targetUserId,
         seatIndex,

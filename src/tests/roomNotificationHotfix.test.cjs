@@ -27,21 +27,35 @@ test('room opening records follower activity and delivers room navigation data',
   let filter;
   const follower = { _id: 'follower', fcmToken: 'device' };
   const service = load('../services/roomOpenNotification.service.ts', {
+    mongoose: { Types: { ObjectId: { isValid: value => value === 'owner' } } },
     '../models/user.model': { User: {
-      findById: () => ({ select: () => ({ lean: async () => ({ name: 'Host', blockedUsers: ['blocked'] }) }) }),
+      findById: () => ({ select: () => ({ lean: async () => ({ _id: 'owner', name: 'Host', blockedUsers: ['blocked'], followers: ['follower'] }) }) }),
       find: query => { filter = query; return { select: () => ({ lean: () => ({ cursor: () => (async function* () { yield follower; })() }) }) }; },
     } },
     '../controllers/notificationController': { createNotification: async (...args) => activity.push(args) },
     '../utils/pushNotification': { sendPushNotification: async (...args) => pushes.push(args) },
   });
   await service.notifyRoomFollowers({ ownerId: 'owner', channelName: 'room-1', title: 'Music' });
-  assert.equal(filter.following, 'owner');
+  assert.equal(filter.$or[0].following, 'owner');
+  assert.equal(filter.$or[1]._id.$in[0], 'follower');
   assert.equal(filter.blockedUsers.$ne, 'owner');
   assert.equal(filter._id.$nin[0], 'blocked');
   assert.equal(activity[0][0], 'follower');
   assert.equal(activity[0][3], 'event');
   assert.equal(pushes[0][1].data.roomId, 'room-1');
   assert.equal(pushes[0][1].data.action, 'open_room');
+  assert.equal(activity[0][4].notificationId, pushes[0][1].data.notificationId);
+});
+
+test('owner reconnect and repeated open event do not notify followers twice', async () => {
+  const { claimRoomOpenEvent } = load('../utils/roomOpenEvent.ts', {});
+  const claimed = new Set();
+  const redis = { set: async key => { if (claimed.has(key)) return null; claimed.add(key); return 'OK'; } };
+  const event = { roomId: 'room', membershipId: 'session', isOwner: true, wasOnline: false };
+  assert.ok(await claimRoomOpenEvent(redis, event));
+  assert.equal(await claimRoomOpenEvent(redis, event), null);
+  assert.equal(await claimRoomOpenEvent(redis, { ...event, wasOnline: true }), null);
+  assert.equal(await claimRoomOpenEvent(redis, { ...event, isOwner: false }), null);
 });
 
 test('call and room tokens use bounded duration even with enormous balances', async () => {

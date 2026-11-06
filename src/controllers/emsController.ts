@@ -736,15 +736,22 @@ export const listRequests = async (req: AuthRequest, res: Response) => {
         if (!exists) {
           const roleToReqType: Record<string, string> = {
             admin: 'Admin Request',
+            'country-manager': 'Country Manager Request',
+            countryManager: 'Country Manager Request',
+            'state-manager': 'State Manager Request',
+            stateManager: 'State Manager Request',
             'bd-leader': 'BD Leader Request',
             bdLeader: 'BD Leader Request',
             bd: 'BD Request',
             operator: 'Operator Request',
             'super-admin': 'Super Admin Request',
+            superAdmin: 'Super Admin Request',
             agency: 'Agency Request',
             'customer-service': 'Customer Support Request',
+            customerSupport: 'Customer Support Request',
             host: 'Host Request',
-            seller: 'Seller Request'
+            seller: 'Seller Request',
+            coinSeller: 'Seller Request'
           };
           const reqType = roleToReqType[app.role] || `${app.role} Request`;
           await RequestModel.create({
@@ -772,7 +779,12 @@ export const listRequests = async (req: AuthRequest, res: Response) => {
               meethiChatId: app.applicationId,
               mithiChatId: app.applicationId,
               username: (app.roleData as any)?.username || `@${(app.applicant?.name || 'user').toLowerCase().replace(/\s+/g, '')}`,
-              ...app.roleData
+              ...app.roleData,
+              documents: app.documents || [],
+              adharFront: (app.roleData as any)?.adharFront || (app.roleData as any)?.aadhaarFront || app.documents?.find((d: any) => d.documentType === 'aadhaar_front' || d.name?.includes('aadhaar_front'))?.url || '',
+              adharBack: (app.roleData as any)?.adharBack || (app.roleData as any)?.aadhaarBack || app.documents?.find((d: any) => d.documentType === 'aadhaar_back' || d.name?.includes('aadhaar_back'))?.url || '',
+              pan: (app.roleData as any)?.pan || (app.roleData as any)?.panCard || app.documents?.find((d: any) => d.documentType === 'pan' || d.name?.includes('pan'))?.url || '',
+              resumeUrl: (app.roleData as any)?.resumeUrl || (app.roleData as any)?.resume || app.documents?.find((d: any) => d.documentType === 'resume' || d.name?.includes('resume'))?.url || '',
             },
             status: app.status === 'approved' ? RequestStatus.APPROVED : RequestStatus.PENDING,
             createdBy: app.referrer?.referrerId || 'recruitment_sync',
@@ -785,7 +797,7 @@ export const listRequests = async (req: AuthRequest, res: Response) => {
     }
     // Auto-sync any panel User entries into RequestModel so all users appear in Requests pages
     try {
-      const panelUsers = await User.find({ role: { $in: ['superAdmin', 'admin', 'agency', 'operator', 'coinSeller', 'customerSupport'] }, isDeleted: false });
+      const panelUsers = await User.find({ role: { $in: ['superAdmin', 'admin', 'agency', 'operator', 'coinSeller', 'customerSupport', 'countryManager', 'stateManager'] }, isDeleted: false });
       for (const u of panelUsers) {
         if (!u.email) continue;
         const exists = await RequestModel.findOne({
@@ -798,6 +810,10 @@ export const listRequests = async (req: AuthRequest, res: Response) => {
         if (!exists) {
           const roleToReqType: Record<string, string> = {
             admin: 'Admin Request',
+            'country-manager': 'Country Manager Request',
+            countryManager: 'Country Manager Request',
+            'state-manager': 'State Manager Request',
+            stateManager: 'State Manager Request',
             'bd-leader': 'BD Leader Request',
             bdLeader: 'BD Leader Request',
             bd: 'BD Request',
@@ -871,6 +887,8 @@ export const listRequests = async (req: AuthRequest, res: Response) => {
       const roleBase = rtStr.toLowerCase().replace(' request', '').trim();
       const roleUnderscore = roleBase.replace(/[\s-]+/g, '_');
       const roleHyphen = roleBase.replace(/[\s_]+/g, '-');
+      const roleCamel = roleBase.replace(/[\s_-]+([a-z])/g, (_, c) => c.toUpperCase());
+      const roleStripped = roleBase.replace(/[\s_-]/g, '');
 
       andConditions.push({
         $or: [
@@ -878,6 +896,8 @@ export const listRequests = async (req: AuthRequest, res: Response) => {
           { requestType: { $regex: new RegExp(roleBase, 'i') } },
           { role: { $regex: new RegExp(roleUnderscore, 'i') } },
           { role: { $regex: new RegExp(roleHyphen, 'i') } },
+          { role: { $regex: new RegExp(roleCamel, 'i') } },
+          { role: { $regex: new RegExp(roleStripped, 'i') } },
           { role: { $regex: new RegExp(roleBase, 'i') } }
         ]
       });
