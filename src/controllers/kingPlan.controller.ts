@@ -307,6 +307,25 @@ export const STANDARD_KING_PRIVILEGES: IKingPrivilegeItem[] = [
   },
 ];
 
+// 15 Royal Privileges strictly matching KingOfKingsScreen in the App
+export const ROYAL_KING_PRIVILEGES: IKingPrivilegeItem[] = [
+  { key: 'kings_badge', title: 'Aristocracy Badge', description: 'Exclusive nobility badge on your profile.', icon: 'ribbon', isEnabled: true, unlockLevel: 1, sortOrder: 1 },
+  { key: 'exclusive_gifts', title: 'Aristocracy Gifts', description: 'Exclusive gifts for nobility members.', icon: 'gift', isEnabled: true, unlockLevel: 1, sortOrder: 2 },
+  { key: 'room_list_badge', title: 'Room List Badge', description: 'Nobility badge on the room list.', icon: 'home', isEnabled: true, unlockLevel: 1, sortOrder: 3 },
+  { key: 'rank_the_top', title: 'Ranking Surprise', description: 'Priority position in the room member list.', icon: 'podium', isEnabled: true, unlockLevel: 1, sortOrder: 4 },
+  { key: 'entry_effect', title: 'Dazzling Entry', description: 'Enter the room with a dazzling effect.', icon: 'sparkles', isEnabled: true, unlockLevel: 1, sortOrder: 5 },
+  { key: 'chat_bubble', title: 'Room Text Bubble', description: 'Exclusive text bubble in the room.', icon: 'chatbubble-ellipses', isEnabled: true, unlockLevel: 2, sortOrder: 6 },
+  { key: 'profile_card', title: 'Profile Cover', description: 'Exclusive nobility profile cover.', icon: 'person-circle', isEnabled: true, unlockLevel: 2, sortOrder: 7 },
+  { key: 'coloured_message', title: 'Coloured Message', description: 'Send coloured messages in the room.', icon: 'chatbubbles', isEnabled: true, unlockLevel: 2, sortOrder: 8 },
+  { key: 'mic_seat_aura', title: 'Unique Voice Wave', description: 'A unique voice wave while speaking on mic.', icon: 'radio', isEnabled: true, unlockLevel: 3, sortOrder: 9 },
+  { key: 'room_theme', title: 'Room Theme', description: 'Exclusive nobility theme for your room.', icon: 'color-palette', isEnabled: true, unlockLevel: 3, sortOrder: 10 },
+  { key: 'apply_mic', title: 'Apply Mic', description: 'Apply for a mic when the seat is locked.', icon: 'mic', isEnabled: true, unlockLevel: 3, sortOrder: 11 },
+  { key: 'vehicle', title: 'Vehicle', description: 'Arrive in the room with a special vehicle.', icon: 'car-sport', isEnabled: true, unlockLevel: 4, sortOrder: 12 },
+  { key: 'colorful_nick', title: 'Coloured Mic Name', description: 'A coloured name while on the mic.', icon: 'text', isEnabled: true, unlockLevel: 4, sortOrder: 13 },
+  { key: 'room_lock', title: 'Room Lock', description: 'Set a password for friends to enter your room.', icon: 'lock-closed', isEnabled: true, unlockLevel: 5, sortOrder: 14 },
+  { key: 'store_discount', title: 'Store Discount', description: 'Member discounts in the store.', icon: 'pricetags', isEnabled: true, unlockLevel: 5, sortOrder: 15 },
+];
+
 // Helper to assemble rewards & privileges per level
 function createKingTierData(
   name: string,
@@ -326,9 +345,9 @@ function createKingTierData(
     isEnabled: idx < rewardsUnlockedCount,
   }));
 
-  const privileges = STANDARD_KING_PRIVILEGES.map((p, idx) => ({
+  const privileges = ROYAL_KING_PRIVILEGES.map((p, idx) => ({
     ...p,
-    isEnabled: idx < privilegesUnlockedCount,
+    isEnabled: level >= p.unlockLevel,
   }));
 
   return {
@@ -336,7 +355,7 @@ function createKingTierData(
     slug,
     tierLevel: level,
     title: `👑 ${name} Nobility`,
-    description: `Prestigious ${name} tier granting a one-time activation bonus, exclusive assets, and immunity perks.`,
+    description: `Prestigious ${name} tier granting a one-time activation bonus of ${totalReturn.toLocaleString()} coins, exclusive assets, and royal privileges.`,
     badge: `👑 ${name.toUpperCase()}`,
     heroBadgeUrl: slug === 'viscount' || slug === 'count' ? '/king/viscount_badge.png' : 'https://cdn.yaroapp.in/king/badges/stag_crest.png',
     heroAnimationUrl: '',
@@ -356,13 +375,13 @@ function createKingTierData(
   };
 }
 
-// 5 Standard King of Kings Tiers (matching screenshot)
+// 5 Standard King of Kings Tiers strictly matching KingOfKingsScreen in the App
 export const DEFAULT_KING_TIERS = [
-  createKingTierData('Viscount', 'viscount', 1, 99000, 150000, 30, 3600, 108000, 7, 4),
-  createKingTierData('Count', 'count', 2, 199000, 300000, 33, 7500, 225000, 8, 6),
-  createKingTierData('Marquis', 'marquis', 3, 399000, 600000, 33, 15000, 450000, 9, 8),
-  createKingTierData('Duke', 'duke', 4, 799000, 1200000, 33, 30000, 900000, 10, 10),
-  createKingTierData('King', 'king', 5, 1599000, 2500000, 36, 60000, 1800000, 11, 13),
+  createKingTierData('Viscount', 'viscount', 1, 99000, 150000, 34, 1000, 1000, 7, 5),
+  createKingTierData('Count', 'count', 2, 249000, 350000, 29, 2500, 2500, 8, 8),
+  createKingTierData('Marquis', 'marquis', 3, 499000, 750000, 33, 6000, 6000, 9, 11),
+  createKingTierData('Duke', 'duke', 4, 999000, 1500000, 33, 15000, 15000, 10, 13),
+  createKingTierData('King', 'king', 5, 1999000, 3000000, 33, 35000, 35000, 11, 15),
 ];
 
 /* =========================================================================

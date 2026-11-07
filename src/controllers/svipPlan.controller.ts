@@ -521,21 +521,14 @@ function buildSvipTier(
   };
 }
 
-// 13 Standard SVIP Plans (VIP+ & SVIP 1 to 12)
+// 6 Official SVIP Plans strictly matching SVIP.js in the Mobile App (SVIP+ to SVIP 5)
 export const DEFAULT_SVIP_TIER_PLANS = [
-  buildSvipTier('VIP+', 'VIP_PLUS', 'vip-plus', 0, 49000, 75000, 35, 50000, 5, 'VIP+', ['#3B82F6', '#1D4ED8'], 'VIP+ Frost Blue', ['#1E3A8A', '#1E40AF'], '#60A5FA', 'https://cdn.yaroapp.in/svip/badges/lynx_vip_plus.png'),
-  buildSvipTier('SVIP 1 Knight', 'SVIP_1', 'svip-1-knight', 1, 99000, 150000, 34, 100000, 8, 'SVIP 1', ['#F59E0B', '#D97706'], 'Knight Amber Glass', ['#3A1F04', '#78350F'], '#F59E0B', 'https://cdn.yaroapp.in/svip/badges/svip_1_knight.png'),
-  buildSvipTier('SVIP 2 Count', 'SVIP_2', 'svip-2-count', 2, 180000, 270000, 33, 250000, 11, 'SVIP 2', ['#A855F7', '#7C3AED'], 'Count Amethyst', ['#3B0764', '#581C87'], '#C084FC', 'https://cdn.yaroapp.in/svip/badges/svip_2_count.png'),
-  buildSvipTier('SVIP 3 Duke', 'SVIP_3', 'svip-3-duke', 3, 350000, 500000, 30, 500000, 14, 'SVIP 3', ['#06B6D4', '#0284C7'], 'Duke Cyan Wolf Bubble', ['#082F49', '#0369A1'], '#38BDF8', '/svip/svip3_tag.png'),
-  buildSvipTier('SVIP 4 Monarch', 'SVIP_4', 'svip-4-monarch', 4, 700000, 1000000, 30, 1000000, 17, 'SVIP 4', ['#EF4444', '#DC2626'], 'VIP 4 Imperial Gold Bubble', ['#450A0A', '#7F1D1D'], '#F59E0B', '/svip/svip4_badge.png'),
-  buildSvipTier('SVIP 5 Sovereign', 'SVIP_5', 'svip-5-sovereign', 5, 1500000, 2250000, 33, 2000000, 20, 'SVIP 5', ['#FBBF24', '#D97706'], 'Imperial Sovereign Gold', ['#422006', '#713F12'], '#FBBF24', '/svip/svip4_badge.png'),
-  buildSvipTier('SVIP 6 Grand Duke', 'SVIP_6', 'svip-6-grand-duke', 6, 2500000, 3750000, 33, 3500000, 22, 'SVIP 6', ['#10B981', '#059669'], 'Grand Emerald Shine', ['#064E3B', '#065F46'], '#34D399', 'https://cdn.yaroapp.in/svip/badges/svip_6_emerald.png'),
-  buildSvipTier('SVIP 7 Archduke', 'SVIP_7', 'svip-7-archduke', 7, 3800000, 5700000, 33, 5000000, 24, 'SVIP 7', ['#06B6D4', '#0891B2'], 'Archduke Cyan Flame', ['#164E63', '#155E75'], '#22D3EE', 'https://cdn.yaroapp.in/svip/badges/svip_7_cyan.png'),
-  buildSvipTier('SVIP 8 Crown Prince', 'SVIP_8', 'svip-8-crown-prince', 8, 5500000, 8250000, 33, 7500000, 26, 'SVIP 8', ['#8B5CF6', '#6D28D9'], 'Sovereign Violet Prism', ['#2E1065', '#4C1D95'], '#A78BFA', 'https://cdn.yaroapp.in/svip/badges/svip_8_prince.png'),
-  buildSvipTier('SVIP 9 King of Kings', 'SVIP_9', 'svip-9-king-of-kings', 9, 8000000, 12000000, 33, 10000000, 28, 'SVIP 9', ['#F43F5E', '#BE123C'], 'Crimson Emperor Star', ['#4C0519', '#881337'], '#FB7185', 'https://cdn.yaroapp.in/svip/badges/svip_9_emperor.png'),
-  buildSvipTier('SVIP 10 Lord of Realms', 'SVIP_10', 'svip-10-lord', 10, 12000000, 18000000, 33, 15000000, 29, 'SVIP 10', ['#D946EF', '#A21CAF'], 'Realm Lord Aurora', ['#4A044E', '#701A75'], '#E879F9', 'https://cdn.yaroapp.in/svip/badges/svip_10_lord.png'),
-  buildSvipTier('SVIP 11 Supreme Sovereign', 'SVIP_11', 'svip-11-sovereign', 11, 18000000, 27000000, 33, 22000000, 30, 'SVIP 11', ['#EAB308', '#CA8A04'], 'Supreme Golden Dragon', ['#422006', '#713F12'], '#FACC15', 'https://cdn.yaroapp.in/svip/badges/svip_11_dragon.png'),
-  buildSvipTier('SVIP 12 Sovereign Emperor', 'SVIP_12', 'svip-12-emperor', 12, 25000000, 40000000, 37, 30000000, 30, 'SVIP 12', ['#FF0080', '#7928CA', '#0070F3'], 'Rainbow Emperor Supreme', ['#3B0764', '#581C87', '#1E1B4B'], '#EC4899', 'https://cdn.yaroapp.in/svip/badges/svip_12_emperor.png'),
+  buildSvipTier('VIP+ Lynx', 'VIP_PLUS', 'vip-plus', 0, 49000, 75000, 35, 50000, 5, 'VIP+', ['#3B82F6', '#1D4ED8'], 'VIP+ Frost Blue', ['#1E3A8A', '#1E40AF'], '#60A5FA', 'https://cdn.yaroapp.in/svip/badges/lynx_vip_plus.png'),
+  buildSvipTier('SVIP 1 Knight', 'SVIP_1', 'svip-1', 1, 99000, 150000, 34, 100000, 8, 'SVIP 1', ['#F59E0B', '#D97706'], 'Knight Amber Glass', ['#3A1F04', '#78350F'], '#F59E0B', 'https://cdn.yaroapp.in/svip/badges/svip_1_knight.png'),
+  buildSvipTier('SVIP 2 Count', 'SVIP_2', 'svip-2', 2, 180000, 270000, 33, 250000, 11, 'SVIP 2', ['#A855F7', '#7C3AED'], 'Count Amethyst', ['#3B0764', '#581C87'], '#C084FC', 'https://cdn.yaroapp.in/svip/badges/svip_2_count.png'),
+  buildSvipTier('SVIP 3 Duke', 'SVIP_3', 'svip-3', 3, 350000, 500000, 30, 500000, 14, 'SVIP 3', ['#06B6D4', '#0284C7'], 'Duke Cyan Wolf Bubble', ['#082F49', '#0369A1'], '#38BDF8', '/svip/svip3_tag.png'),
+  buildSvipTier('SVIP 4 Monarch', 'SVIP_4', 'svip-4', 4, 700000, 1000000, 30, 1000000, 17, 'SVIP 4', ['#EF4444', '#DC2626'], 'VIP 4 Imperial Gold Bubble', ['#450A0A', '#7F1D1D'], '#F59E0B', '/svip/svip4_badge.png'),
+  buildSvipTier('SVIP 5 Sovereign Supreme', 'SVIP_5', 'svip-5', 5, 1500000, 2250000, 33, 2000000, 20, 'SVIP 5', ['#FBBF24', '#D97706'], 'Imperial Sovereign Gold', ['#422006', '#713F12'], '#FBBF24', '/svip/svip5_badge.png'),
 ];
 
 /* =========================================================================
