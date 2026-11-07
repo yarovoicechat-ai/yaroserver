@@ -345,6 +345,10 @@ export const evaluateReferralRechargeReward = async (
     await User.findByIdAndUpdate(referrer._id, { $inc: { diamonds: rewardDiamonds } });
 
     referral.rechargeDiamonds = rewardDiamonds;
+    referral.step2Claimed = true;
+    referral.step2ClaimedAt = new Date();
+    referral.step2RewardStatus = 'COMPLETED';
+    referral.status = 'COMPLETED';
     if (rechargeHistoryId) referral.firstRechargeId = rechargeHistoryId;
     await referral.save();
 

@@ -55,7 +55,7 @@ const userSchema = new Schema<UserInterface>(
     role: { type: String, enum: Object.values(UserRole), default: UserRole.USER },
     authType: { type: String, enum: Object.values(AuthType), default: AuthType.PHONE },
     coins: { type: Number, default: 0 },
-    diamonds: { type: Number, default: 0 },
+    diamonds: { type: Number, default: 5 },
     image: { type: String, default: "" },
     createdBy: { type: Schema.Types.ObjectId, ref: "User" },
     isDeleted: { type: Boolean, default: false },

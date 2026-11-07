@@ -4,6 +4,7 @@ import sendResponse from "../utils/reponse";
 import jwt from "jsonwebtoken";
 import { AuthRequest } from "../middlewares/authorize.middleware";
 import { User } from "../models/user.model";
+import { RechargeHistory } from "../models/RechargeHistory";
 import { config } from "../configs/envConfig";
 import { generateRandomName, generateToken, generateUniqueId } from "../utils/generator";
 import { Logger } from "../utils/logger";
@@ -337,7 +338,7 @@ export const userRegister = async (req: AuthRequest, res: Response) => {
       age: userAge,
       profileCompleted: true,
       welcomeRewardClaimed: true,
-      diamonds: (process.env.ENABLE_TEST_DIAMONDS === 'true' && process.env.NODE_ENV !== 'production') ? 1000000 : 0,
+      diamonds: (process.env.ENABLE_TEST_DIAMONDS === 'true' && process.env.NODE_ENV !== 'production') ? 1000000 : 5,
       equippedFrame: welcomeCosmetics.equippedFrame,
       equippedFrameAsset: welcomeCosmetics.equippedFrameAsset,
       equippedTag: welcomeCosmetics.equippedTag,
@@ -358,6 +359,27 @@ export const userRegister = async (req: AuthRequest, res: Response) => {
 
     newUser.refreshToken = refreshToken;
     await newUser.save();
+
+    try {
+      if (RechargeHistory && typeof RechargeHistory.create === 'function') {
+        await RechargeHistory.create({
+          userId: newUser.userId,
+          type: 'online' as any,
+          diamonds: 5,
+          coins: 0,
+          amount: 0,
+          currency: 'INR',
+          status: 'COMPLETED',
+          settlementStatus: 'SETTLED',
+          date: new Date(),
+          processedAt: new Date(),
+          productId: 'WELCOME_BONUS',
+          rawGoogleData: { note: '5 Diamonds Welcome Bonus on Registration' },
+        });
+      }
+    } catch (rechargeLogErr) {
+      console.warn('Failed to record welcome bonus recharge history:', rechargeLogErr);
+    }
 
     return sendResponse(res, 201, true, "Registration successful", {
       accessToken,
@@ -744,7 +766,7 @@ export const userGoogleAuth = async (req: Request, res: Response) => {
       age: userAge,
       profileCompleted: true,
       welcomeRewardClaimed: true,
-      diamonds: (process.env.ENABLE_TEST_DIAMONDS === 'true' && process.env.NODE_ENV !== 'production') ? 1000000 : 0,
+      diamonds: (process.env.ENABLE_TEST_DIAMONDS === 'true' && process.env.NODE_ENV !== 'production') ? 1000000 : 5,
       equippedFrame: welcomeCosmetics.equippedFrame,
       equippedFrameAsset: welcomeCosmetics.equippedFrameAsset,
       equippedTag: welcomeCosmetics.equippedTag,
@@ -759,6 +781,27 @@ export const userGoogleAuth = async (req: Request, res: Response) => {
     newUser.refreshToken = refreshToken;
     newUser.activeToken = accessToken;
     const userCreated = await newUser.save();
+
+    try {
+      if (RechargeHistory && typeof RechargeHistory.create === 'function') {
+        await RechargeHistory.create({
+          userId: userCreated.userId,
+          type: 'online' as any,
+          diamonds: 5,
+          coins: 0,
+          amount: 0,
+          currency: 'INR',
+          status: 'COMPLETED',
+          settlementStatus: 'SETTLED',
+          date: new Date(),
+          processedAt: new Date(),
+          productId: 'WELCOME_BONUS',
+          rawGoogleData: { note: '5 Diamonds Welcome Bonus on Registration' },
+        });
+      }
+    } catch (rechargeLogErr) {
+      console.warn('Failed to record welcome bonus recharge history:', rechargeLogErr);
+    }
 
     return sendResponse(res, 201, true, "Google signup successful", { accessToken, refreshToken, role: userCreated.role, gender: userCreated.gender });
 

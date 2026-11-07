@@ -27,10 +27,10 @@ export const completeProfile = async (req: AuthRequest, res: Response) => {
       return sendResponse(res, 404, false, "User not found");
     }
 
-    // Fetch dynamic reward settings (or fall back to 100 & 50)
+    // Fetch dynamic reward settings (welcome reward is 5 Diamonds, referral signup reward is 3 Diamonds)
     const settings = await getCachedSettings();
-    const welcomeRewardAmount = settings?.welcomeRewardDiamonds ?? 100;
-    const referralRewardAmount = settings?.referralRewardDiamonds ?? 50;
+    const welcomeRewardAmount = 5;
+    const referralRewardAmount = 3;
 
     // Idempotency: If user already completed profile, return success with current profile
     if (currentUser.profileCompleted && currentUser.welcomeRewardClaimed) {
@@ -124,9 +124,11 @@ export const completeProfile = async (req: AuthRequest, res: Response) => {
     currentUser.image = selectedAvatar;
     currentUser.profileCompleted = true;
 
-    // Grant New User Welcome Reward exactly once
+    // Grant New User Welcome Reward exactly once (5 Diamonds guaranteed for all new users)
     if (!currentUser.welcomeRewardClaimed) {
-      currentUser.diamonds = Number(currentUser.diamonds || 0) + welcomeRewardAmount;
+      if (Number(currentUser.diamonds || 0) < welcomeRewardAmount) {
+        currentUser.diamonds = welcomeRewardAmount;
+      }
       currentUser.welcomeRewardClaimed = true;
 
       // Transaction log for welcome bonus
@@ -134,22 +136,24 @@ export const completeProfile = async (req: AuthRequest, res: Response) => {
         userId: currentUser.userId,
         type: 'online' as any,
         diamonds: welcomeRewardAmount,
+        coins: 0,
         amount: 0,
         currency: 'INR',
         status: 'COMPLETED',
+        settlementStatus: 'SETTLED',
         date: new Date(),
         processedAt: new Date(),
         productId: 'WELCOME_BONUS',
         rawGoogleData: { note: `${welcomeRewardAmount} Diamonds Welcome Bonus on Profile Completion` },
-      });
+      }).catch(() => {});
     }
 
-    // Process Referral Reward if valid referrer provided
+    // Process Referral Reward if valid referrer provided (Referrer gets 3 Diamonds on signup)
     if (referrerUser && !currentUser.referralClaimed) {
       currentUser.referredBy = referrerUser._id;
       currentUser.referralClaimed = true;
 
-      const step1Coins = 25;
+      const step1Diamonds = referralRewardAmount; // 3 Diamonds
       const step1TxId = `REF_STEP1_${currentUser._id}`;
 
       // Risk Assessment Model
@@ -182,10 +186,10 @@ export const completeProfile = async (req: AuthRequest, res: Response) => {
         step1LedgerDoc = await RechargeHistory.create({
           userId: referrerUser.userId,
           type: RechargeType.REFERRAL_REGISTRATION_REWARD,
-          coins: step1Coins,
-          diamonds: 0,
+          coins: 0,
+          diamonds: step1Diamonds,
           amount: 0,
-          currency: 'COIN',
+          currency: 'DIAMOND',
           status: 'COMPLETED',
           settlementStatus: 'PENDING',
           date: new Date(),
@@ -194,10 +198,10 @@ export const completeProfile = async (req: AuthRequest, res: Response) => {
           transactionId: step1TxId,
           rawGoogleData: {
             type: 'REFERRAL_REGISTRATION_REWARD',
-            amount: step1Coins,
-            currency: 'COIN',
+            diamonds: step1Diamonds,
+            currency: 'DIAMOND',
             referredUserId: currentUser.userId,
-            note: `Step 1 Referral Reward: ${step1Coins} Coins for referring user ${currentUser.userId}`
+            note: `Step 1 Referral Reward: ${step1Diamonds} Diamonds for referring user ${currentUser.userId}`
           },
         });
       } catch (txErr: any) {
@@ -216,10 +220,10 @@ export const completeProfile = async (req: AuthRequest, res: Response) => {
       }
 
       if (shouldCreditStep1) {
-        console.log(`[REFERRAL_STEP1_SETTLEMENT_STARTED] Settling +25 Coins for referrer ${referrerUser.userId}`);
+        console.log(`[REFERRAL_STEP1_SETTLEMENT_STARTED] Settling +${step1Diamonds} Diamonds for referrer ${referrerUser.userId}`);
         await User.updateOne(
           { _id: referrerUser._id },
-          { $inc: { coins: step1Coins, totalReferrals: 1 } }
+          { $inc: { diamonds: step1Diamonds, totalReferrals: 1 } }
         );
 
         if (step1LedgerDoc && step1LedgerDoc.settlementStatus !== 'SETTLED') {
@@ -228,7 +232,7 @@ export const completeProfile = async (req: AuthRequest, res: Response) => {
             { $set: { settlementStatus: 'SETTLED', settledAt: new Date() } }
           );
         }
-        console.log(`[REFERRAL_STEP1_SETTLED] Settled Step 1 +25 Coins for referrer ${referrerUser.userId}`);
+        console.log(`[REFERRAL_STEP1_SETTLED] Settled Step 1 +${step1Diamonds} Diamonds for referrer ${referrerUser.userId}`);
       }
 
       try {
@@ -236,14 +240,19 @@ export const completeProfile = async (req: AuthRequest, res: Response) => {
           referrer: referrerUser._id,
           referee: currentUser._id,
           referralCode: cleanReferralCode,
-          referrerReward: step1Coins,
+          rewardVersion: 2,
+          referrerReward: step1Diamonds,
           refereeReward: welcomeRewardAmount,
+          loginDiamonds: step1Diamonds,
+          rechargeDiamonds: 0,
           step1Claimed: true,
-          step1Coins,
+          step1Coins: 0,
+          step1Diamonds,
           step1ClaimedAt: new Date(),
           step1RewardStatus: 'COMPLETED',
           step2Claimed: false,
           step2Coins: 0,
+          step2Diamonds: 0,
           step2RewardStatus: 'NOT_STARTED',
           totalCallSeconds: 0,
           riskLevel,
@@ -264,9 +273,9 @@ export const completeProfile = async (req: AuthRequest, res: Response) => {
         const io = getIO();
         if (io) {
           io.to(getUserRoom(String(referrerUser._id))).emit("referralReward:step1", {
-            coinsEarned: 25,
+            diamondsEarned: step1Diamonds,
             refereeUserId: currentUser.userId,
-            message: "🎉 Referral Reward Earned! Your friend successfully joined Yaro. You received 25 Coins!",
+            message: `🎉 Referral Reward Earned! Your friend successfully joined Yaro. You received ${step1Diamonds} Diamonds!`,
           });
         }
 
@@ -274,7 +283,7 @@ export const completeProfile = async (req: AuthRequest, res: Response) => {
           await sendCallNotification(
             referrerUser.fcmToken,
             "🎉 Referral Reward Earned!",
-            "Your friend successfully joined Yaro. You received 25 Coins!",
+            `Your friend successfully joined Yaro. You received ${step1Diamonds} Diamonds!`,
             "",
             false
           ).catch(() => {});
@@ -324,12 +333,12 @@ export const getReferralDetails = async (req: AuthRequest, res: Response) => {
       .lean();
 
     const totalReferrals = referrals.length || user.totalReferrals || 0;
-    const totalEarnedCoins = referrals.reduce(
-      (sum, r) => sum + (r.step1Coins || 25) + (r.step2Claimed ? (r.step2Coins || 25) : 0),
+    const totalEarnedDiamonds = referrals.reduce(
+      (sum, r: any) => sum + (r.step1Diamonds ?? r.loginDiamonds ?? (r.step1Claimed ? 3 : 0)) + (r.rechargeDiamonds ?? (r.step2Claimed ? 2 : 0)),
       0
     );
-    const pendingCallRewardsCount = referrals.filter((r) => !r.step2Claimed).length;
-    const completedReferralsCount = referrals.filter((r) => r.step2Claimed).length;
+    const pendingCallRewardsCount = referrals.filter((r) => !r.step2Claimed && !r.rechargeDiamonds).length;
+    const completedReferralsCount = referrals.filter((r) => r.step2Claimed || (r.rechargeDiamonds && r.rechargeDiamonds > 0)).length;
 
     const hasRedeemedReferral = Boolean(
       user.referralClaimed || (await Referral.findOne({ referee: user._id }))
@@ -340,6 +349,9 @@ export const getReferralDetails = async (req: AuthRequest, res: Response) => {
       const callMin = Math.floor(callSec / 60);
       const callSecRem = callSec % 60;
       const formattedCallTime = `${callMin}:${callSecRem < 10 ? '0' : ''}${callSecRem}`;
+      const step1Dia = r.step1Diamonds ?? r.loginDiamonds ?? (r.step1Claimed ? 3 : 0);
+      const step2Dia = r.rechargeDiamonds ?? (r.step2Claimed ? 2 : 0);
+      const isRechargeDone = Boolean(r.step2Claimed || (r.rechargeDiamonds && r.rechargeDiamonds > 0));
 
       return {
         _id: r._id,
@@ -348,18 +360,21 @@ export const getReferralDetails = async (req: AuthRequest, res: Response) => {
         image: r.referee?.image || '',
         createdAt: r.createdAt || r.claimedAt,
         step1Claimed: Boolean(r.step1Claimed),
-        step1Coins: r.step1Coins || 25,
+        step1Diamonds: step1Dia,
+        step1Coins: step1Dia, // backwards compatibility
         step1RewardStatus: r.step1RewardStatus || 'COMPLETED',
-        step2Claimed: Boolean(r.step2Claimed),
-        step2Coins: r.step2Coins || (r.step2Claimed ? 25 : 0),
-        step2RewardStatus: r.step2RewardStatus || (r.step2Claimed ? 'COMPLETED' : 'NOT_STARTED'),
+        step2Claimed: isRechargeDone,
+        step2Diamonds: step2Dia,
+        step2Coins: step2Dia, // backwards compatibility
+        step2RewardStatus: r.step2RewardStatus || (isRechargeDone ? 'COMPLETED' : 'NOT_STARTED'),
         totalCallSeconds: callSec,
         formattedCallTime,
         requiredCallSeconds: 300,
         riskLevel: r.riskLevel || 'LOW',
         reviewStatus: r.reviewStatus || 'PASSED',
-        status: r.status || (r.step2Claimed ? 'COMPLETED' : 'STEP1_CLAIMED'),
-        totalCoinsEarned: (r.step1Coins || 25) + (r.step2Claimed ? (r.step2Coins || 25) : 0),
+        status: r.status || (isRechargeDone ? 'COMPLETED' : 'STEP1_CLAIMED'),
+        totalCoinsEarned: step1Dia + (isRechargeDone ? step2Dia : 0),
+        totalDiamondsEarned: step1Dia + (isRechargeDone ? step2Dia : 0),
       };
     });
 
@@ -369,7 +384,14 @@ export const getReferralDetails = async (req: AuthRequest, res: Response) => {
       referralCode: user.referralCode,
       referralLink,
       totalReferrals,
-      totalEarnedCoins,
+      totalEarnedDiamonds,
+      totalEarnedCoins: totalEarnedDiamonds,
+      rewardRules: {
+        refereeDiamonds: 5,
+        referrerSignupDiamonds: 3,
+        referrerRechargeDiamonds: 2,
+        totalReferrerDiamonds: 5,
+      },
       pendingCallRewardsCount,
       completedReferralsCount,
       hasRedeemedReferral,
@@ -438,10 +460,18 @@ export const claimReferralCode = async (req: AuthRequest, res: Response) => {
       return sendResponse(res, 400, false, "You cannot use your own referral code");
     }
 
-    const step1Coins = 25;
+    const step1Diamonds = 3;
     const step1TxId = `REF_STEP1_${currentUser._id}`;
     currentUser.referredBy = referrerUser._id;
     currentUser.referralClaimed = true;
+
+    // Ensure referee also has at least 5 diamonds welcome bonus
+    if (!currentUser.welcomeRewardClaimed || Number(currentUser.diamonds || 0) < 5) {
+      if (Number(currentUser.diamonds || 0) < 5) {
+        currentUser.diamonds = 5;
+      }
+      currentUser.welcomeRewardClaimed = true;
+    }
     await currentUser.save();
 
     let step1LedgerDoc: any = null;
@@ -451,10 +481,10 @@ export const claimReferralCode = async (req: AuthRequest, res: Response) => {
       step1LedgerDoc = await RechargeHistory.create({
         userId: referrerUser.userId,
         type: RechargeType.REFERRAL_REGISTRATION_REWARD,
-        coins: step1Coins,
-        diamonds: 0,
+        coins: 0,
+        diamonds: step1Diamonds,
         amount: 0,
-        currency: 'COIN',
+        currency: 'DIAMOND',
         status: 'COMPLETED',
         settlementStatus: 'PENDING',
         date: new Date(),
@@ -463,10 +493,10 @@ export const claimReferralCode = async (req: AuthRequest, res: Response) => {
         transactionId: step1TxId,
         rawGoogleData: {
           type: 'REFERRAL_REGISTRATION_REWARD',
-          amount: step1Coins,
-          currency: 'COIN',
+          diamonds: step1Diamonds,
+          currency: 'DIAMOND',
           referredUserId: currentUser.userId,
-          note: `Step 1 Referral Reward: ${step1Coins} Coins for referring user ${currentUser.userId}`
+          note: `Step 1 Referral Reward: ${step1Diamonds} Diamonds for referring user ${currentUser.userId}`
         },
       });
     } catch (txErr: any) {
@@ -486,7 +516,7 @@ export const claimReferralCode = async (req: AuthRequest, res: Response) => {
     if (shouldCreditStep1) {
       await User.updateOne(
         { _id: referrerUser._id },
-        { $inc: { coins: step1Coins, totalReferrals: 1 } }
+        { $inc: { diamonds: step1Diamonds, totalReferrals: 1 } }
       );
 
       if (step1LedgerDoc && step1LedgerDoc.settlementStatus !== 'SETTLED') {
@@ -501,14 +531,19 @@ export const claimReferralCode = async (req: AuthRequest, res: Response) => {
       referrer: referrerUser._id,
       referee: currentUser._id,
       referralCode: cleanCode,
-      referrerReward: step1Coins,
-      refereeReward: 100,
+      rewardVersion: 2,
+      referrerReward: step1Diamonds,
+      refereeReward: 5,
+      loginDiamonds: step1Diamonds,
+      rechargeDiamonds: 0,
       step1Claimed: true,
-      step1Coins,
+      step1Coins: 0,
+      step1Diamonds,
       step1ClaimedAt: new Date(),
       step1RewardStatus: 'COMPLETED',
       step2Claimed: false,
       step2Coins: 0,
+      step2Diamonds: 0,
       step2RewardStatus: 'NOT_STARTED',
       totalCallSeconds: 0,
       status: 'STEP1_CLAIMED',
@@ -523,9 +558,9 @@ export const claimReferralCode = async (req: AuthRequest, res: Response) => {
       const io = getIO();
       if (io) {
         io.to(getUserRoom(String(referrerUser._id))).emit("referralReward:step1", {
-          coinsEarned: 25,
+          diamondsEarned: step1Diamonds,
           refereeUserId: currentUser.userId,
-          message: "🎉 Referral Reward Earned! Your friend successfully joined Yaro. You received 25 Coins!",
+          message: `🎉 Referral Reward Earned! Your friend successfully joined Yaro. You received ${step1Diamonds} Diamonds!`,
         });
       }
 
@@ -533,7 +568,7 @@ export const claimReferralCode = async (req: AuthRequest, res: Response) => {
         await sendCallNotification(
           referrerUser.fcmToken,
           "🎉 Referral Reward Earned!",
-          "Your friend successfully joined Yaro. You received 25 Coins!",
+          `Your friend successfully joined Yaro. You received ${step1Diamonds} Diamonds!`,
           "",
           false
         ).catch(() => {});

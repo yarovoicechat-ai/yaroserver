@@ -4,6 +4,7 @@ import { config } from '../configs/envConfig';
 import { RechargeHistory } from '../models/RechargeHistory';
 import { User } from '../models/user.model';
 import { RechargeType } from '../constants/user';
+import { evaluateReferralRechargeReward } from './referralMilestoneService';
 
 export interface CreateOrderParams {
   amountInr: number;
@@ -190,6 +191,7 @@ export class RazorpayService {
         { $or: [{ userId }, { _id: userId }] },
         { $inc: { diamonds, coins: diamonds } }
       );
+      void evaluateReferralRechargeReward(userId, diamonds, record._id);
     }
 
     return {
