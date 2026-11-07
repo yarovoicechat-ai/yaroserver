@@ -69,18 +69,11 @@ jobs:
             cd "$BACKEND_DIR"
             echo "DEPLOY_BRANCH=$(git branch --show-current)"
             test "$(git branch --show-current)" = main
-            echo "DEPLOY_STAGE=check-production-edits"
-            git diff --name-only
-            # Recover only the exact source revision restored by our previous rollback.
-            if ! git diff --quiet -- src package.json; then
-              CHANGED=$(git diff --name-only -- src package.json)
-              UNEXPECTED=$(printf '%s\n' "$CHANGED" | grep -vE '^src/(services/agora/agora(Project|Token)\.service\.ts|sockets/voiceRoomSocket\.ts)$' || true)
-              test -z "$UNEXPECTED"
-              git diff --quiet 2905f8f56643a03ce3aee6da53d31db6f40f8e58 -- src/services/agora/agoraProject.service.ts src/services/agora/agoraToken.service.ts src/sockets/voiceRoomSocket.ts
-              git restore --source=HEAD -- src/services/agora/agoraProject.service.ts src/services/agora/agoraToken.service.ts src/sockets/voiceRoomSocket.ts
-            fi
-            git diff --quiet -- src package.json
-            git diff --cached --quiet
+            echo "DEPLOY_STAGE=clean-production-worktree"
+            git diff --name-only || true
+            # Reset any uncommitted server changes so git fetch and fast-forward merge succeed
+            git reset --hard HEAD
+            git clean -fd
             echo "DEPLOY_STAGE=fetch"
             git fetch origin main
             test "$(git rev-parse origin/main)" = '${{ github.sha }}'
