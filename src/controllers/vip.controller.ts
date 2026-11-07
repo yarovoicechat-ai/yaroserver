@@ -18,7 +18,7 @@ export const getVipCatalog = async (_req: Request, res: Response) => {
 export const getSvipCatalog = async (_req: Request, res: Response) => {
   try {
     await VipService.seedInitialCatalog();
-    const tiers = await SvipTier.find({ isActive: true }).sort({ sortOrder: 1, level: 1 }).lean();
+    const tiers = await SvipTier.find({ isActive: true, level: { $lte: 5 } }).sort({ sortOrder: 1, level: 1 }).lean();
     return sendResponse(res, 200, true, 'SVIP catalog fetched successfully', { tiers });
   } catch (error: any) {
     return sendResponse(res, 500, false, error.message || 'Failed to fetch SVIP catalog');
@@ -208,7 +208,7 @@ export const getAllAdminVip = async (_req: Request, res: Response) => {
 export const getAllAdminSvip = async (_req: Request, res: Response) => {
   try {
     await VipService.seedInitialCatalog();
-    const tiers = await SvipTier.find().sort({ sortOrder: 1, level: 1 }).lean();
+    const tiers = await SvipTier.find({ level: { $lte: 5 } }).sort({ sortOrder: 1, level: 1 }).lean();
     return sendResponse(res, 200, true, 'All SVIP tiers fetched', { tiers });
   } catch (error: any) {
     return sendResponse(res, 500, false, error.message || 'Failed to fetch SVIP tiers');

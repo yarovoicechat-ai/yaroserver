@@ -541,6 +541,7 @@ export const getPublishedSvipPlans = async (_req: Request, res: Response) => {
     const plans = await SvipTier.find({
       status: 'active',
       isActive: true,
+      level: { $lte: 5 },
     })
       .sort({ sortOrder: 1, level: 1 })
       .lean();
@@ -734,7 +735,7 @@ export const adminListSvipPlans = async (req: Request, res: Response) => {
   try {
     const { status, search } = req.query as any;
 
-    const query: any = {};
+    const query: any = { level: { $lte: 5 } };
     if (status && status !== 'all') {
       query.status = status;
     }
