@@ -140,7 +140,21 @@ export class HierarchyScopeService {
   static buildUserScope(user: { id: string; role: string }): Record<string, any> {
     const role = user.role;
     const userId = user.id.toString();
-    if (['countryManager', 'stateManager'].includes(role)) return { $or: [{ _id: userId }, { parentId: userId }, { referralUserId: userId }, { 'referrer.referrerId': userId }, { hierarchyPath: { $regex: userId } }, { 'data.hierarchyPath': { $regex: userId } }, { 'roleData.hierarchyPath': { $regex: userId } }] };
+    if (['countryManager', 'stateManager', 'country-manager', 'state-manager'].includes(role)) {
+      return {
+        $or: [
+          { _id: userId },
+          { parentId: userId },
+          { referralUserId: userId },
+          { 'referrer.referrerId': userId },
+          { hierarchyPath: { $regex: userId } },
+          { 'data.hierarchyPath': { $regex: userId } },
+          { 'roleData.hierarchyPath': { $regex: userId } },
+          { createdBy: { $in: ['public', 'recruitment_sync', '', null] } },
+          { referralUserId: { $in: ['', null, undefined] } }
+        ]
+      };
+    }
 
     // 1. Owner: Full platform visibility (Everything)
     if (role === 'owner') {
@@ -238,7 +252,21 @@ export class HierarchyScopeService {
   static buildRequestScope(user: { id: string; role: string }): Record<string, any> {
     const role = user.role;
     const userId = user.id.toString();
-    if (['countryManager', 'stateManager'].includes(role)) return { $or: [{ _id: userId }, { parentId: userId }, { referralUserId: userId }, { 'referrer.referrerId': userId }, { hierarchyPath: { $regex: userId } }, { 'data.hierarchyPath': { $regex: userId } }, { 'roleData.hierarchyPath': { $regex: userId } }] };
+    if (['countryManager', 'stateManager', 'country-manager', 'state-manager'].includes(role)) {
+      return {
+        $or: [
+          { _id: userId },
+          { parentId: userId },
+          { referralUserId: userId },
+          { 'referrer.referrerId': userId },
+          { hierarchyPath: { $regex: userId } },
+          { 'data.hierarchyPath': { $regex: userId } },
+          { 'roleData.hierarchyPath': { $regex: userId } },
+          { createdBy: { $in: ['public', 'recruitment_sync', '', null] } },
+          { referralUserId: { $in: ['', null, undefined] } }
+        ]
+      };
+    }
 
     if (role === 'owner') return {};
 
