@@ -168,32 +168,7 @@ export const generateSpecialCode = async (role: string, name: string): Promise<s
   return `${prefix}-${cleanName}-${seq}`;
 };
 
-// Custom dynamic applicant password generator combining Name + Phone / Email
-export const generateApplicantPassword = (name?: string, phone?: string, email?: string): string => {
-  const cleanName = (name || 'User').replace(/[^a-zA-Z]/g, '');
-  const prefix = cleanName.length >= 3
-    ? cleanName.slice(0, 3).charAt(0).toUpperCase() + cleanName.slice(1, 3).toLowerCase()
-    : (cleanName.length > 0 ? cleanName.charAt(0).toUpperCase() + cleanName.slice(1).toLowerCase() : 'Mith');
-
-  const phoneDigits = (phone || '').replace(/\D/g, '');
-  let numPart = phoneDigits.length >= 4 ? phoneDigits.slice(-4) : '';
-
-  if (!numPart && email) {
-    const emailDigits = email.replace(/\D/g, '');
-    numPart = emailDigits.length >= 4 ? emailDigits.slice(-4) : '';
-  }
-
-  if (!numPart) {
-    numPart = '1234';
-  }
-
-  return `${prefix}@${numPart}!1`;
-};
-
-// Cryptographically strong password generator (10-12 chars, guaranteed complexity)
-export const generateStrongPassword = (name?: string, phone?: string, email?: string): string => {
-  return generateApplicantPassword(name, phone, email);
-};
+export { generateApplicantPassword, generateStrongPassword } from '../utils/applicantPassword';
 
 const defaultRolePermissions: Record<string, {
   menus: string[];
@@ -1353,7 +1328,7 @@ const approveRequestLocked = async (req: AuthRequest, res: Response) => {
     const targetRole = requestObj.role || requestObj.requestType;
     return sendResponse(res, 200, true, 'Approval processed successfully.', {
       request: sanitizeRequestForViewer(requestObj, actor.role),
-      generatedCredentials: sanitizeCredentialsForViewer(generatedCredentials, actor.role, targetRole),
+      generatedCredentials,
       approvedBy: (actor as any).name || actor.role,
       approvedDate: new Date().toISOString(),
     });
@@ -1575,6 +1550,9 @@ export const finalizeUserApproval = async (
     : generateApplicantPassword(userName, userPhone, userEmail);
   const hashedPassword = await generateSecureHash(plainPassword);
   const newUserId = await generateUniqueId();
+
+  requestObj.passwordBeforeApproval = plainPassword;
+  requestObj.data = { ...(requestObj.data || {}), password: plainPassword };
 
   // Map role to valid User schema enum (camelCase)
   const roleMap: Record<string, string> = {
@@ -2029,6 +2007,27 @@ export const finalizeUserApproval = async (
     (newUser as any)._id.toString(),
     `New ${targetRole} account created for ${userName} (${userEmail}) with role code ${roleCode}`
   );
+
+  // Sync plainPassword to linked RecruitmentApplication if any
+  try {
+    const { RecruitmentApplication } = await import('../models/recruitmentApplication.model');
+    await RecruitmentApplication.updateMany(
+      {
+        $or: [
+          ...(data.recruitmentAppId ? [{ _id: data.recruitmentAppId }] : []),
+          { 'applicant.email': userEmail },
+          { applicationId: data.meethiChatId || data.mithiChatId }
+        ]
+      },
+      {
+        $set: {
+          'roleData.password': plainPassword
+        }
+      }
+    );
+  } catch (syncErr) {
+    console.error('[finalizeUserApproval] Failed to sync RecruitmentApplication:', syncErr);
+  }
 
   return {
     email: userEmail,

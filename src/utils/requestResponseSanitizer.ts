@@ -91,7 +91,13 @@ export const sanitizeCredentialsForViewer = (
   viewerRole?: string,
   targetRole?: string
 ) => {
-  if (!credentials || !shouldRedactRequestSecrets(viewerRole, targetRole)) return credentials;
+  if (!credentials) return credentials;
+  const viewer = normalizeRequestRole(viewerRole);
+  const target = normalizeRequestRole(targetRole);
+  if (['owner', 'operator'].includes(viewer) || ['countrymanager', 'statemanager', 'countryManager', 'stateManager'].includes(target)) {
+    return credentials;
+  }
+  if (!shouldRedactRequestSecrets(viewerRole, targetRole)) return credentials;
   const sanitized = { ...credentials };
   deleteFields(sanitized, PASSWORD_FIELDS);
   return sanitized;

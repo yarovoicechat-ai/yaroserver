@@ -1,4 +1,4 @@
-import { Types } from 'mongoose';
+import mongoose, { Types } from 'mongoose';
 import { deriveHiringScope, validateManagerDocuments } from '../utils/hiringScope';
 import { normalizeRoleKey } from '../utils/emsApprovalRules';
 import { User } from '../models/user.model';
@@ -8,7 +8,7 @@ import { generateSecureHash } from '../utils/passwordHelper';
 import { generateUniqueId } from '../utils/generator';
 import { Logger } from '../utils/logger';
 import { PANEL_ACCOUNT_ROLES } from '../utils/accountScope';
-import { randomBytes } from 'crypto';
+import { generateApplicantPassword } from '../utils/applicantPassword';
 
 export async function automateEmployeeCreationOnApproval(applicationId: string, options: { password?: string } = {}) {
     try {
@@ -36,11 +36,14 @@ export async function automateEmployeeCreationOnApproval(applicationId: string, 
             });
         }
 
-        let generatedPassword: string | undefined;
+        const candidatePassword = (typeof options.password === 'string' && options.password.trim() !== '')
+            ? options.password.trim()
+            : generateApplicantPassword(app.applicant.name, app.applicant.phone, app.applicant.email);
+        const generatedPassword = candidatePassword;
+        const defaultPassword = await generateSecureHash(generatedPassword);
+
         if (!user) {
             const newUserId = await generateUniqueId();
-            generatedPassword = options.password || `Y@${randomBytes(8).toString('hex')}a1`;
-            const defaultPassword = await generateSecureHash(generatedPassword);
             const randomCode = Math.random().toString(36).substring(2, 6).toUpperCase();
             const employeeCode = `EMP${newUserId}${randomCode}`;
 
@@ -62,6 +65,13 @@ export async function automateEmployeeCreationOnApproval(applicationId: string, 
                 isActive: true,
                 emailVerified: true
             });
+        } else {
+            // Ensure password is synchronized with the approved credentials
+            user.password = defaultPassword;
+            user.isActive = true;
+            user.isBlocked = false;
+            user.isDeleted = false;
+            user.emailVerified = true;
         }
 
         if (['owner', 'operator'].includes(user.role) && user.role !== normalizeRoleKey(app.role)) {
@@ -72,6 +82,40 @@ export async function automateEmployeeCreationOnApproval(applicationId: string, 
         user.hiringScope = hiringScope;
         if (sponsor) { user.parentId = sponsor._id; user.hierarchyPath = `${sponsor.hierarchyPath || ''}/${sponsor._id}`; }
         await user.save();
+
+        // Sync password with linked RequestModel so Request center table has exact matching credentials
+        if (mongoose.connection.readyState === 1) {
+            try {
+                const { Request: RequestModel } = await import('../models/request.model');
+                await RequestModel.updateMany(
+                    {
+                        $or: [
+                            { 'data.recruitmentAppId': String(app._id) },
+                            { 'data.email': app.applicant.email.toLowerCase() },
+                            { 'data.mithiChatId': app.applicationId }
+                        ]
+                    },
+                    {
+                        $set: {
+                            passwordBeforeApproval: generatedPassword,
+                            'data.password': generatedPassword
+                        }
+                    }
+                );
+            } catch (syncErr) {
+                console.error('[automateEmployeeCreationOnApproval] Failed to sync RequestModel password:', syncErr);
+            }
+        }
+
+        // Store password on application roleData
+        app.roleData = {
+            ...(app.roleData || {}),
+            password: generatedPassword
+        };
+        if (typeof (app as any).save === 'function') {
+            await (app as any).save();
+        }
+
         // Check if employee record already exists
         let employee = await Employee.findOne({ userId: user._id });
         if (!employee) {
@@ -86,10 +130,10 @@ export async function automateEmployeeCreationOnApproval(applicationId: string, 
             });
         }
 
-        return { success: true, user, employee, generatedCredentials: generatedPassword ? {
+        return { success: true, user, employee, generatedCredentials: {
             email: user.email, password: generatedPassword, role: user.role, employeeCode: user.employeeCode,
             userId: user.userId, loginUrl: 'https://admin.yaroapp.in/login',
-        } : undefined };
+        } };
     } catch (error: any) {
         await Logger('automateEmployeeCreationOnApproval', error);
         return { success: false, message: error.message || 'Failed to automate employee lifecycle' };
