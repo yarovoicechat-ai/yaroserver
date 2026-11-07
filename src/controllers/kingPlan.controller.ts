@@ -371,10 +371,6 @@ export const DEFAULT_KING_TIERS = [
 
 export const getPublishedKingPlans = async (_req: Request, res: Response) => {
   try {
-    const count = await KingTier.countDocuments();
-    if (count === 0) {
-      await KingTier.insertMany(DEFAULT_KING_TIERS);
-    }
 
     const plans = await KingTier.find({ status: 'active', isActive: true })
       .sort({ sortOrder: 1, tierLevel: 1 })
@@ -528,10 +524,6 @@ export const claimDailyKingReward = async (_req: AuthRequest, res: Response) => 
 export const adminListKingPlans = async (req: Request, res: Response) => {
   try {
     const { status, search } = req.query as any;
-    const count = await KingTier.countDocuments();
-    if (count === 0) {
-      await KingTier.insertMany(DEFAULT_KING_TIERS);
-    }
 
     const query: any = {};
     if (status && status !== 'all') {

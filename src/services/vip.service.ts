@@ -292,7 +292,7 @@ export class VipService {
   }
 
   /**
-   * Seed default VIP and SVIP catalog if database is empty
+   * Seed legacy VIP packages. SVIP plans are created explicitly in plan management.
    */
   static async seedInitialCatalog(): Promise<void> {
     const vipCount = await VipId.countDocuments();
@@ -301,11 +301,6 @@ export class VipService {
       console.log(`👑 [VIP] Seeded ${INITIAL_VIP_PACKAGES.length} VIP ID packages.`);
     }
 
-    const svipCount = await SvipTier.countDocuments();
-    if (svipCount === 0) {
-      await SvipTier.insertMany(INITIAL_SVIP_TIERS);
-      console.log(`💎 [SVIP] Seeded ${INITIAL_SVIP_TIERS.length} SVIP tiers.`);
-    }
   }
 
   /**

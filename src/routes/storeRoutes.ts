@@ -20,6 +20,9 @@ import {
   getUserLookupAdmin,
   getAssetGrantHistoryAdmin,
   revokeGrantedAssetAdmin,
+  adminGetUserAssets,
+  adminClearUserCosmetics,
+  adminRemoveUserAssets,
 } from '../controllers/storeController';
 import { AuthRequest, requireRoles, verifyToken } from '../middlewares/authorize.middleware';
 
@@ -59,5 +62,10 @@ router.get('/asset-catalog', verifyToken, storeManagers, getAssetCatalogAdmin);
 router.get('/user-lookup', verifyToken, storeManagers, getUserLookupAdmin);
 router.get('/grant-history', verifyToken, storeManagers, getAssetGrantHistoryAdmin);
 router.delete('/revoke-grant/:userId/:inventoryItemId', verifyToken, storeManagers, revokeGrantedAssetAdmin);
+
+// User Inventory & Cosmetics Administration (Batch Select & Remove Assets, Clear Equipped Cosmetics)
+router.get('/admin/user/:userId/assets', verifyToken, storeManagers, adminGetUserAssets);
+router.post('/admin/user/:userId/clear-cosmetics', verifyToken, storeManagers, adminClearUserCosmetics);
+router.post('/admin/user/:userId/remove-assets', verifyToken, storeManagers, adminRemoveUserAssets);
 
 export default router;

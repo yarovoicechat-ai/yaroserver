@@ -144,6 +144,9 @@ app.use(helmet({
 app.use("/uploads", express.static(path.join(__dirname, "../uploads"), {
   maxAge: '1d', etag: true, lastModified: true,
 }));
+app.use("/api/uploads", express.static(path.join(__dirname, "../uploads"), {
+  maxAge: '1d', etag: true, lastModified: true,
+}));
 app.use("/policies", express.static(path.join(__dirname, "../policies")));
 app.get('/api/share/:kind/:id', getPublicShare);
 
@@ -199,6 +202,9 @@ app.use("/api/gift", giftRouter);
 app.use("/api/admin/gifts", adminGiftRouter);
 app.use("/api/help", helpRoutes);
 app.use("/api/upload", UploadRoutes);
+app.use("/api/uploads", UploadRoutes);
+app.use("/api/v1/upload", UploadRoutes);
+app.use("/api/v1/uploads", UploadRoutes);
 app.use("/api/notifications", notificationRoutes);
 app.use("/api/voiceclub", voiceClubRoutes);
 app.use("/api/v1/voiceclub", voiceClubRoutes);

@@ -2100,7 +2100,13 @@ export const equipStoreItem = async (req: any, res: Response) => {
           startsAt: { $lte: new Date() },
           expiresAt: { $gt: new Date() },
         }).lean();
-        if (officialEntitlement) return sendResponse(res, 409, false, 'Deactivate your Official ID before activating a Unique ID');
+        if (officialEntitlement) {
+          // Auto deactivate official ID so user can switch to their Unique ID smoothly
+          await IdentityEntitlement.updateMany(
+            { userId: account.userId, type: 'official_id', status: 'active' },
+            { $set: { status: 'inactive' } }
+          );
+        }
         if (/^\d+$/.test(displayId) && await User.exists({ userId: Number(displayId) })) {
           return sendResponse(res, 409, false, `Unique ID ${displayId} conflicts with a permanent user ID`);
         }
@@ -2228,5 +2234,181 @@ export const equipStoreItem = async (req: any, res: Response) => {
   } catch (error: any) {
     console.error('equipStoreItem error:', error);
     return sendResponse(res, 500, false, error.message || 'Failed to equip store item');
+  }
+};
+
+/**
+ * ADMIN: Get all assets (equipped cosmetics, store inventory, official id status) for any user
+ */
+export const adminGetUserAssets = async (req: AuthRequest, res: Response) => {
+  try {
+    const { userId } = req.params;
+    const isNum = !isNaN(Number(userId));
+    const user = await User.findOne({
+      $or: [
+        ...(mongoose.isValidObjectId(userId) ? [{ _id: userId }] : []),
+        ...(isNum ? [{ userId: Number(userId) }] : []),
+      ],
+    }).select(
+      'userId name storeInventory equippedFrame equippedFrameAsset equippedEntry equippedEntryAsset equippedEntryEffect equippedEntryTag equippedTassel equippedTasselAsset equippedEntrance equippedEntranceAsset equippedChatBubble equippedChatBubbleAsset equippedMicWave equippedRoomTheme equippedVipId equippedBadge equippedBadgeAsset equippedBadges equippedTag equippedTagAsset equippedVehicle equippedVehicleAsset equippedProfileBorder equippedProfileBorderAsset equippedCustomId'
+    );
+    if (!user) return sendResponse(res, 404, false, 'User not found');
+
+    const officialEntitlement = await IdentityEntitlement.findOne({
+      userId: user.userId,
+      type: 'official_id',
+      status: 'active',
+    }).lean();
+
+    return sendResponse(res, 200, true, 'User assets fetched successfully', {
+      userId: user.userId,
+      storeInventory: user.storeInventory || [],
+      equippedCosmetics: {
+        equippedFrame: user.equippedFrame || null,
+        equippedEntry: user.equippedEntry || null,
+        equippedTag: user.equippedTag || (user as any).equippedEntryTag || null,
+        equippedChatBubble: user.equippedChatBubble || null,
+        equippedMicWave: user.equippedMicWave || null,
+        equippedCustomId: user.equippedCustomId || null,
+        equippedEntrance: (user as any).equippedEntrance || null,
+        equippedTassel: (user as any).equippedTassel || null,
+        equippedBadge: (user as any).equippedBadge || null,
+        equippedVehicle: (user as any).equippedVehicle || null,
+        equippedRoomTheme: (user as any).equippedRoomTheme || null,
+        equippedVipId: (user as any).equippedVipId || null,
+      },
+      officialIdActive: Boolean(officialEntitlement),
+    });
+  } catch (err: any) {
+    return sendResponse(res, 500, false, err.message || 'Failed to fetch user assets');
+  }
+};
+
+/**
+ * ADMIN: Clear all equipped cosmetics (frame, entry, tag, etc.) & deactivate official ID
+ */
+export const adminClearUserCosmetics = async (req: AuthRequest, res: Response) => {
+  try {
+    const { userId } = req.params;
+    const isNum = !isNaN(Number(userId));
+    const user = await User.findOne({
+      $or: [
+        ...(mongoose.isValidObjectId(userId) ? [{ _id: userId }] : []),
+        ...(isNum ? [{ userId: Number(userId) }] : []),
+      ],
+    });
+    if (!user) return sendResponse(res, 404, false, 'User not found');
+
+    user.equippedFrame = null as any;
+    user.equippedFrameAsset = null as any;
+    user.equippedEntry = null as any;
+    user.equippedEntryAsset = null as any;
+    (user as any).equippedEntryEffect = null;
+    (user as any).equippedEntryTag = '';
+    user.equippedTassel = null as any;
+    user.equippedTasselAsset = null as any;
+    (user as any).equippedEntrance = null;
+    (user as any).equippedEntranceAsset = null;
+    user.equippedChatBubble = null as any;
+    user.equippedChatBubbleAsset = null as any;
+    user.equippedMicWave = null as any;
+    (user as any).equippedBadge = null;
+    (user as any).equippedBadgeAsset = null;
+    (user as any).equippedBadges = [];
+    user.equippedTag = null as any;
+    user.equippedTagAsset = null as any;
+    (user as any).equippedVehicle = null;
+    (user as any).equippedVehicleAsset = null;
+    (user as any).equippedProfileBorder = null;
+    (user as any).equippedProfileBorderAsset = null;
+    user.equippedCustomId = null as any;
+    (user as any).equippedRoomTheme = null;
+    user.equippedVipId = null as any;
+    await user.save();
+
+    // Deactivate any active official_id entitlement
+    await IdentityEntitlement.updateMany(
+      { userId: user.userId, type: 'official_id', status: 'active' },
+      { $set: { status: 'inactive' } }
+    );
+
+    return sendResponse(res, 200, true, 'All equipped cosmetics and official ID deactivated successfully', {
+      userId: user.userId,
+    });
+  } catch (err: any) {
+    return sendResponse(res, 500, false, err.message || 'Failed to clear user cosmetics');
+  }
+};
+
+/**
+ * ADMIN: Batch remove selected or all assets from any user's inventory
+ */
+export const adminRemoveUserAssets = async (req: AuthRequest, res: Response) => {
+  try {
+    const { userId } = req.params;
+    const { inventoryItemIds, removeAll } = req.body;
+    const isNum = !isNaN(Number(userId));
+    const user = await User.findOne({
+      $or: [
+        ...(mongoose.isValidObjectId(userId) ? [{ _id: userId }] : []),
+        ...(isNum ? [{ userId: Number(userId) }] : []),
+      ],
+    });
+    if (!user) return sendResponse(res, 404, false, 'User not found');
+
+    if (removeAll === true) {
+      user.storeInventory = [] as any;
+      user.equippedFrame = null as any;
+      user.equippedFrameAsset = null as any;
+      user.equippedEntry = null as any;
+      user.equippedEntryAsset = null as any;
+      (user as any).equippedEntryEffect = null;
+      (user as any).equippedEntryTag = '';
+      user.equippedTassel = null as any;
+      user.equippedTasselAsset = null as any;
+      (user as any).equippedEntrance = null;
+      (user as any).equippedEntranceAsset = null;
+      user.equippedChatBubble = null as any;
+      user.equippedChatBubbleAsset = null as any;
+      user.equippedMicWave = null as any;
+      (user as any).equippedBadge = null;
+      (user as any).equippedBadgeAsset = null;
+      (user as any).equippedBadges = [];
+      user.equippedTag = null as any;
+      user.equippedTagAsset = null as any;
+      (user as any).equippedVehicle = null;
+      (user as any).equippedVehicleAsset = null;
+      (user as any).equippedProfileBorder = null;
+      (user as any).equippedProfileBorderAsset = null;
+      user.equippedCustomId = null as any;
+      (user as any).equippedRoomTheme = null;
+      user.equippedVipId = null as any;
+    } else if (Array.isArray(inventoryItemIds) && inventoryItemIds.length > 0) {
+      const idSet = new Set(inventoryItemIds.map(String));
+      const removedItems = (user.storeInventory || []).filter((item: any) =>
+        idSet.has(String(item._id)) || (item.itemId && idSet.has(String(item.itemId)))
+      );
+      user.storeInventory = (user.storeInventory || []).filter((item: any) =>
+        !idSet.has(String(item._id)) && (!item.itemId || !idSet.has(String(item.itemId)))
+      ) as any;
+
+      // If any removed item was equipped, unequip it
+      for (const item of removedItems) {
+        const name = item.name;
+        if (user.equippedFrame === name) { user.equippedFrame = null as any; user.equippedFrameAsset = null as any; }
+        if (user.equippedEntry === name) { user.equippedEntry = null as any; user.equippedEntryAsset = null as any; (user as any).equippedEntryEffect = null; }
+        if (user.equippedTag === name || (user as any).equippedEntryTag === name) { user.equippedTag = null as any; user.equippedTagAsset = null as any; (user as any).equippedEntryTag = ''; }
+        if (user.equippedChatBubble === name) { user.equippedChatBubble = null as any; user.equippedChatBubbleAsset = null as any; }
+        if (user.equippedMicWave === name) { user.equippedMicWave = null as any; }
+        if (user.equippedCustomId === name || ((item as any).metadata?.uniqueDisplayId && user.equippedCustomId === (item as any).metadata.uniqueDisplayId)) { user.equippedCustomId = null as any; }
+      }
+    }
+    await user.save();
+
+    return sendResponse(res, 200, true, 'User inventory assets removed successfully', {
+      remainingCount: user.storeInventory?.length || 0,
+    });
+  } catch (err: any) {
+    return sendResponse(res, 500, false, err.message || 'Failed to remove user assets');
   }
 };

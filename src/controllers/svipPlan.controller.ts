@@ -544,10 +544,6 @@ export const DEFAULT_SVIP_TIER_PLANS = [
 
 export const getPublishedSvipPlans = async (_req: Request, res: Response) => {
   try {
-    const count = await SvipTier.countDocuments();
-    if (count === 0) {
-      await SvipTier.insertMany(DEFAULT_SVIP_TIER_PLANS);
-    }
 
     const plans = await SvipTier.find({
       status: 'active',
@@ -744,10 +740,6 @@ export const purchaseSvipPlan = async (req: AuthRequest, res: Response) => {
 export const adminListSvipPlans = async (req: Request, res: Response) => {
   try {
     const { status, search } = req.query as any;
-    const count = await SvipTier.countDocuments();
-    if (count === 0) {
-      await SvipTier.insertMany(DEFAULT_SVIP_TIER_PLANS);
-    }
 
     const query: any = {};
     if (status && status !== 'all') {

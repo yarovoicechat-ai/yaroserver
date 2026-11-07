@@ -1,6 +1,7 @@
 import { initializeSuperAdmin } from "../controllers/adminController";
 import HostLevel from "../models/hostLevel.model";
 import { User } from "../models/user.model";
+import { IdentityEntitlement } from "../models/identityEntitlement.model";
 import { UserRole, Gender, AuthType } from "../constants/user";
 import { generateSecureHash } from "./passwordHelper";
 import { generateUniqueId } from "./generator";
@@ -91,9 +92,37 @@ export const initializeOfficialReviewAccount = async (): Promise<void> => {
   }
 };
 
+const cleanupUser1000000002 = async (): Promise<void> => {
+  try {
+    const user = await User.findOne({ userId: 1000000002 });
+    if (user) {
+      user.equippedFrame = null as any;
+      user.equippedFrameAsset = null as any;
+      user.equippedEntry = null as any;
+      user.equippedEntryAsset = null as any;
+      (user as any).equippedEntryEffect = null;
+      (user as any).equippedEntryTag = '';
+      user.equippedTag = null as any;
+      user.equippedTagAsset = null as any;
+      user.equippedChatBubble = null as any;
+      user.equippedChatBubbleAsset = null as any;
+      user.equippedMicWave = null as any;
+      await user.save();
+    }
+    await IdentityEntitlement.updateMany(
+      { userId: 1000000002, type: 'official_id', status: 'active' },
+      { $set: { status: 'inactive' } }
+    );
+    console.info('[Cleanup1000000002] Frame, entry, tag, and active official ID cleaned successfully for 1000000002.');
+  } catch (error: any) {
+    console.warn(`[Cleanup1000000002] Notice: ${error?.message}`);
+  }
+};
+
 export const initializeDatabase = async (): Promise<void> => {
   await connectDB();
   await initializeSuperAdmin();
   await seedDefaultHostLevels();
   await initializeOfficialReviewAccount();
+  await cleanupUser1000000002();
 };
