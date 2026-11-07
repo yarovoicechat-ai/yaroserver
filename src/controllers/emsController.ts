@@ -1,4 +1,5 @@
 import { deriveHiringScope, validateManagerDocuments } from '../utils/hiringScope';
+import { generateApplicantPassword, generateStrongPassword } from '../utils/applicantPassword';
 import { isAppRole, isPanelRole, getAccountRoleScope } from '../utils/accountScope';
 import { invitationSponsor } from '../team/approval';
 import { Response, NextFunction } from 'express';

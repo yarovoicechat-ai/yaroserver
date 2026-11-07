@@ -51,10 +51,50 @@ const OPERATOR_DENIED_ROUTES = [
   '/moderation',
 ];
 
-const managerPermissions: RoleDefinition = { name: 'Regional Manager', allowedRoutes: ['/dashboard', '/profile', '/team', '/employees', '/country-managers', '/state-managers', '/super-admins', '/admins', '/bd-leaders', '/bds', '/agencies', '/hosts', '/customer-support', '/recruitment', '/requests'], allowedModules: ['dashboard', 'team', 'employees', 'recruitment', 'requests', 'superAdmins', 'admins', 'bdLeaders', 'bds', 'agencies', 'hosts', 'customerSupport'], allowedActions: ['view', 'read', 'create', 'update', 'approve', 'reject', 'list'] };
+const managerPermissions: RoleDefinition = {
+  name: 'Regional Manager',
+  allowedRoutes: [
+    '/dashboard',
+    '/profile',
+    '/team',
+    '/employees',
+    '/country-managers',
+    '/state-managers',
+    '/super-admins',
+    '/admins',
+    '/bd-leaders',
+    '/bds',
+    '/agencies',
+    '/hosts',
+    '/customer-support',
+    '/recruitment',
+    '/requests',
+    '/referrals',
+    '/referrals/links',
+  ],
+  allowedModules: [
+    'dashboard',
+    'team',
+    'employees',
+    'recruitment',
+    'requests',
+    'superAdmins',
+    'admins',
+    'bdLeaders',
+    'bds',
+    'agencies',
+    'hosts',
+    'customerSupport',
+    'referrals',
+    'Referrals',
+  ],
+  allowedActions: ['view', 'read', 'create', 'update', 'approve', 'reject', 'list'],
+};
 export const ROLE_PERMISSION_MATRIX: Record<string, RoleDefinition> = {
   countryManager: { ...managerPermissions, name: 'Country Manager' },
+  'country-manager': { ...managerPermissions, name: 'Country Manager' },
   stateManager: { ...managerPermissions, name: 'State Manager' },
+  'state-manager': { ...managerPermissions, name: 'State Manager' },
   owner: {
     name: 'Owner',
     allowedRoutes: ['*'],
@@ -340,7 +380,7 @@ export const isRouteAllowed = (role: string, route: string): boolean => {
   if (roleDef.allowedRoutes.includes('*')) return true;
 
   const path = route.split('?')[0].split('#')[0];
-  if (path === '/team' || path.startsWith('/team/')) return ['owner', 'operator', 'countryManager', 'stateManager', 'superAdmin', 'super-admin', 'admin', 'bdLeader', 'bd-leader', 'bd', 'agency', 'host'].includes(role);
+  if (path === '/team' || path.startsWith('/team/')) return ['owner', 'operator', 'countryManager', 'country-manager', 'stateManager', 'state-manager', 'superAdmin', 'super-admin', 'admin', 'bdLeader', 'bd-leader', 'bd', 'agency', 'host'].includes(role);
 
 
   if (role === 'superAdmin' && SUPER_ADMIN_DENIED_ROUTES.some(

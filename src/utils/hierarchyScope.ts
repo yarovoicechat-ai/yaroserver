@@ -1,3 +1,4 @@
+import mongoose from 'mongoose';
 import { User } from '../models/user.model';
 
 export interface OwnerReferralInfo {
@@ -141,18 +142,24 @@ export class HierarchyScopeService {
     const role = user.role;
     const userId = user.id.toString();
     if (['countryManager', 'stateManager', 'country-manager', 'state-manager'].includes(role)) {
+      const isValidObjectId = mongoose.Types.ObjectId.isValid(userId);
+      const orConditions: any[] = [
+        { referrerId: userId },
+        { hierarchyPath: { $regex: userId } },
+      ];
+      if (isValidObjectId) {
+        const objId = new mongoose.Types.ObjectId(userId);
+        orConditions.push(
+          { _id: objId },
+          { parentId: objId },
+          { referredBy: objId },
+          { createdBy: objId }
+        );
+      }
       return {
-        $or: [
-          { _id: userId },
-          { parentId: userId },
-          { referralUserId: userId },
-          { 'referrer.referrerId': userId },
-          { hierarchyPath: { $regex: userId } },
-          { 'data.hierarchyPath': { $regex: userId } },
-          { 'roleData.hierarchyPath': { $regex: userId } },
-          { createdBy: { $in: ['public', 'recruitment_sync', '', null] } },
-          { referralUserId: { $in: ['', null, undefined] } }
-        ]
+        role: { $ne: 'owner' },
+        $or: orConditions,
+        isDeleted: false
       };
     }
 

@@ -24,3 +24,4 @@ export const generateApplicantPassword = (name?: string, phone?: string, email?:
 export const generateStrongPassword = (name?: string, phone?: string, email?: string): string => {
   return generateApplicantPassword(name, phone, email);
 };
+
