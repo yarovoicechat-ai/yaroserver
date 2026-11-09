@@ -284,20 +284,24 @@ export const userRegister = async (req: AuthRequest, res: Response) => {
 
     const namePolicy = await getNamePolicy();
     const requestedName = String(req.body?.name || '').trim().slice(0, 20);
+    let approvedName = '';
     if (requestedName) {
       const nameError = validateNameAgainstPolicy(requestedName, namePolicy);
-      if (nameError) return sendResponse(res, 400, false, nameError);
-    }
-    let generatedName = '';
-    if (!requestedName) {
-      for (let attempt = 0; attempt < 10 && !generatedName; attempt += 1) {
-        generatedName = getDefaultNameForPolicy(await generateRandomName(), namePolicy);
-      }
-      if (!generatedName) {
-        return sendResponse(res, 400, false, 'No approved display name is available. Please contact support.');
+      if (!nameError) {
+        approvedName = requestedName;
+      } else {
+        approvedName = getDefaultNameForPolicy(requestedName, namePolicy);
       }
     }
-    const name = requestedName || generatedName;
+    if (!approvedName) {
+      for (let attempt = 0; attempt < 10 && !approvedName; attempt += 1) {
+        approvedName = getDefaultNameForPolicy(await generateRandomName(), namePolicy);
+      }
+    }
+    if (!approvedName) {
+      approvedName = `User${Math.floor(1000 + Math.random() * 9000)}`;
+    }
+    const name = approvedName;
     const hashedPassword = await generateSecureHash(password);
     let image = "";
     switch (gender) {
@@ -657,9 +661,25 @@ export const userGoogleAuth = async (req: Request, res: Response) => {
       });
     }
 
-    const userCountry = (typeof country === 'string' ? { name: country } : country) || { name: 'India', code: '+91', flag: '🇮🇳' };
-    if (!gender || !Array.isArray(language) || language.length < 2 || !userCountry?.name) {
-      return sendResponse(res, 428, false, "Complete gender, country and 2 languages to create your account");
+    let normalizedLanguage: string[] = [];
+    if (Array.isArray(language)) {
+      normalizedLanguage = language.map(String).filter(Boolean);
+    } else if (typeof language === 'string' && language.trim()) {
+      normalizedLanguage = [language.trim()];
+    }
+    if (normalizedLanguage.length === 0) {
+      normalizedLanguage = ['English', 'Hindi'];
+    } else if (normalizedLanguage.length === 1) {
+      normalizedLanguage.push('Hindi');
+    }
+
+    const countryObj = (typeof country === 'object' && country !== null)
+      ? country
+      : { name: typeof country === 'string' && country.trim() ? country.trim() : 'India', code: '+91', flag: '🇮🇳' };
+    const userCountry = countryObj?.name ? countryObj : { name: 'India', code: '+91', flag: '🇮🇳' };
+
+    if (!gender || !userCountry?.name) {
+      return sendResponse(res, 428, false, "Complete gender and country to create your account");
     }
 
     const userAge = Number(age);
@@ -676,12 +696,32 @@ export const userGoogleAuth = async (req: Request, res: Response) => {
     }
 
     const namePolicy = await getNamePolicy();
-    const approvedGoogleName = getDefaultNameForPolicy(String(googleUserInfo.name || '').trim().slice(0, 20), namePolicy);
-    if (!approvedGoogleName) {
-      return sendResponse(res, 400, false, 'Your Google display name is restricted. Please contact support.');
+    const requestedName = String(req.body?.name || '').trim().slice(0, 20);
+    const googleName = String(googleUserInfo.name || '').trim().slice(0, 20);
+    let approvedGoogleName = '';
+
+    if (requestedName) {
+      const nameError = validateNameAgainstPolicy(requestedName, namePolicy);
+      if (!nameError) {
+        approvedGoogleName = requestedName;
+      }
     }
-    const googleNameError = validateNameAgainstPolicy(approvedGoogleName, namePolicy);
-    if (googleNameError) return sendResponse(res, 400, false, googleNameError);
+    if (!approvedGoogleName && googleName) {
+      const nameError = validateNameAgainstPolicy(googleName, namePolicy);
+      if (!nameError) {
+        approvedGoogleName = googleName;
+      } else {
+        approvedGoogleName = getDefaultNameForPolicy(googleName, namePolicy);
+      }
+    }
+    if (!approvedGoogleName) {
+      for (let attempt = 0; attempt < 10 && !approvedGoogleName; attempt += 1) {
+        approvedGoogleName = getDefaultNameForPolicy(await generateRandomName(), namePolicy);
+      }
+    }
+    if (!approvedGoogleName) {
+      approvedGoogleName = `User${Math.floor(1000 + Math.random() * 9000)}`;
+    }
 
     const existingEmailUser = await User.findOne({
       email: normalizedEmail,
@@ -761,7 +801,7 @@ export const userGoogleAuth = async (req: Request, res: Response) => {
       image: finalGoogleImage,
       authType: "google",
       emailVerified: payload.email_verified || false,
-      language,
+      language: normalizedLanguage,
       country: userCountry,
       age: userAge,
       profileCompleted: true,
@@ -773,7 +813,11 @@ export const userGoogleAuth = async (req: Request, res: Response) => {
       equippedTagAsset: welcomeCosmetics.equippedTagAsset,
       equippedEntryTag: welcomeCosmetics.equippedEntryTag,
       storeInventory: welcomeCosmetics.storeInventory,
-      device: userFrom === "app" ? { createdDeviceId: deviceId || "", currentDeviceId: deviceId || "", loggedInDeviceIds: deviceId ? [deviceId] : [] } : {},
+      device: {
+        createdDeviceId: String(deviceId || `google_${userId}`).trim(),
+        currentDeviceId: String(deviceId || `google_${userId}`).trim(),
+        loggedInDeviceIds: deviceId ? [deviceId] : [`google_${userId}`],
+      },
     });
 
     const accessToken = await generateToken(newUser.userId.toString(), "access");

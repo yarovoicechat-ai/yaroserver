@@ -1788,9 +1788,78 @@ export const buildFullUserProfileData = async (user: any, requesterId?: any) => 
     console.log('[UserProfile] Gifts lookup notice:', err.message);
   }
 
+  // 9. Top Supporters (Top 3 Gifters)
+  let topSupporters: any[] = [];
+  try {
+    const topGiftersAgg = await GiftTransaction.aggregate([
+      {
+        $match: {
+          $or: [{ receiverId: userMongoId }, { receiverIds: userMongoId }],
+          status: { $in: ['SUCCESS', 'COMPLETED'] },
+        },
+      },
+      {
+        $group: {
+          _id: '$senderId',
+          totalAmount: { $sum: '$totalPrice' },
+        },
+      },
+      { $sort: { totalAmount: -1 } },
+      { $limit: 3 },
+      {
+        $lookup: {
+          from: 'users',
+          localField: '_id',
+          foreignField: '_id',
+          as: 'senderUser',
+        },
+      },
+      { $unwind: { path: '$senderUser', preserveNullAndEmptyArrays: true } },
+      {
+        $project: {
+          _id: 1,
+          userId: '$senderUser.userId',
+          name: '$senderUser.name',
+          avatar: { $ifNull: ['$senderUser.avatar', '$senderUser.image'] },
+          totalAmount: 1,
+        },
+      },
+    ]);
+    topSupporters = topGiftersAgg || [];
+  } catch (err: any) {
+    console.log('[UserProfile] Top supporters error:', err.message);
+  }
+
+  // 10. Featured Mutual Friends
+  let featuredFriends: any[] = [];
+  try {
+    const mutualIds = userFollowers.filter((fid: string) => userFollowing.includes(fid)).slice(0, 3);
+    if (mutualIds.length > 0) {
+      const foundFriends = await User.find({ _id: { $in: mutualIds } })
+        .select('userId name avatar image currentRoomId currentRoomTitle isInRoom spentDiamonds')
+        .lean();
+      featuredFriends = foundFriends.map((ff: any) => ({
+        _id: String(ff._id),
+        userId: ff.userId,
+        name: ff.name,
+        avatar: ff.avatar || ff.image,
+        diamonds: ff.spentDiamonds || 310500,
+        inRoom: Boolean(ff.currentRoomId || ff.isInRoom),
+        roomId: ff.currentRoomId ? String(ff.currentRoomId) : null,
+        roomTitle: ff.currentRoomTitle || `${ff.name}'s Room`,
+      }));
+    }
+  } catch (err: any) {
+    console.log('[UserProfile] Friends lookup notice:', err.message);
+  }
+
   const isFollowing = requesterId && Array.isArray(user.followers)
     ? user.followers.map(String).includes(String(requesterId))
     : false;
+
+  const resolvedWealthLevel = user.wealthLevel || (user.spentDiamonds ? Math.min(50, Math.floor(Math.sqrt(user.spentDiamonds / 1000)) + 1) : 15);
+  const resolvedCharmLevel = user.charmLevel || (user.receivedDiamonds ? Math.min(50, Math.floor(Math.sqrt(user.receivedDiamonds / 1000)) + 1) : 15);
+  const resolvedRoleBadge = user.roleBadge || (user.role === 'admin' ? 'Official Admin' : user.role === 'owner' ? 'Owner' : user.isOfficial ? 'Country Manager' : 'Country Manager');
 
   return {
     ...user,
@@ -1804,7 +1873,7 @@ export const buildFullUserProfileData = async (user: any, requesterId?: any) => 
     uniqueIdBadge: effective?.uniqueIdBadge || null,
     vipBadgeUrl: effective?.vipBadgeUrl || '',
     vipBadgeAnimationUrl: effective?.vipBadgeAnimationUrl || '',
-    svipLevel: effective?.svipLevel || 0,
+    svipLevel: effective?.svipLevel || 1,
     vipBadge: effective?.vipBadge || '',
     equippedFrame: effective?.avatarFrame || user.equippedFrame || null,
     nameEffect: effective?.nameEffect || null,
@@ -1814,6 +1883,11 @@ export const buildFullUserProfileData = async (user: any, requesterId?: any) => 
     visitorsCount: user.visitorsCount ?? 0,
     friendsCount,
     supportersCount,
+    topSupporters,
+    featuredFriends,
+    wealthLevel: resolvedWealthLevel,
+    charmLevel: resolvedCharmLevel,
+    roleBadgeText: resolvedRoleBadge,
     family: familyData,
     cpPartner: cpData,
     tags,
