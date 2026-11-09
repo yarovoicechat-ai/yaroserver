@@ -874,7 +874,13 @@ export const updateFamilyNotice = async (req: any, res: Response) => {
 export const getSupportRoom = async (req: Request, res: Response) => {
   try {
     let supportRoom = await Room.findOne({
-      $or: [{ category: 'Support' }, { title: { $regex: 'Customer Support|Help & Support', $options: 'i' } }],
+      $or: [
+        { channelName: '1000000086' },
+        { roomId: '1000000086' },
+        { customDisplayId: '1000000086' },
+        { category: 'Support' },
+        { title: { $regex: 'Customer Support|Help & Support|Official Support', $options: 'i' } }
+      ],
       isActive: true,
     })
       .populate('ownerId', 'name avatar userId')
@@ -884,13 +890,14 @@ export const getSupportRoom = async (req: Request, res: Response) => {
       // Find admin or any host
       const hostUser: any = await User.findOne({ role: { $in: ['admin', 'superAdmin', 'owner'] } }) || await User.findOne({});
       const hostId = hostUser ? hostUser._id : new mongoose.Types.ObjectId();
-      const hostUserId = hostUser?.userId ? String(hostUser.userId) : '100001';
 
       supportRoom = await Room.create({
         ownerId: hostId,
-        channelName: `support_room_${hostUserId}`,
-        roomId: `support_room_${hostUserId}`,
-        title: '🎧 24/7 Official Customer Help & Support',
+        channelName: '1000000086',
+        roomId: '1000000086',
+        customDisplayId: '1000000086',
+        uniqueId: '1000000086',
+        title: '🎧 Official Help & Support',
         category: 'Support',
         about: 'Official support center for Yaro users. Ask any questions about accounts, gifts, rooms, or clans!',
         mode: 'Public',
