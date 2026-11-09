@@ -1,5 +1,21 @@
 import mongoose, { Schema, Document } from 'mongoose';
 
+export interface IFamilyJoinRequest {
+  _id?: mongoose.Types.ObjectId;
+  user: mongoose.Types.ObjectId;
+  message?: string;
+  requestedAt: Date;
+  status: 'pending' | 'accepted' | 'rejected';
+}
+
+export interface IFamilyInvitation {
+  _id?: mongoose.Types.ObjectId;
+  invitee: mongoose.Types.ObjectId;
+  inviter: mongoose.Types.ObjectId;
+  invitedAt: Date;
+  status: 'pending' | 'accepted' | 'rejected';
+}
+
 export interface IFamily extends Document {
   name: string;
   badgeText: string;
@@ -7,7 +23,7 @@ export interface IFamily extends Document {
   cover?: string;
   notice?: string;
   slogan?: string;
-  level: number;
+  level: number; // 1, 2, 3, or 4
   exp: number;
   leader: mongoose.Types.ObjectId;
   coLeaders: mongoose.Types.ObjectId[];
@@ -17,14 +33,15 @@ export interface IFamily extends Document {
   ranking: number;
   diamondsEarned: number;
   isActive: boolean;
+  approvalStatus: 'pending' | 'approved' | 'rejected';
+  rejectionReason?: string;
+  diamondsPaidForCreation: number;
   checkins: {
     user: mongoose.Types.ObjectId;
     date: string;
   }[];
-  joinRequests: {
-    user: mongoose.Types.ObjectId;
-    requestedAt: Date;
-  }[];
+  joinRequests: IFamilyJoinRequest[];
+  invitations: IFamilyInvitation[];
   createdAt: Date;
   updatedAt: Date;
 }
@@ -43,16 +60,24 @@ const FamilySchema = new Schema<IFamily>(
     },
     notice: { type: String, default: 'Welcome to our Family! Let us conquer the leaderboards together.' },
     slogan: { type: String, default: 'United we rise, together we conquer!' },
-    level: { type: Number, default: 1, min: 1 },
+    level: { type: Number, default: 1, min: 1, max: 4 },
     exp: { type: Number, default: 0, min: 0 },
     leader: { type: Schema.Types.ObjectId, ref: 'User', required: true, index: true },
     coLeaders: [{ type: Schema.Types.ObjectId, ref: 'User' }],
     members: [{ type: Schema.Types.ObjectId, ref: 'User' }],
     memberCount: { type: Number, default: 1 },
-    maxMembers: { type: Number, default: 50 },
+    maxMembers: { type: Number, default: 20 },
     ranking: { type: Number, default: 999 },
     diamondsEarned: { type: Number, default: 0 },
     isActive: { type: Boolean, default: true, index: true },
+    approvalStatus: {
+      type: String,
+      enum: ['pending', 'approved', 'rejected'],
+      default: 'pending',
+      index: true,
+    },
+    rejectionReason: { type: String, default: '' },
+    diamondsPaidForCreation: { type: Number, default: 10000 },
     checkins: [
       {
         user: { type: Schema.Types.ObjectId, ref: 'User' },
@@ -62,14 +87,24 @@ const FamilySchema = new Schema<IFamily>(
     joinRequests: [
       {
         user: { type: Schema.Types.ObjectId, ref: 'User' },
+        message: { type: String, default: 'I would love to join your clan!' },
         requestedAt: { type: Date, default: Date.now },
+        status: { type: String, enum: ['pending', 'accepted', 'rejected'], default: 'pending' },
+      },
+    ],
+    invitations: [
+      {
+        invitee: { type: Schema.Types.ObjectId, ref: 'User' },
+        inviter: { type: Schema.Types.ObjectId, ref: 'User' },
+        invitedAt: { type: Date, default: Date.now },
+        status: { type: String, enum: ['pending', 'accepted', 'rejected'], default: 'pending' },
       },
     ],
   },
   { timestamps: true }
 );
 
-FamilySchema.index({ ranking: 1, diamondsEarned: -1, level: -1 });
+FamilySchema.index({ approvalStatus: 1, ranking: 1, diamondsEarned: -1, level: -1 });
 
 export const Family =
   (mongoose.models.Family as mongoose.Model<IFamily>) ||
