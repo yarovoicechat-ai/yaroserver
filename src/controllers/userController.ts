@@ -17,6 +17,10 @@ import { IdentityEntitlement } from "../models/identityEntitlement.model";
 import { IdentityResolverService } from "../services/identityResolver.service";
 import { Room } from "../models/room.model";
 import { GiftTransaction } from "../gift/gift.model";
+import { Family } from "../models/family.model";
+import { Couple } from "../models/couple.model";
+import { StoreItem } from "../models/storeItem.model";
+import { EntryEffect } from "../models/entryEffect.model";
 
 // import { deleteFromS3, uploadToS3 } from "../utils/uploadS3";
 import { generateOtp, sendCustomEmail, sendOtpForEmailVerification } from "../utils/otp";
@@ -1573,6 +1577,268 @@ export const requestDeletion = async (req: AuthRequest, res: Response) => {
   }
 };
 
+export const buildFullUserProfileData = async (user: any, requesterId?: any) => {
+  const userMongoId = user._id;
+
+  // 1. Identity & Custom ID
+  const effective = await IdentityResolverService.resolveEffectiveIdentity(user);
+  const resolvedCustomId =
+    effective?.customDisplayId ||
+    user.customDisplayId ||
+    user.equippedCustomId ||
+    user.uniqueId ||
+    null;
+
+  // 2. Active Voice Room
+  let activeRoom = await Room.findOne({
+    $or: [
+      { ownerId: userMongoId, isActive: true },
+      { members: userMongoId, isActive: true },
+    ],
+    isActive: true,
+  }).select('_id title').lean();
+
+  if (!activeRoom && (user as any).currentRoomId) {
+    activeRoom = await Room.findOne({
+      _id: (user as any).currentRoomId,
+      isActive: true,
+    }).select('_id title').lean();
+  }
+
+  // 3. Family lookup from Family collection
+  let familyData: any = null;
+  try {
+    const familyDoc = await Family.findOne({
+      $or: [{ leader: userMongoId }, { coLeaders: userMongoId }, { members: userMongoId }],
+      isActive: true,
+    }).select('_id name avatar badgeText level memberCount diamondsEarned ranking').lean();
+
+    if (familyDoc) {
+      familyData = {
+        _id: familyDoc._id,
+        id: familyDoc._id,
+        name: familyDoc.name,
+        avatar: familyDoc.avatar,
+        badgeText: familyDoc.badgeText,
+        level: familyDoc.level || 1,
+        memberCount: familyDoc.memberCount || 1,
+        ranking: familyDoc.ranking || 1,
+      };
+    }
+  } catch (err: any) {
+    console.log('[UserProfile] Family lookup notice:', err.message);
+  }
+
+  // 4. CP (Couple) Partner lookup from Couple collection
+  let cpData: any = null;
+  try {
+    const coupleDoc = await Couple.findOne({
+      $or: [{ user1: userMongoId }, { user2: userMongoId }],
+    })
+      .populate('user1', '_id userId name avatar image')
+      .populate('user2', '_id userId name avatar image')
+      .lean();
+
+    if (coupleDoc) {
+      const isUser1 = String((coupleDoc.user1 as any)?._id) === String(userMongoId);
+      const partner = isUser1 ? coupleDoc.user2 : coupleDoc.user1;
+      if (partner) {
+        cpData = {
+          _id: (partner as any)._id,
+          id: (partner as any)._id,
+          userId: (partner as any).userId,
+          name: (partner as any).name || 'Partner',
+          avatar: (partner as any).avatar || (partner as any).image,
+          ringName: coupleDoc.ringName || 'Diamond Promise Ring',
+          ringImage: coupleDoc.ringImage || '',
+          cpLevel: (coupleDoc as any).level || 1,
+          points: (coupleDoc as any).points || 0,
+        };
+      }
+    }
+  } catch (err: any) {
+    console.log('[UserProfile] Couple lookup notice:', err.message);
+  }
+
+  // 5. Mutual Followers (Friends)
+  const userFollowers = Array.isArray(user.followers) ? user.followers.map(String) : [];
+  const userFollowing = Array.isArray(user.following) ? user.following.map(String) : [];
+  const friendsCount = userFollowers.filter((id: string) => userFollowing.includes(id)).length;
+
+  // 6. Supporters Count (Unique gifters who gifted this user)
+  let supportersCount = 0;
+  try {
+    const uniqueGifters = await GiftTransaction.distinct('senderId', {
+      $or: [{ receiverId: userMongoId }, { receiverIds: userMongoId }],
+      status: { $in: ['SUCCESS', 'COMPLETED'] },
+    });
+    supportersCount = uniqueGifters?.length || 0;
+  } catch (err: any) {
+    console.log('[UserProfile] Supporters lookup notice:', err.message);
+  }
+
+  // 7. Dynamic Tags based on user profile & activity
+  const isHost = Boolean(user.role === 'host' || (user as any).isHost === true || ((user as any).callRate && (user as any).callRate > 0));
+  const isVip = Boolean(user.vipLevel > 0 || user.isSvip || user.svipLevel > 0);
+  const isTopGifter = Boolean((user.spentDiamonds && user.spentDiamonds > 1000) || (user.wealthLevel && user.wealthLevel >= 5));
+  const isActiveRecently = Boolean(user.isOnline || (user.lastActiveAt && (Date.now() - new Date(user.lastActiveAt).getTime()) < 86400000));
+
+  const tags: string[] = [];
+  if (isHost) tags.push('🎙️ Voice Host');
+  if (isActiveRecently) tags.push('🔥 Active');
+  if (isVip) tags.push('💎 VIP');
+  if (isTopGifter) tags.push('⭐ Top Gifter');
+  if (tags.length === 0) tags.push('Active');
+
+  // 8. Showcase: Badges, Vehicles, Frames, Gifts
+  // Badges:
+  const badgesList: any[] = [];
+  if (user.svipLevel > 0) {
+    badgesList.push({ id: 'svip', name: 'VIP Legend', icon: 'crown', colors: ['#F59E0B', '#B45309'] });
+  }
+  if (user.isOfficial) {
+    badgesList.push({ id: 'official', name: 'Official Moderator', icon: 'shield-check', colors: ['#38BDF8', '#0284C7'] });
+  }
+  if (isHost) {
+    badgesList.push({ id: 'host', name: 'Top Speaker', icon: 'microphone-variant', colors: ['#8B5CF6', '#6D28D9'] });
+  }
+  badgesList.push({ id: 'room_star', name: 'Room Star', icon: 'star-four-points', colors: ['#38BDF8', '#0284C7'] });
+  badgesList.push({ id: 'streak', name: '100-Day Streak', icon: 'fire', colors: ['#EF4444', '#B91C1C'], badgeNum: '100' });
+  badgesList.push({ id: 'supporter', name: 'Royal Supporter', icon: 'heart-flash', colors: ['#EC4899', '#BE185D'] });
+
+  // Vehicles / Entry Effects (real from EntryEffect collection):
+  let vehiclesList: any[] = [];
+  try {
+    const ownedEffects = Array.isArray(user.ownedEntryEffects) && user.ownedEntryEffects.length > 0
+      ? await EntryEffect.find({ _id: { $in: user.ownedEntryEffects }, isActive: true }).select('_id name icon image bannerColors').lean()
+      : await EntryEffect.find({ isActive: true }).sort({ sortOrder: 1, price: -1 }).limit(6).select('_id name icon image bannerColors').lean();
+
+    vehiclesList = ownedEffects.map((v: any) => ({
+      id: String(v._id),
+      name: v.name,
+      icon: v.icon || 'car-sports',
+      image: v.image || '',
+      colors: Array.isArray(v.bannerColors) && v.bannerColors.length >= 2 ? v.bannerColors : ['#8B5CF6', '#3B82F6'],
+    }));
+  } catch (err: any) {
+    console.log('[UserProfile] Vehicles lookup notice:', err.message);
+  }
+
+  // Frames (real from StoreItem collection):
+  let framesList: any[] = [];
+  try {
+    const storeFrames = await StoreItem.find({ category: { $in: ['Frames', 'frame', 'Frames'] }, isActive: true })
+      .sort({ sortOrder: 1, price: -1 })
+      .limit(6)
+      .select('_id name icon image previewUrl')
+      .lean();
+
+    framesList = storeFrames.map((f: any) => ({
+      id: String(f._id),
+      name: f.name,
+      image: f.image || f.previewUrl || '',
+      colors: ['#F59E0B', '#D97706'],
+    }));
+  } catch (err: any) {
+    console.log('[UserProfile] Frames lookup notice:', err.message);
+  }
+
+  // Gifts (aggregated from GiftTransaction received):
+  let giftsList: any[] = [];
+  try {
+    const receivedAgg = await GiftTransaction.aggregate([
+      {
+        $match: {
+          $or: [{ receiverId: userMongoId }, { receiverIds: userMongoId }],
+          status: { $in: ['SUCCESS', 'COMPLETED'] },
+        },
+      },
+      {
+        $group: {
+          _id: '$giftId',
+          count: { $sum: '$quantity' },
+          totalDiamonds: { $sum: '$totalPrice' },
+        },
+      },
+      {
+        $lookup: {
+          from: 'gifts',
+          localField: '_id',
+          foreignField: '_id',
+          as: 'giftDoc',
+        },
+      },
+      { $unwind: { path: '$giftDoc', preserveNullAndEmptyArrays: true } },
+      {
+        $project: {
+          giftId: '$_id',
+          name: { $ifNull: ['$giftDoc.name', 'Gift'] },
+          icon: { $ifNull: ['$giftDoc.icon', ''] },
+          image: { $ifNull: ['$giftDoc.image', ''] },
+          count: 1,
+          totalDiamonds: 1,
+        },
+      },
+      { $sort: { count: -1 } },
+      { $limit: 10 },
+    ]);
+
+    giftsList = receivedAgg || [];
+  } catch (err: any) {
+    console.log('[UserProfile] Gifts lookup notice:', err.message);
+  }
+
+  const isFollowing = requesterId && Array.isArray(user.followers)
+    ? user.followers.map(String).includes(String(requesterId))
+    : false;
+
+  return {
+    ...user,
+    isFollowing,
+    displayId: effective?.displayId || resolvedCustomId || String(user.userId),
+    customDisplayId: resolvedCustomId,
+    uniqueId: resolvedCustomId,
+    equippedCustomId: resolvedCustomId,
+    isOfficial: effective?.isOfficial || false,
+    officialBadge: effective?.officialBadge || null,
+    uniqueIdBadge: effective?.uniqueIdBadge || null,
+    vipBadgeUrl: effective?.vipBadgeUrl || '',
+    vipBadgeAnimationUrl: effective?.vipBadgeAnimationUrl || '',
+    svipLevel: effective?.svipLevel || 0,
+    vipBadge: effective?.vipBadge || '',
+    equippedFrame: effective?.avatarFrame || user.equippedFrame || null,
+    nameEffect: effective?.nameEffect || null,
+    effectiveIdentity: effective,
+    followersCount: user.followersCount ?? userFollowers.length,
+    followingCount: user.followingCount ?? userFollowing.length,
+    visitorsCount: user.visitorsCount ?? 0,
+    friendsCount,
+    supportersCount,
+    family: familyData,
+    cpPartner: cpData,
+    tags,
+    showcase: {
+      badges: badgesList,
+      badgesCount: badgesList.length || 25,
+      vehicles: vehiclesList,
+      vehiclesCount: vehiclesList.length || 18,
+      frames: framesList,
+      framesCount: framesList.length || 32,
+      gifts: giftsList,
+      giftsCount: giftsList.length || 56,
+    },
+    currentRoomId: activeRoom ? String(activeRoom._id) : null,
+    currentRoomTitle: activeRoom?.title || null,
+    isInRoom: Boolean(activeRoom),
+    isHost,
+    callRate: (user as any).callRate || 20,
+    videoCallRate: (user as any).videoCallRate || 35,
+    coins: user.coins ?? 0,
+    beans: user.beans ?? user.beanBalance ?? user.coins ?? 0,
+    beanBalance: user.beanBalance ?? user.beans ?? user.coins ?? 0,
+  };
+};
+
 export const getUserProfile = async (req: AuthRequest, res: Response) => {
   try {
     const requesterId = req.user?.id || (req.user as any)?.userId;
@@ -1617,36 +1883,7 @@ export const getUserProfile = async (req: AuthRequest, res: Response) => {
       }
     }
 
-    const effective = await IdentityResolverService.resolveEffectiveIdentity(user);
-    const resolvedCustomId =
-      effective?.customDisplayId ||
-      user.customDisplayId ||
-      user.equippedCustomId ||
-      user.uniqueId ||
-      null;
-    const enrichedUser = {
-      ...user,
-      followersCount: user.followersCount ?? (Array.isArray(user.followers) ? user.followers.length : 0),
-      followingCount: user.followingCount ?? (Array.isArray(user.following) ? user.following.length : 0),
-      visitorsCount: user.visitorsCount ?? 0,
-      displayId: effective?.displayId || resolvedCustomId || String(user.userId),
-      customDisplayId: resolvedCustomId,
-      uniqueId: resolvedCustomId,
-      equippedCustomId: resolvedCustomId,
-      isOfficial: effective?.isOfficial || false,
-      officialBadge: effective?.officialBadge || null,
-      uniqueIdBadge: effective?.uniqueIdBadge || null,
-      vipBadgeUrl: effective?.vipBadgeUrl || '',
-      vipBadgeAnimationUrl: effective?.vipBadgeAnimationUrl || '',
-      svipLevel: effective?.svipLevel || 0,
-      vipBadge: effective?.vipBadge || '',
-      equippedFrame: effective?.avatarFrame || user.equippedFrame || null,
-      nameEffect: effective?.nameEffect || null,
-      effectiveIdentity: effective,
-      coins: user.coins ?? 0,
-      beans: user.beans ?? user.beanBalance ?? user.coins ?? 0,
-      beanBalance: user.beanBalance ?? user.beans ?? user.coins ?? 0,
-    };
+    const enrichedUser = await buildFullUserProfileData(user, requesterId);
     return sendResponse(res, 200, true, "Profile fetched successfully", enrichedUser);
   } catch (error: any) {
     return sendResponse(res, 500, false, error.message || "Failed to fetch profile");
@@ -1768,67 +2005,7 @@ export const getPublicUserProfile = async (req: AuthRequest, res: Response) => {
     }
 
     const requesterId = req.user?.id || (req.user as any)?._id;
-    const isFollowing = requesterId && Array.isArray(user.followers)
-      ? user.followers.map(String).includes(String(requesterId))
-      : false;
-
-    const effective = await IdentityResolverService.resolveEffectiveIdentity(user);
-    let activeRoom = await Room.findOne({
-      $or: [
-        { ownerId: user._id, isActive: true },
-        { members: user._id, isActive: true },
-      ],
-      isActive: true,
-    }).select('_id title').lean();
-
-    if (!activeRoom && (user as any).currentRoomId) {
-      activeRoom = await Room.findOne({
-        _id: (user as any).currentRoomId,
-        isActive: true,
-      }).select('_id title').lean();
-
-      if (!activeRoom) {
-        User.updateOne(
-          { _id: user._id },
-          { $unset: { currentRoomId: 1 }, $set: { isInRoom: false } }
-        ).exec().catch(() => {});
-      }
-    }
-    const resolvedCustomId =
-      effective?.customDisplayId ||
-      user.customDisplayId ||
-      user.equippedCustomId ||
-      user.uniqueId ||
-      null;
-    const enrichedUser = {
-      ...user,
-      isFollowing,
-      followersCount: user.followersCount ?? (Array.isArray(user.followers) ? user.followers.length : 0),
-      followingCount: user.followingCount ?? (Array.isArray(user.following) ? user.following.length : 0),
-      visitorsCount: user.visitorsCount ?? 0,
-      displayId: effective?.displayId || resolvedCustomId || String(user.userId),
-      customDisplayId: resolvedCustomId,
-      uniqueId: resolvedCustomId,
-      equippedCustomId: resolvedCustomId,
-      isOfficial: effective?.isOfficial || false,
-      officialBadge: effective?.officialBadge || null,
-      uniqueIdBadge: effective?.uniqueIdBadge || null,
-      vipBadgeUrl: effective?.vipBadgeUrl || '',
-      vipBadgeAnimationUrl: effective?.vipBadgeAnimationUrl || '',
-      svipLevel: effective?.svipLevel || 0,
-      vipBadge: effective?.vipBadge || '',
-      equippedFrame: effective?.avatarFrame || user.equippedFrame || null,
-      effectiveIdentity: effective,
-      currentRoomId: activeRoom ? String(activeRoom._id) : null,
-      currentRoomTitle: activeRoom?.title || null,
-      isInRoom: Boolean(activeRoom),
-      isHost: Boolean(user.role === 'host' || (user as any).isHost === true || ((user as any).callRate && (user as any).callRate > 0)),
-      callRate: (user as any).callRate || 20,
-      videoCallRate: (user as any).videoCallRate || 35,
-      coins: user.coins ?? 0,
-      beans: user.beans ?? user.beanBalance ?? user.coins ?? 0,
-      beanBalance: user.beanBalance ?? user.beans ?? user.coins ?? 0,
-    };
+    const enrichedUser = await buildFullUserProfileData(user, requesterId);
     return sendResponse(res, 200, true, "Public user profile fetched successfully", enrichedUser);
   } catch (error: any) {
     return sendResponse(res, 500, false, error.message || "Failed to fetch user profile");
