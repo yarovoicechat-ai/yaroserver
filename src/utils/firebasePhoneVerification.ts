@@ -17,7 +17,7 @@ export const verifyFirebasePhoneToken = async (
   }
 
   try {
-    const decoded = await admin.auth().verifyIdToken(idToken, true);
+    const decoded = await admin.auth().verifyIdToken(idToken, false);
     const verifiedPhone = String(decoded.phone_number || '');
 
     if (!verifiedPhone || normalizePhone(verifiedPhone) !== normalizePhone(expectedPhoneNumber)) {
