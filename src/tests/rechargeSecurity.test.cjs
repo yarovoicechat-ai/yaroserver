@@ -111,6 +111,7 @@ function paymentFixture(existing, state = 'PURCHASED', account = '42') {
     googleapis: { google: { auth: { GoogleAuth: class {} }, androidpublisher: () => publisher } },
     path, fs: { existsSync: () => false },
     mongoose: { startSession: async () => session },
+    '../services/referralMilestoneService': { evaluateReferralRechargeReward: async () => {} },
     '../constants/googlePlayProducts': {
       getProductConfig: id => id === 'diamonds_72' ? { diamonds: 72, priceInr: 100 } : null,
       GOOGLE_PLAY_PRODUCTS: {},

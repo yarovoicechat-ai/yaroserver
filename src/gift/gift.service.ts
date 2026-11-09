@@ -10,6 +10,7 @@ import { broadcastGiftSuccess } from './gift.socket';
 import { LevelService } from '../services/level.service';
 import { RoomTaskService } from '../services/roomTask.service';
 import { RoomContributionService } from '../services/roomContribution.service';
+import { canSendVipGift } from './gift.eligibility';
 import {
   CreateCategoryDTO,
   CreateGiftDTO,
@@ -478,14 +479,13 @@ export class GiftService {
     const totalDiamonds = unitPrice * qty * receivers.length;
 
     // 6. Sender Validation
-    const sender = await User.findById(senderId).select('_id userId name image avatar coins diamonds level').lean();
+    const sender = await User.findById(senderId).select('_id userId name image avatar coins diamonds level wealthLevel').lean();
     if (!sender) {
       throw new Error('Sender user not found');
     }
 
     if (gift.isVipOnly) {
-      const userLevel = Number(sender.level || 1);
-      if (userLevel < 5) {
+      if (!canSendVipGift(sender)) {
         throw new Error('This gift is exclusive to VIP members (Level 5+)');
       }
     }
