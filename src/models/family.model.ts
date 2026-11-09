@@ -6,15 +6,21 @@ export interface IFamily extends Document {
   avatar: string;
   cover?: string;
   notice?: string;
+  slogan?: string;
   level: number;
   exp: number;
   leader: mongoose.Types.ObjectId;
   coLeaders: mongoose.Types.ObjectId[];
   members: mongoose.Types.ObjectId[];
   memberCount: number;
+  maxMembers: number;
   ranking: number;
   diamondsEarned: number;
   isActive: boolean;
+  checkins: {
+    user: mongoose.Types.ObjectId;
+    date: string;
+  }[];
   joinRequests: {
     user: mongoose.Types.ObjectId;
     requestedAt: Date;
@@ -36,15 +42,23 @@ const FamilySchema = new Schema<IFamily>(
       default: 'https://images.unsplash.com/photo-1518709268805-4e9042af9f23?w=800',
     },
     notice: { type: String, default: 'Welcome to our Family! Let us conquer the leaderboards together.' },
+    slogan: { type: String, default: 'United we rise, together we conquer!' },
     level: { type: Number, default: 1, min: 1 },
     exp: { type: Number, default: 0, min: 0 },
     leader: { type: Schema.Types.ObjectId, ref: 'User', required: true, index: true },
     coLeaders: [{ type: Schema.Types.ObjectId, ref: 'User' }],
     members: [{ type: Schema.Types.ObjectId, ref: 'User' }],
     memberCount: { type: Number, default: 1 },
+    maxMembers: { type: Number, default: 50 },
     ranking: { type: Number, default: 999 },
     diamondsEarned: { type: Number, default: 0 },
     isActive: { type: Boolean, default: true, index: true },
+    checkins: [
+      {
+        user: { type: Schema.Types.ObjectId, ref: 'User' },
+        date: { type: String }, // YYYY-MM-DD
+      },
+    ],
     joinRequests: [
       {
         user: { type: Schema.Types.ObjectId, ref: 'User' },

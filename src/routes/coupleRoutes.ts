@@ -2,6 +2,12 @@ import { Router } from 'express';
 import {
   getCouples,
   getMyCp,
+  proposeCp,
+  getPendingProposals,
+  respondProposal,
+  cpCheckin,
+  postLoveWallMessage,
+  upgradeRing,
   dissolveCp,
   adminGetCouples,
   adminUpdateCouple,
@@ -15,6 +21,14 @@ const adminManagers = requireRoles('owner', 'superAdmin', 'admin', 'operator');
 // Public / Mobile app
 router.get('/', getCouples);
 router.get('/my', verifyToken, getMyCp);
+router.get('/me', verifyToken, getMyCp);
+router.get('/proposals', verifyToken, getPendingProposals);
+router.post('/propose', verifyToken, proposeCp);
+router.post('/confess', verifyToken, proposeCp); // alias for backwards compatibility
+router.post('/proposals/:proposalId/respond', verifyToken, respondProposal);
+router.post('/checkin', verifyToken, cpCheckin);
+router.post('/wall', verifyToken, postLoveWallMessage);
+router.post('/ring/upgrade', verifyToken, upgradeRing);
 router.post('/dissolve', verifyToken, dissolveCp);
 
 // Admin management
