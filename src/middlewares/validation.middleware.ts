@@ -12,6 +12,7 @@ export const requestValidator = (req: Request, res: Response, next: NextFunction
     return res.status(400).json({
       success: false,
       message: firstMessage,
+      statusCode: 400,
       errors: errorList,
     });
   }

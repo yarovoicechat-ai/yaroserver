@@ -1,9 +1,17 @@
 import { body } from "express-validator";
 
+const sanitizePhoneNumber = (val: any) => {
+  if (typeof val !== "string") return val;
+  const trimmed = val.trim();
+  // Strip leading 0 after country code (e.g. +920300... -> +92300..., +880017... -> +88017...)
+  return trimmed.replace(/^(\+\d{1,4})0+(\d{6,})$/, "$1$2");
+};
+
 export const validationCheckUser = [
   body("phoneNumber")
     .notEmpty()
     .withMessage("Phone number is required")
+    .customSanitizer(sanitizePhoneNumber)
     .isMobilePhone("any")
     .withMessage("Invalid phone number format"),
 ];
@@ -12,6 +20,7 @@ export const validationResetPassword = [
   body("phoneNumber")
     .notEmpty()
     .withMessage("Phone number is required")
+    .customSanitizer(sanitizePhoneNumber)
     .isMobilePhone("any")
     .withMessage("Invalid phone number format"),
 
@@ -30,6 +39,7 @@ export const validationUserCreate = [
   body("phoneNumber")
     .notEmpty()
     .withMessage("Phone number is required")
+    .customSanitizer(sanitizePhoneNumber)
     .isMobilePhone("any")
     .withMessage("Invalid phone number format"),
 
@@ -53,6 +63,7 @@ export const validationUserCreate = [
 export const validationUserLogin = [
   body("phoneNumber")
     .optional()
+    .customSanitizer(sanitizePhoneNumber)
     .isString()
     .withMessage("Invalid phone number or user identifier format"),
 

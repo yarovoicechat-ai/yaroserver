@@ -87,6 +87,8 @@ export const validationUpdateUserLimited = [
     .withMessage("Verified title cannot exceed 60 characters"),
   body("country")
     .optional()
-    .isObject()
-    .withMessage("Country must be a valid object"),
+    .custom((val) => {
+      if (typeof val === "string" || (typeof val === "object" && val !== null)) return true;
+      throw new Error("Country must be a valid object or string");
+    }),
 ];
