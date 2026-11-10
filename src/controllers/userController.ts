@@ -21,6 +21,7 @@ import { Family } from "../models/family.model";
 import { Couple } from "../models/couple.model";
 import { StoreItem } from "../models/storeItem.model";
 import { EntryEffect } from "../models/entryEffect.model";
+import SystemConfig from "../models/systemConfig.model";
 
 // import { deleteFromS3, uploadToS3 } from "../utils/uploadS3";
 import { generateOtp, sendCustomEmail, sendOtpForEmailVerification } from "../utils/otp";
@@ -1605,59 +1606,74 @@ export const buildFullUserProfileData = async (user: any, requesterId?: any) => 
     }).select('_id title').lean();
   }
 
-  // 3. Family lookup from Family collection
-  let familyData: any = null;
+  // Feature config check (hide CP and Family when disabled)
+  let isFamilyGloballyEnabled = false;
+  let isCpGloballyEnabled = false;
   try {
-    const familyDoc = await Family.findOne({
-      $or: [{ leader: userMongoId }, { coLeaders: userMongoId }, { members: userMongoId }],
-      isActive: true,
-    }).select('_id name avatar badgeText level memberCount diamondsEarned ranking').lean();
-
-    if (familyDoc) {
-      familyData = {
-        _id: familyDoc._id,
-        id: familyDoc._id,
-        name: familyDoc.name,
-        avatar: familyDoc.avatar,
-        badgeText: familyDoc.badgeText,
-        level: familyDoc.level || 1,
-        memberCount: familyDoc.memberCount || 1,
-        ranking: familyDoc.ranking || 1,
-      };
-    }
+    const sysConfig = await SystemConfig.findOne({ key: 'global_config' }).lean();
+    isFamilyGloballyEnabled = sysConfig?.isFamilyEnabled ?? false;
+    isCpGloballyEnabled = sysConfig?.isCpEnabled ?? false;
   } catch (err: any) {
-    console.log('[UserProfile] Family lookup notice:', err.message);
+    console.log('[UserProfile] SystemConfig lookup notice:', err.message);
   }
 
-  // 4. CP (Couple) Partner lookup from Couple collection
-  let cpData: any = null;
-  try {
-    const coupleDoc = await Couple.findOne({
-      $or: [{ user1: userMongoId }, { user2: userMongoId }],
-    })
-      .populate('user1', '_id userId name avatar image')
-      .populate('user2', '_id userId name avatar image')
-      .lean();
+  // 3. Family lookup from Family collection (only if globally enabled)
+  let familyData: any = null;
+  if (isFamilyGloballyEnabled) {
+    try {
+      const familyDoc = await Family.findOne({
+        $or: [{ leader: userMongoId }, { coLeaders: userMongoId }, { members: userMongoId }],
+        isActive: true,
+      }).select('_id name avatar badgeText level memberCount diamondsEarned ranking').lean();
 
-    if (coupleDoc) {
-      const isUser1 = String((coupleDoc.user1 as any)?._id) === String(userMongoId);
-      const partner = isUser1 ? coupleDoc.user2 : coupleDoc.user1;
-      if (partner) {
-        cpData = {
-          _id: (partner as any)._id,
-          id: (partner as any)._id,
-          userId: (partner as any).userId,
-          name: (partner as any).name || 'Partner',
-          avatar: (partner as any).avatar || (partner as any).image,
-          ringName: coupleDoc.ringName || 'Diamond Promise Ring',
-          ringImage: coupleDoc.ringImage || '',
-          cpLevel: (coupleDoc as any).level || 1,
-          points: (coupleDoc as any).points || 0,
+      if (familyDoc) {
+        familyData = {
+          _id: familyDoc._id,
+          id: familyDoc._id,
+          name: familyDoc.name,
+          avatar: familyDoc.avatar,
+          badgeText: familyDoc.badgeText,
+          level: familyDoc.level || 1,
+          memberCount: familyDoc.memberCount || 1,
+          ranking: familyDoc.ranking || 1,
         };
       }
+    } catch (err: any) {
+      console.log('[UserProfile] Family lookup notice:', err.message);
     }
-  } catch (err: any) {
-    console.log('[UserProfile] Couple lookup notice:', err.message);
+  }
+
+  // 4. CP (Couple) Partner lookup from Couple collection (only if globally enabled)
+  let cpData: any = null;
+  if (isCpGloballyEnabled) {
+    try {
+      const coupleDoc = await Couple.findOne({
+        $or: [{ user1: userMongoId }, { user2: userMongoId }],
+      })
+        .populate('user1', '_id userId name avatar image')
+        .populate('user2', '_id userId name avatar image')
+        .lean();
+
+      if (coupleDoc) {
+        const isUser1 = String((coupleDoc.user1 as any)?._id) === String(userMongoId);
+        const partner = isUser1 ? coupleDoc.user2 : coupleDoc.user1;
+        if (partner) {
+          cpData = {
+            _id: (partner as any)._id,
+            id: (partner as any)._id,
+            userId: (partner as any).userId,
+            name: (partner as any).name || 'Partner',
+            avatar: (partner as any).avatar || (partner as any).image,
+            ringName: coupleDoc.ringName || 'Diamond Promise Ring',
+            ringImage: coupleDoc.ringImage || '',
+            cpLevel: (coupleDoc as any).level || 1,
+            points: (coupleDoc as any).points || 0,
+          };
+        }
+      }
+    } catch (err: any) {
+      console.log('[UserProfile] Couple lookup notice:', err.message);
+    }
   }
 
   // 5. Mutual Followers (Friends)
@@ -1842,7 +1858,7 @@ export const buildFullUserProfileData = async (user: any, requesterId?: any) => 
         .limit(3)
         .lean();
 
-      featuredFriends = foundFriends.map((ff: any, fIdx: number) => {
+      featuredFriends = foundFriends.map((ff: any) => {
         const friendDays = Math.max(1, Math.floor((Date.now() - new Date(ff.createdAt || Date.now()).getTime()) / (1000 * 60 * 60 * 24)));
         const diamonds = Number(ff.spentDiamonds || 0);
         return {
@@ -1850,9 +1866,9 @@ export const buildFullUserProfileData = async (user: any, requesterId?: any) => 
           userId: ff.userId,
           name: ff.name,
           avatar: ff.avatar || ff.image,
-          diamonds: diamonds > 0 ? (diamonds >= 1000 ? `${(diamonds / 1000).toFixed(1)}k` : `${diamonds}`) : (fIdx === 0 ? '24.1k' : fIdx === 1 ? '38.5k' : '46.8k'),
+          diamonds: diamonds >= 1000 ? `${(diamonds / 1000).toFixed(1)}k` : `${diamonds}`,
           targetDiamonds: '50k',
-          days: friendDays > 1 ? friendDays : (fIdx === 0 ? 22 : fIdx === 1 ? 41 : 46),
+          days: friendDays,
           inRoom: Boolean(ff.currentRoomId || ff.isInRoom),
           roomId: ff.currentRoomId ? String(ff.currentRoomId) : null,
           roomTitle: ff.currentRoomTitle || `${ff.name}'s Room`,
@@ -1867,9 +1883,9 @@ export const buildFullUserProfileData = async (user: any, requesterId?: any) => 
     ? user.followers.map(String).includes(String(requesterId))
     : false;
 
-  const resolvedWealthLevel = user.wealthLevel || (user.spentDiamonds ? Math.min(50, Math.floor(Math.sqrt(user.spentDiamonds / 1000)) + 1) : 15);
-  const resolvedCharmLevel = user.charmLevel || (user.receivedDiamonds ? Math.min(50, Math.floor(Math.sqrt(user.receivedDiamonds / 1000)) + 1) : 15);
-  const resolvedRoleBadge = user.roleBadge || (user.role === 'admin' ? 'Official Admin' : user.role === 'owner' ? 'Owner' : user.isOfficial ? 'Country Manager' : 'Country Manager');
+  const resolvedWealthLevel = user.wealthLevel || (user.spentDiamonds ? Math.min(50, Math.floor(Math.sqrt(user.spentDiamonds / 1000)) + 1) : 1);
+  const resolvedCharmLevel = user.charmLevel || (user.receivedDiamonds ? Math.min(50, Math.floor(Math.sqrt(user.receivedDiamonds / 1000)) + 1) : 1);
+  const resolvedRoleBadge = user.roleBadge || (user.role === 'admin' ? 'Official Admin' : user.role === 'owner' ? 'Platform Owner' : user.isOfficial ? 'Official' : '');
 
   return {
     ...user,
@@ -1883,7 +1899,7 @@ export const buildFullUserProfileData = async (user: any, requesterId?: any) => 
     uniqueIdBadge: effective?.uniqueIdBadge || null,
     vipBadgeUrl: effective?.vipBadgeUrl || '',
     vipBadgeAnimationUrl: effective?.vipBadgeAnimationUrl || '',
-    svipLevel: effective?.svipLevel || 1,
+    svipLevel: effective?.svipLevel || 0,
     vipBadge: effective?.vipBadge || '',
     equippedFrame: effective?.avatarFrame || user.equippedFrame || null,
     nameEffect: effective?.nameEffect || null,
@@ -1900,16 +1916,20 @@ export const buildFullUserProfileData = async (user: any, requesterId?: any) => 
     roleBadgeText: resolvedRoleBadge,
     family: familyData,
     cpPartner: cpData,
+    showFamily: Boolean(isFamilyGloballyEnabled && familyData),
+    showCp: Boolean(isCpGloballyEnabled && cpData),
+    isFamilyGloballyEnabled,
+    isCpGloballyEnabled,
     tags,
     showcase: {
       badges: badgesList,
-      badgesCount: badgesList.length || 25,
+      badgesCount: badgesList.length,
       vehicles: vehiclesList,
-      vehiclesCount: vehiclesList.length || 18,
+      vehiclesCount: vehiclesList.length,
       frames: framesList,
-      framesCount: framesList.length || 32,
+      framesCount: framesList.length,
       gifts: giftsList,
-      giftsCount: giftsList.length || 56,
+      giftsCount: giftsList.length,
     },
     currentRoomId: activeRoom ? String(activeRoom._id) : null,
     currentRoomTitle: activeRoom?.title || null,

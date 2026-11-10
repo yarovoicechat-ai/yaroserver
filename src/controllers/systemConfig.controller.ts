@@ -8,8 +8,8 @@ export const getAppConfig = async (_req: Request, res: Response) => {
     if (!config) {
       config = await SystemConfig.create({
         key: 'global_config',
-        isFamilyEnabled: true,
-        isCpEnabled: true,
+        isFamilyEnabled: false,
+        isCpEnabled: false,
       });
     }
     return sendResponse(res, 200, true, 'App configuration retrieved', config);
@@ -22,16 +22,20 @@ export const getPublicAppConfig = async (_req: Request, res: Response) => {
   try {
     const config = await SystemConfig.findOne({ key: 'global_config' }).lean();
     return sendResponse(res, 200, true, 'App configuration retrieved', {
-      isFamilyEnabled: config?.isFamilyEnabled ?? true, isCpEnabled: config?.isCpEnabled ?? true,
-      maintenanceMode: config?.maintenanceMode ?? false, storeCategories: config?.storeCategories || [],
+      isFamilyEnabled: config?.isFamilyEnabled ?? false,
+      isCpEnabled: config?.isCpEnabled ?? false,
+      maintenanceMode: config?.maintenanceMode ?? false,
+      storeCategories: config?.storeCategories || [],
     });
   } catch (err: any) { return sendResponse(res, 500, false, 'Failed to fetch app configuration'); }
 };
 
 export const updateAppConfig = async (req: Request, res: Response) => {
   try {
-    const { isFamilyEnabled, isCpEnabled, maintenanceMode, metadata } = req.body;
+    const { isFamilyEnabled, isCpEnabled, maintenanceMode, metadata, feature, enabled } = req.body;
     const update: any = {};
+    if (feature === 'family' || feature === 'isFamilyEnabled') update.isFamilyEnabled = Boolean(enabled);
+    if (feature === 'cp' || feature === 'isCpEnabled') update.isCpEnabled = Boolean(enabled);
     if (isFamilyEnabled !== undefined) update.isFamilyEnabled = Boolean(isFamilyEnabled);
     if (isCpEnabled !== undefined) update.isCpEnabled = Boolean(isCpEnabled);
     if (maintenanceMode !== undefined) update.maintenanceMode = Boolean(maintenanceMode);
