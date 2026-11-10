@@ -14,7 +14,7 @@ import { disconnectDB, sanitizeMongoError } from "./utils/db";
 import { initializeDatabase } from "./utils/initializeDatabase";
 import { config } from "./configs/envConfig";
 import { checkPortAvailable } from "./utils/getAvailablePort";
-import { AuthRoutes, avatarRoute, callRoutes, chatRoutes, coinsPriceRoutes, beansPlanRoutes, frameRoute, hostRoutes, UserRoutes, adminRoutes, paymentRoutes, kycRoutes, withdrawalRoutes, giftRoutes, helpRoutes, UploadRoutes, notificationRoutes, upiRoutes, publicRoutes, emsRoutes, recruitmentRoutes, sellerRoutes, voiceClubRoutes, storeRoutes, familyRoutes, coupleRoutes, systemConfigRoutes } from "./routes";
+import { AuthRoutes, avatarRoute, callRoutes, chatRoutes, coinsPriceRoutes, beansPlanRoutes, frameRoute, hostRoutes, UserRoutes, adminRoutes, paymentRoutes, kycRoutes, withdrawalRoutes, giftRoutes, helpRoutes, UploadRoutes, notificationRoutes, upiRoutes, publicRoutes, emsRoutes, recruitmentRoutes, sellerRoutes, voiceClubRoutes, storeRoutes, familyRoutes, coupleRoutes, systemConfigRoutes, emojiRoutes } from "./routes";
 
 import { approveStockRequest, rejectStockRequest, getAllStockRequestsAdmin, updateSellerPricingConfig, verifySellerForAdmin, adminCreditSellerDiamonds } from "./controllers/sellerAdminController";
 import chatSocket from "./sockets";
@@ -150,6 +150,12 @@ app.use("/api/uploads", express.static(path.join(__dirname, "../uploads"), {
 app.use('/api/vip-assets', express.static(path.join(__dirname, '../assets/vip'), {
   maxAge: '1d', etag: true, dotfiles: 'deny', index: false,
 }));
+app.use('/api/emoji-assets', express.static(path.join(__dirname, '../assets/emojis'), {
+  maxAge: '7d', etag: true, dotfiles: 'deny', index: false,
+}));
+app.use('/api/v1/emoji-assets', express.static(path.join(__dirname, '../assets/emojis'), {
+  maxAge: '7d', etag: true, dotfiles: 'deny', index: false,
+}));
 app.use("/policies", express.static(path.join(__dirname, "../policies")));
 app.get('/api/share/:kind/:id', getPublicShare);
 
@@ -233,6 +239,8 @@ app.use("/api/economy", economyRoutes);
 app.use("/api/system-config", systemConfigRoutes);
 app.use("/api/v1/system-config", systemConfigRoutes);
 app.use("/api/public/app-config", systemConfigRoutes);
+app.use("/api/emojis", emojiRoutes);
+app.use("/api/v1/emojis", emojiRoutes);
 app.use("/api/vip", vipRouter);
 app.use("/api/v1/vip", vipRouter);
 app.use("/api/svip", vipRouter);

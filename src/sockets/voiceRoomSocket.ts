@@ -1614,7 +1614,16 @@ export const registerVoiceRoomHandlers = (io: Server, socket: AuthenticatedSocke
     // Main room join performs authorization and subscribes to gift channels.
   });
   // 8. Send Reaction
-  socket.on("voice_room:reaction", async (data: { roomId: string; emoji: string; user?: string; userId?: string | number; seatIndex?: number | null }) => {
+  socket.on("voice_room:reaction", async (data: {
+    roomId: string;
+    emoji: string;
+    gifUrl?: string;
+    name?: string;
+    emojiData?: any;
+    user?: string;
+    userId?: string | number;
+    seatIndex?: number | null;
+  }) => {
     try {
       const rawRoomId = String(data?.roomId || (socket as any).voiceRawRoomId || (socket as any).voiceRoomId || "").trim();
       if (!rawRoomId || !data?.emoji) return;
@@ -1624,6 +1633,9 @@ export const registerVoiceRoomHandlers = (io: Server, socket: AuthenticatedSocke
       const payload = {
         id: "react-" + Date.now() + Math.random(),
         emoji: data.emoji,
+        gifUrl: data.gifUrl || data.emojiData?.gifUrl || null,
+        name: data.name || data.emojiData?.name || null,
+        emojiData: data.emojiData || null,
         user: data.user || user?.name,
         userId: data.userId || (user as any)?._id || (user as any)?.userId,
         seatIndex: typeof data.seatIndex === 'number' ? data.seatIndex : null,

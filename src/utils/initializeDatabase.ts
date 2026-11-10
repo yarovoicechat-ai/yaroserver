@@ -1,4 +1,5 @@
 import { initializeSuperAdmin } from "../controllers/adminController";
+import { EmojiService } from "../services/emoji.service";
 import HostLevel from "../models/hostLevel.model";
 import { User } from "../models/user.model";
 import { IdentityEntitlement } from "../models/identityEntitlement.model";
@@ -125,4 +126,5 @@ export const initializeDatabase = async (): Promise<void> => {
   await seedDefaultHostLevels();
   await initializeOfficialReviewAccount();
   await cleanupUser1000000002();
+  await EmojiService.seedEmojisIfNeeded();
 };
