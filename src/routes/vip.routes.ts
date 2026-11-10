@@ -21,13 +21,9 @@ import {
   toggleSvipStatus,
   grantVipToUser,
 } from '../controllers/vip.controller';
-import { verifyToken, requireRoles } from '../middlewares/authorize.middleware';
-import { listVipAssets, updateVipAssets } from '../controllers/vipAssets.controller';
+import { verifyToken } from '../middlewares/authorize.middleware';
 
 const router = express.Router();
-const assetManagers = requireRoles('owner', 'superAdmin', 'admin', 'operator');
-router.get('/admin/assets', verifyToken, assetManagers, listVipAssets);
-router.put('/admin/assets/:level', verifyToken, assetManagers, updateVipAssets);
 
 // Public / Mobile Client Catalog
 router.get('/catalog', getVipCatalog);

@@ -9,6 +9,7 @@ import { LevelService } from '../services/level.service';
 import { AuthRequest } from '../middlewares/authorize.middleware';
 import sendResponse from '../utils/reponse';
 import { Logger } from '../utils/logger';
+import { presentVipPlan, validateVipMedia, vipLabel } from '../utils/vipMembership';
 
 // 30 Standard Screenshot Reference Privileges with exact unlock levels
 export const STANDARD_SCREENSHOT_PRIVILEGES: ISvipPrivilegeConfig[] = [
@@ -529,7 +530,7 @@ export const DEFAULT_SVIP_TIER_PLANS = [
   buildSvipTier('SVIP 3 Duke', 'SVIP_3', 'svip-3', 3, 350000, 500000, 30, 500000, 14, 'SVIP 3', ['#06B6D4', '#0284C7'], 'Duke Cyan Wolf Bubble', ['#082F49', '#0369A1'], '#38BDF8', '/svip/svip3_tag.png'),
   buildSvipTier('SVIP 4 Monarch', 'SVIP_4', 'svip-4', 4, 700000, 1000000, 30, 1000000, 17, 'SVIP 4', ['#EF4444', '#DC2626'], 'VIP 4 Imperial Gold Bubble', ['#450A0A', '#7F1D1D'], '#F59E0B', '/svip/svip4_badge.png'),
   buildSvipTier('SVIP 5 Sovereign Supreme', 'SVIP_5', 'svip-5', 5, 1500000, 2250000, 33, 2000000, 20, 'SVIP 5', ['#FBBF24', '#D97706'], 'Imperial Sovereign Gold', ['#422006', '#713F12'], '#FBBF24', '/svip/svip5_badge.png'),
-];
+].map(presentVipPlan);
 
 /* =========================================================================
    PUBLIC / MOBILE CLIENT APIS
@@ -538,6 +539,7 @@ export const DEFAULT_SVIP_TIER_PLANS = [
 export const getPublishedSvipPlans = async (_req: Request, res: Response) => {
   try {
 
+    res.setHeader('Cache-Control', 'no-store');
     const plans = await SvipTier.find({
       status: 'active',
       isActive: true,
@@ -548,7 +550,7 @@ export const getPublishedSvipPlans = async (_req: Request, res: Response) => {
 
     return sendResponse(res, 200, true, 'Published SVIP plans fetched', {
       total: plans.length,
-      plans,
+      plans: plans.map(presentVipPlan),
     });
   } catch (error: any) {
     return sendResponse(res, 500, false, error.message || 'Failed to fetch SVIP plans');
@@ -574,7 +576,7 @@ export const getSvipPlanDetails = async (req: Request, res: Response) => {
       return sendResponse(res, 404, false, 'SVIP plan not found');
     }
 
-    return sendResponse(res, 200, true, 'SVIP plan details fetched', plan);
+    return sendResponse(res, 200, true, 'VIP plan details fetched', presentVipPlan(plan));
   } catch (error: any) {
     return sendResponse(res, 500, false, error.message || 'Failed to fetch plan details');
   }
@@ -715,7 +717,7 @@ export const purchaseSvipPlan = async (req: AuthRequest, res: Response) => {
     // Resolve real-time effective identity
     const effectiveIdentity = await IdentityResolverService.resolveEffectiveIdentity(permanentNumericId);
 
-    return sendResponse(res, 200, true, `Congratulations! You have successfully unlocked ${plan.name}! 👑`, {
+    return sendResponse(res, 200, true, `Congratulations! You have successfully unlocked ${vipLabel(plan.name)}! 👑`, {
       plan,
       entitlement,
       effectiveIdentity,
@@ -750,7 +752,7 @@ export const adminListSvipPlans = async (req: Request, res: Response) => {
     const plans = await SvipTier.find(query).sort({ sortOrder: 1, level: 1 }).lean();
     return sendResponse(res, 200, true, 'Admin SVIP plans fetched', {
       total: plans.length,
-      plans,
+      plans: plans.map(presentVipPlan),
     });
   } catch (error: any) {
     return sendResponse(res, 500, false, error.message || 'Failed to list admin SVIP plans');
@@ -760,6 +762,8 @@ export const adminListSvipPlans = async (req: Request, res: Response) => {
 export const adminCreateSvipPlan = async (req: AuthRequest, res: Response) => {
   try {
     const data = req.body;
+    const mediaError = validateVipMedia(data);
+    if (mediaError) return sendResponse(res, 400, false, mediaError);
     if (!data.name || data.level === undefined || data.price === undefined) {
       return sendResponse(res, 400, false, 'Plan name, level, and price are required');
     }
@@ -801,12 +805,14 @@ export const adminUpdateSvipPlan = async (req: AuthRequest, res: Response) => {
   try {
     const { id } = req.params;
     const data = req.body;
+    const mediaError = validateVipMedia(data);
+    if (mediaError) return sendResponse(res, 400, false, mediaError);
 
     if (data.status) {
       data.isActive = data.status === 'active';
     }
 
-    const updated = await SvipTier.findByIdAndUpdate(id, data, { new: true });
+    const updated = await SvipTier.findByIdAndUpdate(id, data, { new: true, runValidators: true });
     if (!updated) {
       return sendResponse(res, 404, false, 'SVIP Plan not found');
     }

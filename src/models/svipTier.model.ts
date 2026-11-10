@@ -90,6 +90,8 @@ export interface ISvipTier extends Document {
 
   // Custom bundle overrides
   entryAnimationUrl?: string;
+  entryPreviewUrl?: string;
+  avatarFramePreviewUrl?: string;
   entryTagText?: string;
   entryFrameUrl?: string;
   avatarFrameUrl?: string;
@@ -215,6 +217,8 @@ const SvipTierSchema = new Schema<ISvipTier>(
     },
 
     entryAnimationUrl: { type: String, default: '' },
+    entryPreviewUrl: { type: String, default: '' },
+    avatarFramePreviewUrl: { type: String, default: '' },
     entryTagText: { type: String, default: '' },
     entryFrameUrl: { type: String, default: '' },
     avatarFrameUrl: { type: String, default: '' },

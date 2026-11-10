@@ -5,7 +5,7 @@ import { User } from '../models/user.model';
 import { EntryEffect } from '../models/entryEffect.model';
 import { LevelService } from './level.service';
 import { getVipAssets } from '../utils/vipAssets';
-import { VipAssetsService } from './vipAssets.service';
+import { membershipAssets, vipLabel } from '../utils/vipMembership';
 
 export interface EffectiveVipExperience {
   isVip: boolean;
@@ -133,7 +133,7 @@ export class VipService {
 
     const isSvip = Boolean(svip && svip.isActive);
     const isVip = Boolean(vip && vip.isActive) || isSvip;
-    const vipAssets = vip?.isActive ? await VipAssetsService.resolve(vip.vipLevel) : null;
+    const vipAssets = isSvip ? membershipAssets(svip) : null;
     const isKing = Boolean(vip?.isKing || svip?.name?.toLowerCase().includes('king'));
     const isKingOfKings = Boolean(vip?.isKingOfKings || svip?.slug === 'king-of-kings');
 
@@ -178,9 +178,7 @@ export class VipService {
       : (vip?.entryFrame || '');
 
     // 6. Avatar Frame resolution
-    const avatarFrame = (isSvip && svip?.features?.enableAvatarFrame && svip?.avatarFrameUrl)
-      ? svip.avatarFrameUrl
-      : (equippedFrame || vipAssets?.frame?.animationUrl || vip?.avatarFrame || '');
+    const avatarFrame = equippedFrame || vipAssets?.frame?.animationUrl || vip?.avatarFrame || '';
 
     // 7. Name Effect resolution
     const nameEffectEnabled = isSvip ? (svip?.features?.enableNameEffect ?? true) : Boolean(vip);
@@ -196,9 +194,9 @@ export class VipService {
       isSvip,
       isKing,
       isKingOfKings,
-      vipLevel: vip?.vipLevel || (isSvip ? 5 : 0),
+      vipLevel: isSvip ? svip!.level : vip?.vipLevel || 0,
       svipLevel: svip?.level || 0,
-      badge: svip?.badge || vip?.badge || (isVip ? '👑 VIP' : ''),
+      badge: vipLabel(svip?.badge || vip?.badge || (isVip ? '👑 VIP' : '')),
       badgeUrl: svip?.heroBadgeUrl || vip?.badgeUrl || '',
       badgeAnimationUrl: svip?.heroAnimationUrl || vip?.badgeAnimationUrl || '',
       crown: svip?.crown || vip?.crown || (isVip ? '👑' : ''),
