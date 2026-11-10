@@ -11,9 +11,9 @@ export interface EconomyRules {
   calendarOffsetMinutes: number;
 }
 export const NEW_ECONOMY: EconomyRules = {
-  beansPerInr: 82, giftBeansPerDiamond: 100,
-  voice: { diamondUnitsPerMinute: 492, hostBeansPerMinute: 205, referencePaisePerMinute: 600 },
-  video: { diamondUnitsPerMinute: 984, hostBeansPerMinute: 410, referencePaisePerMinute: 1200 },
+  beansPerInr: 100, giftBeansPerDiamond: 100,
+  voice: { diamondUnitsPerMinute: 60000, hostBeansPerMinute: 250, referencePaisePerMinute: 600 },
+  video: { diamondUnitsPerMinute: 120000, hostBeansPerMinute: 500, referencePaisePerMinute: 1200 },
   gift: { instantBps: 4500, salaryMaxBps: 1500, agencyMaxBps: 1000, platformMinBps: 3000 },
   salary: { minDays: 15, minHostingMinutes: 1800, minDayMinutes: 60,
     slabs: [{ diamonds: 0, bps: 0 }, { diamonds: 25000, bps: 300 },

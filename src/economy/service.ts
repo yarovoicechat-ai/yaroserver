@@ -51,21 +51,25 @@ export async function atomic<T>(work: (session: ClientSession) => Promise<T>): P
 /** Legacy purchased Diamonds stay spendable; no parallel balance is minted. */
 async function debitDiamonds(id: string, units: number, session: ClientSession) {
   integer(units);
-  const user = await User.findById(id).select('diamonds isDeleted isBlocked').session(session).lean();
+  const user = await User.findById(id).select('diamonds coins isDeleted isBlocked').session(session).lean();
   if (!user || user.isDeleted || user.isBlocked) throw new Error('Wallet user unavailable');
-  const before = diamondUnits(user.diamonds ?? 0);
+  const userBalance = user.diamonds !== undefined ? user.diamonds : (user.coins ?? 0);
+  const before = diamondUnits(userBalance);
   if (before < units) throw new Error('INSUFFICIENT_DIAMONDS');
   const after = before - units;
+  const newBal = diamondDisplay(after);
   // Set a canonical display value, never accumulate fractional floating-point increments.
-  const updated = await User.updateOne({ _id: id, diamonds: user.diamonds }, { $set: { diamonds: diamondDisplay(after) } }, { session });
+  const updated = await User.updateOne({ _id: id, diamonds: user.diamonds }, { $set: { diamonds: newBal } }, { session });
   if (updated.modifiedCount !== 1 && units !== 0) throw new Error('Wallet conflict');
   return { beforeUnits: before, afterUnits: after };
 }
 async function creditDiamonds(id: string, units: number, session: ClientSession) {
-  const user = await User.findById(id).select('diamonds').session(session).lean();
+  const user = await User.findById(id).select('diamonds coins').session(session).lean();
   if (!user) throw new Error('Wallet not found');
-  const before = diamondUnits(user.diamonds ?? 0), after = sum(before, units);
-  const result = await User.updateOne({ _id: id, diamonds: user.diamonds }, { $set: { diamonds: after / 100 } }, { session });
+  const userBalance = user.diamonds !== undefined ? user.diamonds : (user.coins ?? 0);
+  const before = diamondUnits(userBalance), after = sum(before, units);
+  const newBal = after / 100;
+  const result = await User.updateOne({ _id: id, diamonds: user.diamonds }, { $set: { diamonds: newBal } }, { session });
   if (result.modifiedCount !== 1 && units !== 0) throw new Error('Wallet conflict');
 }
 async function postBeans(postings: Posting[], session: ClientSession) {

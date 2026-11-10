@@ -4,12 +4,15 @@ import { SvipTier } from '../models/svipTier.model';
 import { User } from '../models/user.model';
 import { VipService } from '../services/vip.service';
 import sendResponse from '../utils/reponse';
+import { VipAssetsService } from '../services/vipAssets.service';
 
 export const getVipCatalog = async (_req: Request, res: Response) => {
   try {
     await VipService.seedInitialCatalog();
     const packages = await VipId.find({ isActive: true }).sort({ sortOrder: 1, vipLevel: 1 }).lean();
-    return sendResponse(res, 200, true, 'VIP catalog fetched successfully', { packages });
+    return sendResponse(res, 200, true, 'VIP catalog fetched successfully', {
+      packages: await Promise.all(packages.map(async pkg => ({ ...pkg, assets: await VipAssetsService.resolve(pkg.vipLevel) }))),
+    });
   } catch (error: any) {
     return sendResponse(res, 500, false, error.message || 'Failed to fetch VIP catalog');
   }

@@ -381,7 +381,7 @@ export class EntryEffectService {
       };
       entryEffect = await refreshAsset(entryEffect, ['Entry', 'entry', 'Entry Effect', 'entry effect', 'Entry Effects', 'entry effects']);
       entranceEffect = await refreshAsset(entranceEffect, ['Entrance', 'entrance', 'Ride', 'ride', 'Vehicle', 'vehicle', 'Profile Entry', 'profile entry']);
-      const roomEntryEffect = roomEntryAsset(entryEffect);
+      const roomEntryEffect = roomEntryAsset(entryEffect) || roomEntryAsset(vipExperience.entryAsset);
       let activeEntrance = entranceEffect && entranceEffect.isActive !== false &&
         (!entranceEffect.expiresAt || new Date(entranceEffect.expiresAt).getTime() > Date.now()) &&
         (entranceEffect.animationUrl || entranceEffect.imageUrl || entranceEffect.image)
@@ -421,7 +421,7 @@ export class EntryEffectService {
           uniqueId: source.uniqueId || dbUser?.uniqueId || null,
           nameEffect: identity?.nameEffect || source.nameEffect || vipExperience.nameEffect || null,
           equippedFrame: dbUser?.equippedFrameAsset || dbUser?.equippedFrame || user.equippedFrameAsset || user.equippedFrame || null,
-          equippedFrameAsset: dbUser?.equippedFrameAsset || user.equippedFrameAsset || null,
+          equippedFrameAsset: dbUser?.equippedFrameAsset || user.equippedFrameAsset || identity?.avatarFrame || null,
         },
         hasEntry: hasEquippedEntry,
         entry: roomEntryEffect,

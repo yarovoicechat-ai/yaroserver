@@ -147,6 +147,9 @@ app.use("/uploads", express.static(path.join(__dirname, "../uploads"), {
 app.use("/api/uploads", express.static(path.join(__dirname, "../uploads"), {
   maxAge: '1d', etag: true, lastModified: true,
 }));
+app.use('/api/vip-assets', express.static(path.join(__dirname, '../assets/vip'), {
+  maxAge: '1d', etag: true, dotfiles: 'deny', index: false,
+}));
 app.use("/policies", express.static(path.join(__dirname, "../policies")));
 app.get('/api/share/:kind/:id', getPublicShare);
 

@@ -71,7 +71,7 @@ export async function deductUserWalletAtomic(
     return { success: true, coinsDeduct, diamondsDeduct };
 }
 
-/** Atomically deduct call credit from diamonds only. */
+/** Atomically deduct call credit from user wallet (coins and diamonds kept in sync). */
 export async function deductUserDiamondsAtomic(
     userId: Types.ObjectId | string,
     amount: number,
@@ -80,7 +80,7 @@ export async function deductUserDiamondsAtomic(
     if (amount <= 0) return true;
     return Boolean(await User.findOneAndUpdate(
         { _id: userId, diamonds: { $gte: amount } },
-        { $inc: { diamonds: -amount } },
+        { $inc: { diamonds: -amount, coins: -amount } },
         { new: true, ...(session ? { session } : {}) }
     ));
 }
@@ -128,9 +128,10 @@ export class BillingService {
             const pinnedEconomy = meta.economyVersion ? await getVersion(String(meta.economyVersion), session) : null;
 
             const fallbackSettings = meta?.callDiamondsPerMinute ? null : await getCachedSettings();
+            const defaultCallRate = meta.isVideo === true ? 1200 : (fallbackSettings?.callRatePerMinute || CALL_DIAMONDS_PER_MINUTE);
             const callDiamondsPerMinute = pinnedEconomy
                 ? (meta.isVideo === true ? pinnedEconomy.rules.video : pinnedEconomy.rules.voice).diamondUnitsPerMinute / 100
-                : Math.max(1, Number(meta?.callDiamondsPerMinute || fallbackSettings?.callRatePerMinute || CALL_DIAMONDS_PER_MINUTE));
+                : Math.max(1, Number(meta?.callDiamondsPerMinute || defaultCallRate));
 
             // CRITICAL FIX: If currently paid minutes cover the current elapsed duration,
             // the call is ACTIVE and ENTITLED. DO NOT check caller balance for FUTURE minutes yet!
@@ -365,16 +366,15 @@ export class BillingService {
 
             const hostSharePerMinute = pinnedEconomy
                 ? (startMeta.isVideo === true ? pinnedEconomy.rules.video : pinnedEconomy.rules.voice).hostBeansPerMinute
-                : hostLevelConfig?.coinPerMinute ??
-                HOST_LEVEL_COINS_PER_MINUTE[hostLevel] ??
-                HOST_LEVEL_COINS_PER_MINUTE[1];
+                : (startMeta.isVideo === true ? 500 : 250);
             const HOST_SHARE_PER_SECOND = hostSharePerMinute / 60;
 
 
             const fallbackSettings = startMeta?.callDiamondsPerMinute ? null : await getCachedSettings();
+            const defaultCallRate = startMeta.isVideo === true ? 1200 : (fallbackSettings?.callRatePerMinute || CALL_DIAMONDS_PER_MINUTE);
             const callDiamondsPerMinute = pinnedEconomy
                 ? (startMeta.isVideo === true ? pinnedEconomy.rules.video : pinnedEconomy.rules.voice).diamondUnitsPerMinute / 100
-                : Math.max(1, Number(startMeta?.callDiamondsPerMinute || fallbackSettings?.callRatePerMinute || CALL_DIAMONDS_PER_MINUTE));
+                : Math.max(1, Number(startMeta?.callDiamondsPerMinute || defaultCallRate));
 
             const totalCallCost = pinnedEconomy
                 ? mul(billedMinutes, diamondUnits(callDiamondsPerMinute)) / 100

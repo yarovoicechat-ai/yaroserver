@@ -408,10 +408,10 @@ export const verifyGooglePurchase = async (req: AuthRequest, res: Response) => {
         });
       }
 
-      // Increment User Diamonds atomically
+      // Increment User Coins & Diamonds atomically
       const updatedUser = await User.findOneAndUpdate(
         { userId },
-        { $inc: { diamonds: productConfig.diamonds } },
+        { $inc: { diamonds: productConfig.diamonds, coins: productConfig.diamonds } },
         { new: true, session }
       );
 
@@ -422,7 +422,7 @@ export const verifyGooglePurchase = async (req: AuthRequest, res: Response) => {
         return sendResponse(res, 404, false, "User profile not found");
       }
 
-      console.log(`[GOOGLE-VERIFY] DIAMONDS CREDITED: +${productConfig.diamonds}, New Balance: ${updatedUser.diamonds}`);
+      console.log(`[GOOGLE-VERIFY] COINS CREDITED: +${productConfig.diamonds}, New Balance: ${updatedUser.diamonds}`);
 
       // Create / Update Ledger Transaction Record
       const createdRecord = await RechargeHistory.findOneAndUpdate(
@@ -458,7 +458,7 @@ export const verifyGooglePurchase = async (req: AuthRequest, res: Response) => {
         console.warn("[GooglePlay] Async consume attempt error:", e.message)
       );
 
-      // 11. Award 2 Diamonds to referrer if referee is recharging
+      // 11. Award 2 Coins to referrer if referee is recharging
       void evaluateReferralRechargeReward(userId, productConfig.diamonds, createdRecord._id);
 
       console.log(`[GOOGLE-VERIFY] RESPONSE SENT (COMPLETED)`);
@@ -467,8 +467,10 @@ export const verifyGooglePurchase = async (req: AuthRequest, res: Response) => {
         status: "COMPLETED",
         productId,
         diamondsAdded: productConfig.diamonds,
+        coinsAdded: productConfig.diamonds,
         balance: updatedUser.diamonds,
-        message: `${productConfig.diamonds.toLocaleString()} Diamonds added successfully`,
+        coins: updatedUser.coins,
+        message: `${productConfig.diamonds.toLocaleString()} Coins added successfully`,
       });
 
     } catch (dbErr: any) {

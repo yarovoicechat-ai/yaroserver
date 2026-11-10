@@ -4,6 +4,8 @@ import { SvipTier, ISvipTier } from '../models/svipTier.model';
 import { User } from '../models/user.model';
 import { EntryEffect } from '../models/entryEffect.model';
 import { LevelService } from './level.service';
+import { getVipAssets } from '../utils/vipAssets';
+import { VipAssetsService } from './vipAssets.service';
 
 export interface EffectiveVipExperience {
   isVip: boolean;
@@ -21,6 +23,8 @@ export interface EffectiveVipExperience {
   entryTag: string;
   entryFrame: string;
   avatarFrame: string;
+  entryAsset?: NonNullable<ReturnType<typeof getVipAssets>>['entry'];
+  avatarFrameAsset?: NonNullable<ReturnType<typeof getVipAssets>>['frame'];
   floatingAnimation: string;
   
   micWave: {
@@ -129,6 +133,7 @@ export class VipService {
 
     const isSvip = Boolean(svip && svip.isActive);
     const isVip = Boolean(vip && vip.isActive) || isSvip;
+    const vipAssets = vip?.isActive ? await VipAssetsService.resolve(vip.vipLevel) : null;
     const isKing = Boolean(vip?.isKing || svip?.name?.toLowerCase().includes('king'));
     const isKingOfKings = Boolean(vip?.isKingOfKings || svip?.slug === 'king-of-kings');
 
@@ -175,7 +180,7 @@ export class VipService {
     // 6. Avatar Frame resolution
     const avatarFrame = (isSvip && svip?.features?.enableAvatarFrame && svip?.avatarFrameUrl)
       ? svip.avatarFrameUrl
-      : (equippedFrame || vip?.avatarFrame || '');
+      : (equippedFrame || vipAssets?.frame?.animationUrl || vip?.avatarFrame || '');
 
     // 7. Name Effect resolution
     const nameEffectEnabled = isSvip ? (svip?.features?.enableNameEffect ?? true) : Boolean(vip);
@@ -201,6 +206,8 @@ export class VipService {
       entryTag,
       entryFrame,
       avatarFrame,
+      avatarFrameAsset: vipAssets?.frame && avatarFrame === vipAssets.frame.animationUrl ? vipAssets.frame : undefined,
+      entryAsset: vipAssets?.entry || undefined,
       floatingAnimation: vip?.floatingEntryAnimation || 'CENTER_AVATAR',
       micWave: {
         enabled: micWaveEnabled,

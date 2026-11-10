@@ -408,9 +408,10 @@ export const startCall = async (req: AuthRequest, res: Response) => {
 
     const runtimeSettings = await getCachedSettings();
     const pinnedEconomy = await effectiveEconomy();
+    const defaultCallRate = isVideo ? 1200 : (runtimeSettings.callRatePerMinute || CALL_DIAMONDS_PER_MINUTE);
     const CALL_RATE_PER_MINUTE = pinnedEconomy
       ? (isVideo ? pinnedEconomy.rules.video : pinnedEconomy.rules.voice).diamondUnitsPerMinute / 100
-      : Math.max(1, Number(runtimeSettings.callRatePerMinute || CALL_DIAMONDS_PER_MINUTE));
+      : Math.max(1, Number(defaultCallRate));
 
     if (pinnedEconomy && hostId && String(userId) === String(hostId)) {
       return sendResponse(res, 400, false, 'Self-calling is not permitted');
@@ -432,15 +433,16 @@ export const startCall = async (req: AuthRequest, res: Response) => {
       isDeleted: { $ne: true },
     }).select('coins diamonds').lean();
 
-    const callerDiamonds = Number(liveCaller?.diamonds || 0);
+    const callerDiamonds = Math.max(Number(liveCaller?.coins || 0), Number(liveCaller?.diamonds || 0));
 
-    console.log(`[CALL] DIAMONDS CHECK | CallerID: ${userId} | Live DB Diamonds: ${callerDiamonds} | Required Rate: ${CALL_RATE_PER_MINUTE}`);
+    console.log(`[CALL] BALANCE CHECK | CallerID: ${userId} | Live DB Balance: ${callerDiamonds} | Required Rate: ${CALL_RATE_PER_MINUTE}`);
 
     if (!liveCaller || callerDiamonds < CALL_RATE_PER_MINUTE) {
-      console.log('[CALL] INSUFFICIENT DIAMONDS | CALL REJECTED BY BACKEND DB CHECK');
-      return sendResponse(res, 402, false, "INSUFFICIENT_DIAMONDS: Your Diamond balance is too low to start this call. Please recharge your Diamonds to continue.", {
-        code: 'INSUFFICIENT_DIAMONDS',
-        errorCode: 'INSUFFICIENT_DIAMONDS',
+      console.log('[CALL] INSUFFICIENT COINS | CALL REJECTED BY BACKEND DB CHECK');
+      return sendResponse(res, 402, false, "INSUFFICIENT_COINS: Your Coin balance is too low to start this call. Please recharge your Coins to continue.", {
+        code: 'INSUFFICIENT_COINS',
+        errorCode: 'INSUFFICIENT_COINS',
+        error: 'INSUFFICIENT_DIAMONDS',
         requiredBalance: CALL_RATE_PER_MINUTE,
         currentBalance: callerDiamonds,
       });
