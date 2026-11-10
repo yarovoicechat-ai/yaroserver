@@ -1388,20 +1388,17 @@ export const getBlockedContacts = async (req: AuthRequest, res: Response) => {
   }
 };
 
-// ðŸ”„ Exchange Coins to Diamonds
+// 🔄 Exchange Beans to Coins (Rate: 200 Beans = 100 Coins, 2:1 ratio)
 const EXCHANGE_PACKAGES: Record<number, number> = {
-  100: 95,
-  200: 190,
-  500: 475,
-  1000: 950,
-  2000: 1900,
-  5000: 4750,
-  10000: 9500,
-  20000: 19000,
-  50000: 47500,
-  100000: 95000,
-  200000: 190000,
-  500000: 475000,
+  2000: 1000,
+  4000: 2000,
+  10000: 5000,
+  20000: 10000,
+  40000: 20000,
+  100000: 50000,
+  200000: 100000,
+  400000: 200000,
+  1000000: 500000,
 };
 
 export const exchangeCoinsToDiamonds = async (req: AuthRequest, res: Response) => {
@@ -1426,6 +1423,9 @@ export const exchangeCoinsToDiamonds = async (req: AuthRequest, res: Response) =
     const dbPlan = await BeansPlan.findOne({ beans: coinsNum, isActive: true });
     if (dbPlan) {
       diamondYield = dbPlan.diamonds + (dbPlan.bonusDiamonds || 0);
+    }
+    if (!diamondYield && coinsNum >= 200) {
+      diamondYield = Math.floor(coinsNum / 2); // 200 Beans = 100 Coins (2:1 standard)
     }
     if (!diamondYield) {
       return sendResponse(res, 400, false, "Invalid exchange package");

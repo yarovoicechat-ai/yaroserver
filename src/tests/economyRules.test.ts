@@ -4,8 +4,8 @@ import { NEW_ECONOMY as rules, validateRules, diamondUnits, diamondDisplay, gift
   assertBalanced, mul, ratio, calendarKeys } from '../economy/rules';
 
 test('target voice and video rates use exact integer units', () => {
-  assert.deepEqual(rules.voice, { diamondUnitsPerMinute: 60000, hostBeansPerMinute: 250, referencePaisePerMinute: 600 });
-  assert.deepEqual(rules.video, { diamondUnitsPerMinute: 120000, hostBeansPerMinute: 500, referencePaisePerMinute: 1200 });
+  assert.deepEqual(rules.voice, { diamondUnitsPerMinute: 60000, hostBeansPerMinute: 500, referencePaisePerMinute: 600 });
+  assert.deepEqual(rules.video, { diamondUnitsPerMinute: 120000, hostBeansPerMinute: 1000, referencePaisePerMinute: 1200 });
   assert.equal(mul(1000, rules.voice.diamondUnitsPerMinute), 60000000);
   assert.equal(diamondUnits(600), 60000); assert.equal(diamondDisplay(120000), 1200);
 });
@@ -35,9 +35,9 @@ test('salary slab boundaries and all eligibility gates', () => {
   assert.equal(salaryQuote(100000000, shortDay, rules).eligible, false);
   assert.equal(salaryQuote(100000000, days, rules).beans, 15000000);
 });
-test('withdrawal uses 100 Beans/INR and conserves fractional-paise remainder', () => {
-  assert.equal(withdrawalQuote(100, rules).grossPaise, 100);
-  assert.deepEqual(withdrawalQuote(20000, rules), { grossPaise: 20000, feePaise: 1000, netPaise: 19000, beansToHold: 20000, beansRemainder: 0 });
+test('withdrawal uses 200 Beans/INR and conserves fractional-paise remainder', () => {
+  assert.equal(withdrawalQuote(200, rules).grossPaise, 100);
+  assert.deepEqual(withdrawalQuote(20000, rules), { grossPaise: 10000, feePaise: 500, netPaise: 9500, beansToHold: 20000, beansRemainder: 0 });
   for (let beans = 1; beans < 500; beans++) {
     const q = withdrawalQuote(beans, rules);
     assert.equal(q.beansToHold + q.beansRemainder, beans); assert.ok(q.netPaise + q.feePaise === q.grossPaise);

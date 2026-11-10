@@ -114,18 +114,18 @@ test('simulated concurrent minute replay debits 60000 units and credits 250 Bean
   const f = fixture(), s = f.service;
   await Promise.all(Array.from({ length: 20 }, () => s.atomic(tx => s.billCallMinute('call', 'caller', 'host', 1, false, f.pinned, tx))));
   assert.equal(f.db().User[0].diamonds, 400);
-  assert.equal(f.account(s.availableAccount('host', 'v2')), 250);
+  assert.equal(f.account(s.availableAccount('host', 'v2')), 500);
   assert.equal(f.db().EconomyJournal.length, 1);
   assert.equal(f.db().User[0].coins, 777); assert.equal(f.db().User[1].coins, 123);
 });
 test('simulated video, concurrent gifts and complete journal conservation', async () => {
   const f = fixture(), s = f.service; f.db().User[0].diamonds = 2000;
   await s.atomic(tx => s.billCallMinute('video', 'caller', 'host', 1, true, f.pinned, tx));
-  assert.equal(f.db().User[0].diamonds, 800); assert.equal(f.account(s.availableAccount('host', 'v2')), 500);
+  assert.equal(f.db().User[0].diamonds, 800); assert.equal(f.account(s.availableAccount('host', 'v2')), 1000);
   const gift = { key: 'gift', sender: 'caller', receivers: [{ id: 'host', agency: 'agency' }], unitsPerReceiver: 10000, giftId: 'g', roomId: 'r' };
   await Promise.all(Array.from({ length: 20 }, () => s.atomic(tx => s.processRoomGift(gift, f.pinned, tx))));
   assert.equal(f.db().User[0].diamonds, 700);
-  assert.equal(f.account(s.availableAccount('host', 'v2')), 5000);
+  assert.equal(f.account(s.availableAccount('host', 'v2')), 5500);
   assert.equal(f.account(s.availableAccount('agency', 'v2')), 1000);
   assert.equal(f.account('platform:retained'), 3000);
   assert.equal(f.db().EconomyHostMonth[0].reserveBeans, 1500);
@@ -150,12 +150,12 @@ test('gift compensation is idempotent and historical Beans stay untouched', asyn
 test('withdrawal consumes only earned Beans at the original version, rejection releases exact hold', async () => {
   const f = fixture(), s = f.service; f.db().User[0].diamonds = 50000;
   for (let minute = 1; minute <= 80; minute++) await s.atomic(tx => s.billCallMinute('call', 'caller', 'host', minute, false, f.pinned, tx));
-  assert.equal(f.account(s.availableAccount('host', 'v2')), 20000);
-  const quote = await s.atomic(tx => s.holdWithdrawal('host', 20000, 'request_123', f.pinned, tx));
+  assert.equal(f.account(s.availableAccount('host', 'v2')), 40000);
+  const quote = await s.atomic(tx => s.holdWithdrawal('host', 40000, 'request_123', f.pinned, tx));
   assert.equal(quote.grossPaise, 20000); assert.equal(quote.netPaise, 19000);
   await s.atomic(tx => s.settleWithdrawal('host', 'request_123', false, f.pinned, tx));
   await s.atomic(tx => s.settleWithdrawal('host', 'request_123', false, f.pinned, tx));
-  assert.equal(f.account(s.availableAccount('host', 'v2')), 20000); assert.equal(f.db().User[1].coins, 123);
+  assert.equal(f.account(s.availableAccount('host', 'v2')), 40000); assert.equal(f.db().User[1].coins, 123);
 });
 test('idempotency conflicts, self-gifting and overspending do not mint earnings', async () => {
   const f = fixture(), s = f.service;
@@ -172,7 +172,7 @@ test('missing rollout defaults to legacy and separate rate versions do not mix e
   const nextRules = structuredClone(f.pinned.rules); nextRules.beansPerInr = 90;
   const next = { version: 'v3', digest: s.digest(nextRules), rules: nextRules };
   await s.atomic(tx => s.billCallMinute('b', 'caller', 'host', 1, false, next, tx));
-  assert.equal(f.account(s.availableAccount('host', 'v2')), 250); assert.equal(f.account(s.availableAccount('host', 'v3')), 250);
+  assert.equal(f.account(s.availableAccount('host', 'v2')), 500); assert.equal(f.account(s.availableAccount('host', 'v3')), 500);
 });
 test('production cannot be enabled with an owner toggle alone; version tampering fails closed', async () => {
   const f = fixture(); f.env.NODE_ENV = 'production';
@@ -199,7 +199,7 @@ test('actual call billing adapter pins voice/video rates and finalization does n
     f.db().CoinsTransaction.push({ _id: 'call', userId: 'caller', hostId: 'host', status: 'connected',
       callStart: new Date(now - 1000), meta: { economyVersion: 'v2', isVideo: video, callDiamondsPerMinute: 100 } });
     assert.equal((await Billing.processActiveCallBilling('call')).success, true);
-    const expectedUnits = video ? 120000 : 60000, expectedBeans = video ? 500 : 250;
+    const expectedUnits = video ? 120000 : 60000, expectedBeans = video ? 1000 : 500;
     assert.equal(f.db().User[0].diamonds, (200000 - expectedUnits) / 100);
     assert.equal(f.account(f.service.availableAccount('host', 'v2')), expectedBeans);
     assert.equal((await Billing.processCallEnd('call', new Date(now))).success, true);
@@ -216,7 +216,7 @@ test('actual call adapter preserves legacy 100-Diamond debit and level earning w
   const result = await Billing.processCallEnd('old', end);
   assert.equal(result.success, true);
   assert.equal(f.db().User[0].diamonds, 900);
-  assert.equal(f.db().User[1].coins, 373);
+  assert.equal(f.db().User[1].coins, 623);
   assert.equal(f.db().EconomyJournal.length, 0);
 });
 test('monthly salary settles escrow once, combines full-month thresholds and releases unused reserve', async () => {

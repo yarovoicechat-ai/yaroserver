@@ -1,3 +1,22 @@
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
 import { getVersion, settleWithdrawal } from '../economy/service';
 
 import { Response } from "express";
@@ -35,7 +54,7 @@ export const requestWithdrawal = async (req: AuthRequest, res: Response) => {
         )));
         if (!Number.isFinite(requestedAmount) || requestedAmount < MIN_WITHDRAWAL_INR) {
             await session.abortTransaction();
-            return sendResponse(res, 400, false, `Minimum withdrawal is ₹${MIN_WITHDRAWAL_INR} (${MIN_WITHDRAWAL_COINS} coins)`);
+            return sendResponse(res, 400, false, `Minimum withdrawal is ₹${MIN_WITHDRAWAL_INR} (${MIN_WITHDRAWAL_COINS} Beans)`);
         }
 
         if (![WithdrawalMethod.BANK, WithdrawalMethod.UPI].includes(method)) {
@@ -70,7 +89,7 @@ export const requestWithdrawal = async (req: AuthRequest, res: Response) => {
 
         if (currentCoins < coinsRequired) {
             await session.abortTransaction();
-            return sendResponse(res, 400, false, `Insufficient coins. You need ${coinsRequired} coins for ₹${requestedAmount}`);
+            return sendResponse(res, 400, false, `Insufficient beans. You need ${coinsRequired} Beans for ₹${requestedAmount}`);
         }
 
         // 3. Deduct Coins (Hold them)

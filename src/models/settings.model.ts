@@ -39,7 +39,7 @@ const SettingsSchema = new Schema<ISettings>({
     userNotifications: { type: Boolean, default: true },
     systemDigest: { type: Boolean, default: true },
     callRatePerMinute: { type: Number, default: 600, min: 1 },
-    hostSharePerMinute: { type: Number, default: 250, min: 0 },
+    hostSharePerMinute: { type: Number, default: 500, min: 0 },
     chatMessageCost: { type: Number, default: 10, min: 0 },
     chatMessageLimit: { type: Number, default: 50, min: 1, max: 5000 },
     welcomeRewardDiamonds: { type: Number, default: 100, min: 0 },

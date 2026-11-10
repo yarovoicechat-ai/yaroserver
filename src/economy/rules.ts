@@ -11,16 +11,16 @@ export interface EconomyRules {
   calendarOffsetMinutes: number;
 }
 export const NEW_ECONOMY: EconomyRules = {
-  beansPerInr: 100, giftBeansPerDiamond: 100,
-  voice: { diamondUnitsPerMinute: 60000, hostBeansPerMinute: 250, referencePaisePerMinute: 600 },
-  video: { diamondUnitsPerMinute: 120000, hostBeansPerMinute: 500, referencePaisePerMinute: 1200 },
+  beansPerInr: 200, giftBeansPerDiamond: 100,
+  voice: { diamondUnitsPerMinute: 60000, hostBeansPerMinute: 500, referencePaisePerMinute: 600 },
+  video: { diamondUnitsPerMinute: 120000, hostBeansPerMinute: 1000, referencePaisePerMinute: 1200 },
   gift: { instantBps: 4500, salaryMaxBps: 1500, agencyMaxBps: 1000, platformMinBps: 3000 },
   salary: { minDays: 15, minHostingMinutes: 1800, minDayMinutes: 60,
     slabs: [{ diamonds: 0, bps: 0 }, { diamonds: 25000, bps: 300 },
       { diamonds: 50000, bps: 600 }, { diamonds: 100000, bps: 800 },
       { diamonds: 200000, bps: 1000 }, { diamonds: 500000, bps: 1200 },
       { diamonds: 1000000, bps: 1500 }] },
-  withdrawal: { minimumPaise: 20000, feeBps: 500 }, calendarOffsetMinutes: 330,
+  withdrawal: { minimumPaise: 1000, feeBps: 500 }, calendarOffsetMinutes: 330,
 };
 export function integer(n: number, name = 'amount'): number {
   if (!Number.isSafeInteger(n) || n < 0) throw new Error(`${name} must be a nonnegative safe integer`);

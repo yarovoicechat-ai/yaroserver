@@ -366,7 +366,7 @@ export class BillingService {
 
             const hostSharePerMinute = pinnedEconomy
                 ? (startMeta.isVideo === true ? pinnedEconomy.rules.video : pinnedEconomy.rules.voice).hostBeansPerMinute
-                : (startMeta.isVideo === true ? 500 : 250);
+                : (startMeta.isVideo === true ? 1000 : 500);
             const HOST_SHARE_PER_SECOND = hostSharePerMinute / 60;
 
 
