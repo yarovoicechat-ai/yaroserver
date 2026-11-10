@@ -56,10 +56,18 @@ export function validateVipMedia(data: any): string | null {
 
 // Keep existing plan IDs, slugs and entitlements; the former SVIP tiers are VIP.
 export function presentVipPlan(plan: any) {
-  const defaults = getVipAssets(Number(plan.level));
+  const level = Number(plan.level);
+  const defaults = getVipAssets(level);
   const animated = (url: string) => /\.svga(?:[?#]|$)/i.test(url || '');
   const entryAnimationUrl = animated(plan.entryAnimationUrl) ? plan.entryAnimationUrl : defaults?.entry.animationUrl || '';
   const avatarFrameUrl = animated(plan.avatarFrameUrl) ? plan.avatarFrameUrl : defaults?.frame.animationUrl || '';
+  const defaultBadgeAnim = defaults?.badge?.animationUrl || (level === 0 ? '/api/vip-assets/badge/vip_badge_0.svga' : '');
+  const defaultBadgeImg = defaults?.badge?.imageUrl || (level === 0 ? '/api/vip-assets/badge/vip_badge_0.png' : '');
+  const badgeAnimationUrl = animated(plan.profileBadgeConfig?.animationUrl)
+    ? plan.profileBadgeConfig.animationUrl
+    : (animated(plan.heroAnimationUrl) ? plan.heroAnimationUrl : defaultBadgeAnim);
+  const badgePreviewUrl = plan.profileBadgeConfig?.previewUrl || plan.profileBadgeConfig?.iconUrl || plan.heroBadgePreviewUrl || plan.heroBadgeUrl || defaultBadgeImg;
+
   return {
     ...plan,
     name: vipLabel(plan.name),
@@ -72,6 +80,17 @@ export function presentVipPlan(plan: any) {
     entryPreviewUrl: plan.entryPreviewUrl || defaults?.entry.imageUrl || '',
     avatarFrameUrl,
     avatarFramePreviewUrl: plan.avatarFramePreviewUrl || defaults?.frame.imageUrl || '',
+    profileBadgeConfig: {
+      ...plan.profileBadgeConfig,
+      animationUrl: badgeAnimationUrl,
+      previewUrl: badgePreviewUrl,
+      iconUrl: badgePreviewUrl,
+      badgeName: plan.profileBadgeConfig?.badgeName || `${vipLabel(plan.name)} Crest`,
+      enabled: plan.profileBadgeConfig?.enabled ?? true,
+    },
+    heroBadgeUrl: badgePreviewUrl,
+    heroAnimationUrl: badgeAnimationUrl,
+    heroBadgePreviewUrl: badgePreviewUrl,
   };
 }
 
@@ -88,6 +107,12 @@ export function membershipAssets(plan: any) {
       animationUrl: configured.entryAnimationUrl, imageUrl: configured.entryPreviewUrl,
       duration: 5500, isActive: true, animationType: 'FULL_SCREEN',
       metadata: { showAvatar: false, comingText: 'is coming' },
+    } : null,
+    badge: plan.features?.enableSpecialBadge !== false && configured.profileBadgeConfig?.animationUrl ? {
+      id: `vip_badge_${plan.level}`, name: `VIP ${plan.level} Badge`,
+      isActive: true,
+      animationUrl: configured.profileBadgeConfig.animationUrl,
+      imageUrl: configured.profileBadgeConfig.previewUrl,
     } : null,
   };
 }

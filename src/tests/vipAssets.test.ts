@@ -13,7 +13,7 @@ import { IdentityAuditLog } from '../models/identityAuditLog.model';
 test('all five VIP levels have backend PNG covers and playable SVGA files', () => {
   for (let level = 1; level <= 5; level++) {
     const assets = getVipAssets(level)!;
-    for (const asset of [assets.entry, assets.frame]) {
+    for (const asset of [assets.entry, assets.frame, assets.badge]) {
       for (const url of [asset.imageUrl, asset.animationUrl]) {
         const file = path.resolve(__dirname, '../../assets/vip', url.replace('/api/vip-assets/', ''));
         const bytes = fs.readFileSync(file);
@@ -22,6 +22,10 @@ test('all five VIP levels have backend PNG covers and playable SVGA files', () =
       }
     }
   }
+  const b0Svga = path.resolve(__dirname, '../../assets/vip/badge/vip_badge_0.svga');
+  const b0Png = path.resolve(__dirname, '../../assets/vip/badge/vip_badge_0.png');
+  assert.ok(fs.existsSync(b0Svga));
+  assert.ok(fs.existsSync(b0Png));
   for (const level of [0, 6, 10, NaN, 1.5]) assert.equal(getVipAssets(level), null);
 });
 

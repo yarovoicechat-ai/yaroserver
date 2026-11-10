@@ -467,9 +467,9 @@ function buildSvipTier(
     badge: level === 0 ? '👑 VIP+' : `👑 SVIP ${level}`,
     icon: 'diamond',
     crown: '👑',
-    heroBadgeUrl: badgeUrl,
-    heroAnimationUrl: '',
-    heroBadgePreviewUrl: '',
+    heroBadgeUrl: badgeUrl || `/api/vip-assets/badge/vip_badge_${level}.png`,
+    heroAnimationUrl: `/api/vip-assets/badge/vip_badge_${level}.svga`,
+    heroBadgePreviewUrl: badgeUrl || `/api/vip-assets/badge/vip_badge_${level}.png`,
     bgGradient: ['#1E140D', '#2A1C13', '#160E09'],
     price,
     originalPrice,
@@ -495,9 +495,11 @@ function buildSvipTier(
       enabled: true,
     },
     profileBadgeConfig: {
-      badgeName: `${name} Crest`,
-      iconUrl: '',
-      animationType: 'pulse',
+      badgeName: `${name} Badge`,
+      iconUrl: badgeUrl || `/api/vip-assets/badge/vip_badge_${level}.png`,
+      previewUrl: badgeUrl || `/api/vip-assets/badge/vip_badge_${level}.png`,
+      animationUrl: `/api/vip-assets/badge/vip_badge_${level}.svga`,
+      animationType: 'svga',
       enabled: true,
     },
     privileges,
@@ -524,12 +526,12 @@ function buildSvipTier(
 
 // 6 Official SVIP Plans strictly matching SVIP.js in the Mobile App (SVIP+ to SVIP 5)
 export const DEFAULT_SVIP_TIER_PLANS = [
-  buildSvipTier('VIP+ Lynx', 'VIP_PLUS', 'vip-plus', 0, 49000, 75000, 35, 50000, 5, 'VIP+', ['#3B82F6', '#1D4ED8'], 'VIP+ Frost Blue', ['#1E3A8A', '#1E40AF'], '#60A5FA', 'https://cdn.yaroapp.in/svip/badges/lynx_vip_plus.png'),
-  buildSvipTier('SVIP 1 Knight', 'SVIP_1', 'svip-1', 1, 99000, 150000, 34, 100000, 8, 'SVIP 1', ['#F59E0B', '#D97706'], 'Knight Amber Glass', ['#3A1F04', '#78350F'], '#F59E0B', 'https://cdn.yaroapp.in/svip/badges/svip_1_knight.png'),
-  buildSvipTier('SVIP 2 Count', 'SVIP_2', 'svip-2', 2, 180000, 270000, 33, 250000, 11, 'SVIP 2', ['#A855F7', '#7C3AED'], 'Count Amethyst', ['#3B0764', '#581C87'], '#C084FC', 'https://cdn.yaroapp.in/svip/badges/svip_2_count.png'),
-  buildSvipTier('SVIP 3 Duke', 'SVIP_3', 'svip-3', 3, 350000, 500000, 30, 500000, 14, 'SVIP 3', ['#06B6D4', '#0284C7'], 'Duke Cyan Wolf Bubble', ['#082F49', '#0369A1'], '#38BDF8', '/svip/svip3_tag.png'),
-  buildSvipTier('SVIP 4 Monarch', 'SVIP_4', 'svip-4', 4, 700000, 1000000, 30, 1000000, 17, 'SVIP 4', ['#EF4444', '#DC2626'], 'VIP 4 Imperial Gold Bubble', ['#450A0A', '#7F1D1D'], '#F59E0B', '/svip/svip4_badge.png'),
-  buildSvipTier('SVIP 5 Sovereign Supreme', 'SVIP_5', 'svip-5', 5, 1500000, 2250000, 33, 2000000, 20, 'SVIP 5', ['#FBBF24', '#D97706'], 'Imperial Sovereign Gold', ['#422006', '#713F12'], '#FBBF24', '/svip/svip5_badge.png'),
+  buildSvipTier('VIP+ Lynx', 'VIP_PLUS', 'vip-plus', 0, 49000, 75000, 35, 50000, 5, 'VIP+', ['#3B82F6', '#1D4ED8'], 'VIP+ Frost Blue', ['#1E3A8A', '#1E40AF'], '#60A5FA', '/api/vip-assets/badge/vip_badge_0.png'),
+  buildSvipTier('SVIP 1 Knight', 'SVIP_1', 'svip-1', 1, 99000, 150000, 34, 100000, 8, 'SVIP 1', ['#F59E0B', '#D97706'], 'Knight Amber Glass', ['#3A1F04', '#78350F'], '#F59E0B', '/api/vip-assets/badge/vip_badge_1.png'),
+  buildSvipTier('SVIP 2 Count', 'SVIP_2', 'svip-2', 2, 180000, 270000, 33, 250000, 11, 'SVIP 2', ['#A855F7', '#7C3AED'], 'Count Amethyst', ['#3B0764', '#581C87'], '#C084FC', '/api/vip-assets/badge/vip_badge_2.png'),
+  buildSvipTier('SVIP 3 Duke', 'SVIP_3', 'svip-3', 3, 350000, 500000, 30, 500000, 14, 'SVIP 3', ['#06B6D4', '#0284C7'], 'Duke Cyan Wolf Bubble', ['#082F49', '#0369A1'], '#38BDF8', '/api/vip-assets/badge/vip_badge_3.png'),
+  buildSvipTier('SVIP 4 Monarch', 'SVIP_4', 'svip-4', 4, 700000, 1000000, 30, 1000000, 17, 'SVIP 4', ['#EF4444', '#DC2626'], 'VIP 4 Imperial Gold Bubble', ['#450A0A', '#7F1D1D'], '#F59E0B', '/api/vip-assets/badge/vip_badge_4.png'),
+  buildSvipTier('SVIP 5 Sovereign Supreme', 'SVIP_5', 'svip-5', 5, 1500000, 2250000, 33, 2000000, 20, 'SVIP 5', ['#FBBF24', '#D97706'], 'Imperial Sovereign Gold', ['#422006', '#713F12'], '#FBBF24', '/api/vip-assets/badge/vip_badge_5.png'),
 ].map(presentVipPlan);
 
 /* =========================================================================

@@ -20,5 +20,12 @@ export function getVipAssets(level: number) {
       isActive: true,
       metadata: { showAvatar: false, comingText: 'is coming' },
     },
+    badge: {
+      id: `vip_badge_${level}`,
+      name: `VIP ${level} Badge`,
+      imageUrl: `${root}/badge/vip_badge_${level}.png`,
+      animationUrl: `${root}/badge/vip_badge_${level}.svga`,
+      isActive: true,
+    },
   };
 }
