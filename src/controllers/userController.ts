@@ -593,7 +593,7 @@ export const updateUser = async (req: AuthRequest, res: Response) => {
         await Host.updateOne(
           { hostId: userToUpdate.userId },
           { $set: { profilePhoto: cleanImage } }
-        ).catch(() => {});
+        ).catch(() => { });
       }
 
       return sendResponse(res, 200, true, "User updated successfully", {

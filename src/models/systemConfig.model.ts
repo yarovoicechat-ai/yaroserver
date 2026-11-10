@@ -4,6 +4,7 @@ export interface ISystemConfig extends Document {
   key: string;
   isFamilyEnabled: boolean;
   isCpEnabled: boolean;
+  isInviteEarnEnabled: boolean;
   storeCategories: string[];
   maintenanceMode: boolean;
   metadata?: Record<string, any>;
@@ -16,6 +17,7 @@ const SystemConfigSchema = new Schema<ISystemConfig>(
     key: { type: String, required: true, unique: true, default: 'global_config' },
     isFamilyEnabled: { type: Boolean, default: true },
     isCpEnabled: { type: Boolean, default: true },
+    isInviteEarnEnabled: { type: Boolean, default: false },
     storeCategories: {
       type: [String],
       default: [

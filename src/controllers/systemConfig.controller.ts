@@ -10,6 +10,7 @@ export const getAppConfig = async (_req: Request, res: Response) => {
         key: 'global_config',
         isFamilyEnabled: false,
         isCpEnabled: false,
+        isInviteEarnEnabled: false,
       });
     }
     return sendResponse(res, 200, true, 'App configuration retrieved', config);
@@ -24,6 +25,7 @@ export const getPublicAppConfig = async (_req: Request, res: Response) => {
     return sendResponse(res, 200, true, 'App configuration retrieved', {
       isFamilyEnabled: config?.isFamilyEnabled ?? false,
       isCpEnabled: config?.isCpEnabled ?? false,
+      isInviteEarnEnabled: config?.isInviteEarnEnabled ?? false,
       maintenanceMode: config?.maintenanceMode ?? false,
       storeCategories: config?.storeCategories || [],
     });
@@ -32,12 +34,16 @@ export const getPublicAppConfig = async (_req: Request, res: Response) => {
 
 export const updateAppConfig = async (req: Request, res: Response) => {
   try {
-    const { isFamilyEnabled, isCpEnabled, maintenanceMode, metadata, feature, enabled } = req.body;
+    const { isFamilyEnabled, isCpEnabled, isInviteEarnEnabled, maintenanceMode, metadata, feature, enabled } = req.body;
     const update: any = {};
-    if (feature === 'family' || feature === 'isFamilyEnabled') update.isFamilyEnabled = Boolean(enabled);
-    if (feature === 'cp' || feature === 'isCpEnabled') update.isCpEnabled = Boolean(enabled);
+    if (feature === 'family') update.isFamilyEnabled = Boolean(enabled);
+    if (feature === 'cp') update.isCpEnabled = Boolean(enabled);
+    if (feature === 'inviteEarn' || feature === 'invite' || feature === 'isInviteEarnEnabled') {
+      update.isInviteEarnEnabled = Boolean(enabled);
+    }
     if (isFamilyEnabled !== undefined) update.isFamilyEnabled = Boolean(isFamilyEnabled);
     if (isCpEnabled !== undefined) update.isCpEnabled = Boolean(isCpEnabled);
+    if (isInviteEarnEnabled !== undefined) update.isInviteEarnEnabled = Boolean(isInviteEarnEnabled);
     if (maintenanceMode !== undefined) update.maintenanceMode = Boolean(maintenanceMode);
     if (metadata !== undefined) update.metadata = metadata;
 
