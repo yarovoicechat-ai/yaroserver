@@ -13,3 +13,4 @@ emojiRouter.post('/', verifyToken, EmojiController.upsertEmoji);
 emojiRouter.delete('/:id', verifyToken, EmojiController.deleteEmoji);
 
 export default emojiRouter;
+

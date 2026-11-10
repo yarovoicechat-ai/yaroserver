@@ -33,3 +33,4 @@ export const Emoji =
   (mongoose.models.Emoji as mongoose.Model<IEmoji>) ||
   mongoose.model<IEmoji>('Emoji', EmojiSchema);
 export default Emoji;
+
