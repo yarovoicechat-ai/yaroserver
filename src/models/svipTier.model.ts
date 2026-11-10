@@ -64,6 +64,7 @@ export interface ISvipTier extends Document {
     bgGradient: string[];
     iconUrl?: string;
     previewUrl?: string;
+    animationUrl?: string;
     enabled: boolean;
   };
   svipBubbleConfig?: {
@@ -78,8 +79,39 @@ export interface ISvipTier extends Document {
   profileBadgeConfig?: {
     badgeName: string;
     iconUrl?: string;
+    previewUrl?: string;
+    animationUrl?: string;
     animationType?: string;
     enabled: boolean;
+  };
+  profileCardConfig?: {
+    cardName?: string;
+    previewUrl?: string;
+    animationUrl?: string;
+    enabled?: boolean;
+  };
+  giftBroadcastConfig?: {
+    title?: string;
+    previewUrl?: string;
+    animationUrl?: string;
+    enabled?: boolean;
+  };
+  nameColorConfig?: {
+    color?: string;
+    gradient?: string[];
+    glowColor?: string;
+    enabled?: boolean;
+  };
+  messageColorConfig?: {
+    color?: string;
+    bubbleColor?: string;
+    enabled?: boolean;
+  };
+  vipIdConfig?: {
+    vipIdPattern?: string;
+    previewUrl?: string;
+    animationUrl?: string;
+    enabled?: boolean;
   };
 
   // Dynamic Privilege List (from screenshots)
@@ -98,6 +130,9 @@ export interface ISvipTier extends Document {
   micWaveConfig?: {
     waveColors: string[];
     intensity: number;
+    previewUrl?: string;
+    animationUrl?: string;
+    enabled?: boolean;
   };
   chatBubbleConfig?: {
     bubbleName: string;
@@ -180,6 +215,7 @@ const SvipTierSchema = new Schema<ISvipTier>(
       bgGradient: { type: [String], default: ['#F59E0B', '#D97706'] },
       iconUrl: { type: String, default: '' },
       previewUrl: { type: String, default: '' },
+      animationUrl: { type: String, default: '' },
       enabled: { type: Boolean, default: true },
     },
     svipBubbleConfig: {
@@ -194,7 +230,38 @@ const SvipTierSchema = new Schema<ISvipTier>(
     profileBadgeConfig: {
       badgeName: { type: String, default: 'SVIP Crest' },
       iconUrl: { type: String, default: '' },
+      previewUrl: { type: String, default: '' },
+      animationUrl: { type: String, default: '' },
       animationType: { type: String, default: 'pulse' },
+      enabled: { type: Boolean, default: true },
+    },
+    profileCardConfig: {
+      cardName: { type: String, default: '' },
+      previewUrl: { type: String, default: '' },
+      animationUrl: { type: String, default: '' },
+      enabled: { type: Boolean, default: true },
+    },
+    giftBroadcastConfig: {
+      title: { type: String, default: '' },
+      previewUrl: { type: String, default: '' },
+      animationUrl: { type: String, default: '' },
+      enabled: { type: Boolean, default: true },
+    },
+    nameColorConfig: {
+      color: { type: String, default: '#FFD700' },
+      gradient: { type: [String], default: ['#F59E0B', '#D97706'] },
+      glowColor: { type: String, default: '#F59E0B' },
+      enabled: { type: Boolean, default: true },
+    },
+    messageColorConfig: {
+      color: { type: String, default: '#FFFFFF' },
+      bubbleColor: { type: String, default: '#3B0764' },
+      enabled: { type: Boolean, default: true },
+    },
+    vipIdConfig: {
+      vipIdPattern: { type: String, default: '' },
+      previewUrl: { type: String, default: '' },
+      animationUrl: { type: String, default: '' },
       enabled: { type: Boolean, default: true },
     },
 
@@ -225,6 +292,9 @@ const SvipTierSchema = new Schema<ISvipTier>(
     micWaveConfig: {
       waveColors: { type: [String], default: ['#A855F7', '#7C3AED', '#C084FC'] },
       intensity: { type: Number, default: 1.2 },
+      previewUrl: { type: String, default: '' },
+      animationUrl: { type: String, default: '' },
+      enabled: { type: Boolean, default: true },
     },
     chatBubbleConfig: {
       bubbleName: { type: String, default: 'SVIP Royal Purple' },
