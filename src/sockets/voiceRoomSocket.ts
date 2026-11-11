@@ -5,6 +5,8 @@ import { explicitRoomPowers } from '../utils/roomOfficialPowers';
 import { chargeRoomBullet } from '../services/roomBullet.service';
 import { HostingObserver, recordObservedHostingMinute, attendanceEconomy } from '../economy/attendance';
 import { IdentityResolverService } from '../services/identityResolver.service';
+import { VipService } from '../services/vip.service';
+import { roomUserCosmetics } from '../utils/roomUserCosmetics';
 import mongoose, { Types } from "mongoose";
 import { Server } from "socket.io";
 import { AuthenticatedSocket } from "../middlewares/auth.socket";
@@ -258,12 +260,13 @@ const getCanonicalRoomUser = async (socketUser: any, fallback: any = {}) => {
   const dbUser: any = query
     ? await User.findOne(query)
         .select(
-          "userId name image avatar gender level wealthLevel wealthExp charmLevel charmExp country age equippedCustomId customDisplayId uniqueId storeInventory equippedVehicle equippedVehicleAsset equippedFrame equippedFrameAsset equippedEntry equippedEntryAsset equippedEntryEffect equippedEntryTag equippedEntrance equippedEntranceAsset equippedTassel equippedTasselAsset equippedBadge equippedBadges equippedChatBubble equippedChatBubbleAsset equippedVipId equippedSvipId isGlobalRoomManager officialPowers",
+          "userId name image avatar gender level wealthLevel wealthExp charmLevel charmExp country age equippedCustomId customDisplayId uniqueId storeInventory equippedVehicle equippedVehicleAsset equippedFrame equippedFrameAsset frameId equippedAvatarFrame equippedEntry equippedEntryAsset equippedEntryEffect equippedEntryTag equippedEntrance equippedEntranceAsset equippedTassel equippedTasselAsset equippedBadge equippedBadges equippedChatBubble equippedChatBubbleAsset equippedVipId equippedSvipId equippedVipExpiresAt equippedSvipExpiresAt isGlobalRoomManager officialPowers",
         )
         .lean()
     : null;
   const source: any = dbUser || socketUser || {};
   const identity = await IdentityResolverService.resolveEffectiveIdentity(source);
+  const vipExperience = await VipService.resolveVipExperience(source);
   const id = String(source?._id || source?.id || "");
   const avatar =
     source?.image ||
@@ -294,10 +297,7 @@ const getCanonicalRoomUser = async (socketUser: any, fallback: any = {}) => {
     customDisplayId: identity?.customDisplayId || source?.equippedCustomId || source?.customDisplayId || source?.uniqueId || null,
     uniqueId: identity?.customDisplayId || source?.equippedCustomId || source?.uniqueId || source?.customDisplayId || null,
     storeInventory: source?.storeInventory || [],
-    equippedFrame: source?.equippedFrameAsset || source?.equippedFrame || null,
-    equippedFrameAsset: source?.equippedFrameAsset || null,
-    equippedEntry: source?.equippedEntryAsset || source?.equippedEntry || null,
-    equippedEntryAsset: source?.equippedEntryAsset || null,
+    ...roomUserCosmetics(source, identity, vipExperience),
     equippedEntryEffect: source?.equippedEntryEffect || null,
     equippedEntryTag: source?.equippedEntryTag || null,
     equippedEntrance: source?.equippedEntranceAsset || source?.equippedEntrance || null,
@@ -680,6 +680,7 @@ export const registerVoiceRoomHandlers = (io: Server, socket: AuthenticatedSocke
 
       if (data.roomTitle) state.title = data.roomTitle;
       let ownerSeatUpdated = false;
+      let refreshedMemberSeatIndex: number | null = null;
       if (authorizedHost) {
         state.hostUser = userData;
         // BUG #1: Ensure Room Owner automatically occupies mic seat 0
@@ -702,6 +703,13 @@ export const registerVoiceRoomHandlers = (io: Server, socket: AuthenticatedSocke
           }
         }
         ownerSeatUpdated = true;
+      }
+      if (!authorizedHost) {
+        const occupiedSeat = state.seats.find(seat => String(seat.user?.userId || '') === String(userData.userId));
+        if (occupiedSeat) {
+          occupiedSeat.user = userData;
+          refreshedMemberSeatIndex = occupiedSeat.seatIndex;
+        }
       }
 
       if (!state.onlineUsers) state.onlineUsers = {};
@@ -770,10 +778,10 @@ export const registerVoiceRoomHandlers = (io: Server, socket: AuthenticatedSocke
         });
       }
 
-      if (ownerSeatUpdated) {
+      if (ownerSeatUpdated || refreshedMemberSeatIndex !== null) {
         const updatePayload = {
         roomId,
-          seatIndex: 0,
+          seatIndex: refreshedMemberSeatIndex ?? 0,
           user: userData,
           seats: state.seats,
         };
@@ -825,7 +833,7 @@ export const registerVoiceRoomHandlers = (io: Server, socket: AuthenticatedSocke
 
       // Broadcast Entry Effect to the voice room and directly to joiner only when joining anew
       if (shouldBroadcastJoin && !isStealth && !isQuietResync) {
-        EntryEffectService.broadcastEntry(roomId, userData, rawRoomId).then((entryPayload) => {
+        EntryEffectService.broadcastEntry(roomId, userData, rawRoomId, io).then((entryPayload) => {
           if (entryPayload && socket.connected) {
             socket.emit("entry:effect", entryPayload);
           }

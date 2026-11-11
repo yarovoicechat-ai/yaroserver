@@ -6,6 +6,7 @@ import { User } from '../models/user.model';
 import { getIOOptional } from '../sockets';
 import { VipService } from './vip.service';
 import { StoreItem } from '../models/storeItem.model';
+import type { Server } from 'socket.io';
 
 const ENTRY_DURATIONS = [3, 7, 15, 30] as const;
 const normalizeEntryPriceOptions = (value: any, basePrice: number) => {
@@ -244,7 +245,7 @@ export class EntryEffectService {
   /**
    * Broadcast an entry effect to a voice room when a user enters.
    */
-  static async broadcastEntry(roomId: string, user: any, rawRoomId?: string) {
+  static async broadcastEntry(roomId: string, user: any, rawRoomId?: string, roomIO?: Server) {
     if (!roomId || !user) return null;
 
     try {
@@ -433,7 +434,7 @@ export class EntryEffectService {
         timestamp: Date.now(),
       };
 
-      const io = getIOOptional();
+      const io = roomIO || getIOOptional();
       if (io) {
         const entryEventId = `entry_${Date.now()}_${user?.userId || user?._id || 'u'}_${Math.random().toString(36).substr(2, 4)}`;
         payload.entryId = entryEventId;
