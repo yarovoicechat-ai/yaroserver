@@ -150,10 +150,16 @@ app.use("/api/uploads", express.static(path.join(__dirname, "../uploads"), {
 app.use('/api/vip-assets', express.static(path.join(__dirname, '../assets/vip'), {
   maxAge: '1d', etag: true, dotfiles: 'deny', index: false,
 }));
-app.use('/api/emoji-assets', express.static(path.join(__dirname, '../assets/emojis'), {
+const emojiStaticRewrite = (req: express.Request, _res: express.Response, next: express.NextFunction) => {
+  if (req.url && req.url.startsWith('/emoji_') && req.url.endsWith('.gif')) {
+    req.url = req.url.replace(/^\/emoji_/, '/anim_emoji_');
+  }
+  next();
+};
+app.use('/api/emoji-assets', emojiStaticRewrite, express.static(path.join(__dirname, '../assets/emojis'), {
   maxAge: '7d', etag: true, dotfiles: 'deny', index: false,
 }));
-app.use('/api/v1/emoji-assets', express.static(path.join(__dirname, '../assets/emojis'), {
+app.use('/api/v1/emoji-assets', emojiStaticRewrite, express.static(path.join(__dirname, '../assets/emojis'), {
   maxAge: '7d', etag: true, dotfiles: 'deny', index: false,
 }));
 app.use("/policies", express.static(path.join(__dirname, "../policies")));

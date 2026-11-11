@@ -27,6 +27,16 @@ export class EmojiService {
           );
         }
         console.log(`[EmojiService] Successfully seeded ${INITIAL_EMOJIS.length} emojis.`);
+      } else {
+        // Migration: Ensure any existing emojis with old emoji_*.gif url are migrated to anim_emoji_*.gif
+        const oldEntries = await Emoji.find({ gifUrl: { $regex: /\/emoji_[^/]+\.gif$/ } });
+        if (oldEntries.length > 0) {
+          for (const entry of oldEntries) {
+            entry.gifUrl = entry.gifUrl.replace(/\/emoji_([^/]+\.gif)$/, '/anim_emoji_$1');
+            await entry.save();
+          }
+          console.log(`[EmojiService] Migrated ${oldEntries.length} emoji gifUrls to anim_emoji format.`);
+        }
       }
     } catch (err: any) {
       console.warn('[EmojiService] Auto-seed notice:', err?.message || err);

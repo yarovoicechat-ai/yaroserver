@@ -47,6 +47,13 @@ export const allocateRoomSeat = <TState extends { seats: any[] }>(
     throw new Error('Seat already taken');
   }
 
+  // Moving seats or receiving a duplicate take-seat event must not reset the
+  // speaker's microphone. The default only applies when joining from audience.
+  const previousSeat = state.seats.find(seat =>
+    String(seat.user?.userId || seat.user?._id || seat.user?.id || '') === userId,
+  );
+  const nextMuted = previousSeat ? Boolean(previousSeat.isMuted) : isMuted;
+
   const seats = state.seats.map((seat) => {
     const occupantId = String(seat.user?.userId || seat.user?._id || seat.user?.id || '');
     if (occupantId === userId) return { ...seat, user: null, isMuted: true };
@@ -56,7 +63,7 @@ export const allocateRoomSeat = <TState extends { seats: any[] }>(
   seats[seatIndex] = {
     ...seats[seatIndex],
     user,
-    isMuted,
+    isMuted: nextMuted,
     isLocked: false,
   };
 

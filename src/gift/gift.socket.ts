@@ -188,6 +188,7 @@ export const broadcastGiftSuccess = (params: BroadcastGiftParams) => {
         io.to(room).emit('balanceUpdated', {
           userId: rId,
           diamonds: diamondsVal,
+          ...(typeof recBal === 'object' && recBal.coins !== undefined ? { coins: Number(recBal.coins) } : {}),
           totalBalance: diamondsVal,
         });
       }

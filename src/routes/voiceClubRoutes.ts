@@ -14,6 +14,7 @@ import {
   verifyRoomLockPin,
 } from '../controllers/voiceClubController';
 import { verifyToken } from '../middlewares/authorize.middleware';
+import { getCurrentRoomPK, getRoomPKHistory, getRoomPKOpponents, inviteRoomPK, respondRoomPK } from '../controllers/roomPkController';
 
 import {
   getRoomTasks,
@@ -44,6 +45,11 @@ router.post('/create-or-update', verifyToken, createOrUpdateMyVoiceRoom);
 router.post('/rooms/:id/close', verifyToken, closeVoiceRoom);
 router.get('/rooms/:id/agora-token', verifyToken, getVoiceRoomToken);
 router.post('/rooms/:id/agora-token', verifyToken, getVoiceRoomToken);
+router.get('/rooms/:id/pk', verifyToken, getCurrentRoomPK);
+router.get('/rooms/:id/pk/history', verifyToken, getRoomPKHistory);
+router.get('/rooms/:id/pk/opponents', verifyToken, getRoomPKOpponents);
+router.post('/rooms/:id/pk/invite', verifyToken, inviteRoomPK);
+router.post('/rooms/:id/pk/:matchId/respond', verifyToken, respondRoomPK);
 
 // Room Contributors & Leaderboard (Daily, Weekly, Monthly)
 router.get('/rooms/:id/contributors', verifyToken, getRoomContributors);

@@ -76,14 +76,18 @@ test('public package DTO excludes private configuration without database reads',
 
 function paymentFixture(existing, state = 'PURCHASED', account = '42') {
   let record = existing && { userId: 42, productId: 'diamonds_72', diamonds: 72, ...existing };
-  let balance = 0, providerCalls = 0;
+  let balance = 0, beans = 123, providerCalls = 0, consumeCalls = 0;
   const publisher = { purchases: {
     productsv2: { getproductpurchasev2: async () => {
       providerCalls++;
+      if (state === 'UNAVAILABLE') throw new Error('Could not load the default credentials.');
       return { data: { purchaseStateContext: { purchaseState: state },
         productLineItem: [{ productId: 'diamonds_72' }], obfuscatedExternalAccountId: account } };
     } },
-    products: { consume: async () => ({}) },
+    products: { consume: async () => { consumeCalls++; return {}; }, get: async () => {
+      if (state === 'UNAVAILABLE') throw new Error('Could not load the default credentials.');
+      return {};
+    } },
     voidedpurchases: { list: async () => ({ data: { voidedPurchases: [{ purchaseToken: 'token' }] } }) },
   } };
   const session = { startTransaction() {}, inTransaction: () => true, abortTransaction: async () => {},
@@ -102,7 +106,11 @@ function paymentFixture(existing, state = 'PURCHASED', account = '42') {
     '../utils/reponse': send,
     '../models/user.model': { User: {
       findOne: async () => ({ diamonds: balance }),
-      findOneAndUpdate: async (_filter, update) => { balance += update.$inc.diamonds; return { diamonds: balance }; },
+      findOneAndUpdate: async (_filter, update) => {
+        balance += update.$inc.diamonds;
+        beans += update.$inc.coins || 0;
+        return { diamonds: balance, coins: beans };
+      },
     } },
     '../models/RechargeHistory': { RechargeHistory: history },
     '../models/GooglePlayRTDN': { GooglePlayRTDN: {} },
@@ -117,7 +125,7 @@ function paymentFixture(existing, state = 'PURCHASED', account = '42') {
       GOOGLE_PLAY_PRODUCTS: {},
     },
   });
-  return { api, balance: () => balance, providerCalls: () => providerCalls,
+  return { api, balance: () => balance, beans: () => beans, consumeCalls: () => consumeCalls, providerCalls: () => providerCalls,
     verify: async (userId = 42) => {
       const res = response();
       await api.verifyGooglePurchase({ user: { userId }, body: { purchaseToken: 'token', productId: 'diamonds_72' } }, res);
@@ -156,8 +164,21 @@ test('new verified purchase credits server entitlement once', async () => {
   const f = paymentFixture(null);
   assert.equal((await f.verify()).data.status, 'COMPLETED');
   assert.equal(f.balance(), 72);
+  assert.equal(f.beans(), 123);
   assert.equal((await f.verify()).data.status, 'ALREADY_PROCESSED');
   assert.equal(f.balance(), 72);
+  assert.equal(f.beans(), 123);
+});
+
+test('missing Google credentials returns retryable 503 without wallet credit or purchase consumption', async () => {
+  const f = paymentFixture(null, 'UNAVAILABLE');
+  const response = await f.verify();
+  assert.equal(response.statusCode, 503);
+  assert.equal(response.data.data.code, 'GOOGLE_PLAY_VERIFICATION_UNAVAILABLE');
+  assert.equal(response.data.data.retryable, true);
+  assert.equal(f.balance(), 0);
+  assert.equal(f.beans(), 123);
+  assert.equal(f.consumeCalls(), 0);
 });
 test('refund synchronization reverses credit once and blocks replay', async () => {
   const f = paymentFixture({ status: 'COMPLETED' });

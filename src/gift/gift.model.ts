@@ -140,7 +140,7 @@ const giftTransactionSchema = new Schema<IGiftTransaction>(
     },
     hostEarning: { type: Number, default: 0 },
     platformCommission: { type: Number, default: 0 },
-    commissionPercent: { type: Number, default: 30 },
+    commissionPercent: { type: Number, default: 55 },
     comboCount: { type: Number, default: 1 },
     errorMessage: { type: String, default: '' },
     meta: { type: Schema.Types.Mixed, default: {} },
@@ -158,6 +158,9 @@ giftTransactionSchema.pre('validate', function (next) {
   this.currency = 'DIAMONDS';
   next();
 });
+
+giftTransactionSchema.index({ 'meta.pkId': 1, createdAt: 1, status: 1 },
+  { partialFilterExpression: { 'meta.pkId': { $type: 'string' } } });
 
 export const GiftTransaction =
   (mongoose.models.GiftTransaction as mongoose.Model<IGiftTransaction>) ||

@@ -209,6 +209,13 @@ const verifyGooglePurchaseState = async (
       };
     }
   } catch (v1Error: any) {
+    const providerStatus = Number(v1Error.response?.status || v1Error.code);
+    if ([401, 403, 429].includes(providerStatus) || providerStatus >= 500 ||
+        /default credentials|invalid_grant|invalid credentials|insufficient.*permission|permission denied/i.test(v1Error.message || '')) {
+      const unavailable: any = new Error('Purchase verification is temporarily unavailable. If you have already paid, do not pay again. Please retry restoring your purchase once the service is available.');
+      unavailable.code = 'GOOGLE_PLAY_VERIFICATION_UNAVAILABLE';
+      throw unavailable;
+    }
     console.error('[GOOGLE-VERIFY][ERROR] products.get verification failed:', v1Error.response?.data || v1Error.message);
   }
 
@@ -408,10 +415,10 @@ export const verifyGooglePurchase = async (req: AuthRequest, res: Response) => {
         });
       }
 
-      // Increment User Coins & Diamonds atomically
+      // Credit purchased Coins only (diamonds); coins stores earned Beans.
       const updatedUser = await User.findOneAndUpdate(
         { userId },
-        { $inc: { diamonds: productConfig.diamonds, coins: productConfig.diamonds } },
+        { $inc: { diamonds: productConfig.diamonds } },
         { new: true, session }
       );
 
@@ -483,6 +490,9 @@ export const verifyGooglePurchase = async (req: AuthRequest, res: Response) => {
     }
 
   } catch (error: any) {
+    if (error.code === 'GOOGLE_PLAY_VERIFICATION_UNAVAILABLE') {
+      return sendResponse(res, 503, false, error.message, { code: error.code, retryable: true });
+    }
     console.error("[GOOGLE-VERIFY][ERROR] Top level verify error:", error);
     await Logger("verifyGooglePurchase", error);
     return sendResponse(res, 500, false, error.message || "Internal server error");

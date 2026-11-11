@@ -5,7 +5,8 @@ import { Gift, GiftCategory, GiftTransaction } from './gift.model';
 import { User } from '../models/user.model';
 import { CoinsTransaction } from '../models/spentCoinModel';
 import { TransactionType } from '../constants/user';
-import { getCachedSettings } from '../controllers/settingsController';
+import { giftSettlement, GIFT_COMMISSION_PERCENT } from '../utils/giftSettlement';
+import { capturePKGift, notifyPKGift } from '../services/roomPk.service';
 import { broadcastGiftSuccess } from './gift.socket';
 import { LevelService } from '../services/level.service';
 import { RoomTaskService } from '../services/roomTask.service';
@@ -19,8 +20,6 @@ import {
   UpdateCategoryDTO,
   UpdateGiftDTO,
 } from './gift.types';
-
-const DEFAULT_COMMISSION_PERCENT = 30;
 
 // Standard categories as required by the design
 export const INITIAL_CATEGORIES = [
@@ -477,6 +476,8 @@ export class GiftService {
 
     // 5. Total Diamonds Calculation
     const totalDiamonds = unitPrice * qty * receivers.length;
+    const perReceiverCost = unitPrice * qty;
+    const perReceiverEarning = giftSettlement(perReceiverCost).receiverBeans;
 
     // 6. Sender Validation
     const sender = await User.findById(senderId).select('_id userId name image avatar coins diamonds level wealthLevel').lean();
@@ -497,6 +498,8 @@ export class GiftService {
       if (callId) throw new Error('A room gift cannot use a call settlement context');
       return sendVersionedRoomGift(sender, receivers, gift, dto, qty, pinnedEconomy);
     }
+
+    const pkMeta = roomId ? await capturePKGift(String(roomId), sender, receivers) : {};
 
     // 7. Check Balance & Deduct Atomically in DIAMONDS
     const currentDiamonds = Number(sender.diamonds || 0);
@@ -525,28 +528,22 @@ export class GiftService {
     }
 
     // 8. Calculate Earnings & Credit Receivers
-    const settings = await getCachedSettings();
-    const commissionPercent = Math.max(
-      0,
-      Math.min(100, Number(settings.giftCommissionPercent ?? DEFAULT_COMMISSION_PERCENT))
-    );
-    const hostShare = (100 - commissionPercent) / 100;
-    const perReceiverCost = unitPrice * qty;
-    const perReceiverEarning = Math.round(perReceiverCost * hostShare);
+    const commissionPercent = GIFT_COMMISSION_PERCENT;
     const totalHostEarnings = perReceiverEarning * receivers.length;
     const platformCommission = Math.max(0, totalDiamonds - totalHostEarnings);
 
-    const receiverBalances: Array<{ userId: string; diamonds: number }> = [];
+    const receiverBalances: Array<{ userId: string; diamonds: number; coins?: number }> = [];
     for (const rec of receivers) {
       if (perReceiverEarning > 0) {
         const updatedRec = await User.findByIdAndUpdate(
           rec._id,
-          { $inc: { diamonds: perReceiverEarning, coins: perReceiverEarning } },
+          { $inc: { coins: perReceiverEarning } },
           { new: true }
         ).select('_id coins diamonds').lean();
         receiverBalances.push({
           userId: String(rec._id),
           diamonds: Number((updatedRec as any)?.diamonds || 0),
+          coins: Number((updatedRec as any)?.coins || 0),
         });
       } else {
         receiverBalances.push({
@@ -579,11 +576,13 @@ export class GiftService {
         commissionPercent,
         comboCount: Number(comboCount) || 1,
         meta: {
+          ...pkMeta,
           giftName: gift.name,
           giftIcon: gift.icon,
           animationType: gift.animationType,
           receiverCount: receivers.length,
           currency: 'DIAMONDS',
+          earningCurrency: 'BEAN',
         },
       });
     } catch (createErr: any) {
@@ -605,6 +604,7 @@ export class GiftService {
     }
 
     // Optional legacy transaction log
+    await notifyPKGift(pkMeta).catch(error => console.warn('[RoomPK] Gift score notification:', error?.message));
     try {
       await CoinsTransaction.create({
         userId: sender._id,

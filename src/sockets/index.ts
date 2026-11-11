@@ -17,6 +17,7 @@ import { notifyHostCallState } from "../services/callStateNotification.service";
 import { recordCallActivityState } from "../services/callActivity.service";
 import { CallActivityStatus } from "../utils/callActivityRules";
 import { registerVoiceRoomHandlers } from "./voiceRoomSocket";
+import { startRoomPKScheduler } from '../services/roomPk.service';
 
 // Redis Pub/Sub for Adapter
 const pubClient = redis;
@@ -83,6 +84,7 @@ export const getIO = (): Server => {
 
 const chatSocket = (io: Server) => {
     ioInstance = io;
+    startRoomPKScheduler();
 
     // Setup Redis Adapter
     io.adapter(createAdapter(pubClient, subClient));

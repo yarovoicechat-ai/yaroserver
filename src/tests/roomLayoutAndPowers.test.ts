@@ -30,6 +30,26 @@ test('shrinking relocates users without losing their mute state or identity', ()
   assert.ok(guest.seatIndex < 10);
   assert.equal(shrunk.seats.filter(seat => seat.user).length, 2);
 });
+
+test('moving or retaking a seat preserves the current microphone state', () => {
+  for (const muted of [false, true]) {
+    const initial = empty(8);
+    initial.seats[3] = { ...initial.seats[3], user: { userId: 'speaker' }, isMuted: muted };
+    for (const target of [3, 5]) {
+      const { state } = allocateRoomSeat(initial, target, { userId: 'speaker', name: 'Updated' }, true);
+      assert.equal(state.seats[target].isMuted, muted);
+      assert.equal(state.seats.filter(seat => seat.user?.userId === 'speaker').length, 1);
+      assert.equal(initial.seats[3].isMuted, muted);
+    }
+  }
+});
+
+test('a new audience member still joins with the requested default mute state', () => {
+  for (const muted of [true, false]) {
+    const { state } = allocateRoomSeat(empty(8), 3, { userId: 'new' }, muted);
+    assert.equal(state.seats[3].isMuted, muted);
+  }
+});
 test('an overcrowded shrink is rejected without modifying any seats', () => {
   const initial = empty(12);
   initial.seats.forEach((seat, index) => { seat.user = { userId: String(index) }; });

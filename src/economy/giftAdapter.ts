@@ -6,6 +6,7 @@ import { diamondUnits, mul } from './rules';
 import { Room } from '../models/room.model';
 import { Types } from 'mongoose';
 import { Agency } from '../models/agency.model';
+import { capturePKGift, notifyPKGift } from '../services/roomPk.service';
 
 /** Called only after the existing catalog, VIP, sender and recipient checks. */
 export async function sendVersionedRoomGift(sender: any, receivers: any[], gift: any, dto: any, qty: number, pinned: PinnedEconomy) {
@@ -19,6 +20,7 @@ export async function sendVersionedRoomGift(sender: any, receivers: any[], gift:
   const present = Object.keys(state.onlineUsers || {});
   if (![String(sender._id), String(sender.userId)].some(id => present.includes(id))) throw new Error('Sender is not present in this room');
   for (const rec of receivers) if (!state.seats.some(seat => [String(rec._id), String(rec.userId)].includes(String(seat.user?.userId || '')))) throw new Error('Recipient is not hosting in this room');
+  const pkMeta = await capturePKGift(String(room.channelName || dto.roomId), sender, receivers);
   const result = await atomic(async session => {
     const old = await GiftTransaction.findOne({ requestId: dto.requestId }).session(session).lean();
     if (old) {
@@ -58,12 +60,15 @@ export async function sendVersionedRoomGift(sender: any, receivers: any[], gift:
       hostEarning: financial.allocations.reduce((n: number, a: any) => n + a.instant, 0),
       platformCommission: financial.allocations.reduce((n: number, a: any) => n + a.platform, 0),
       commissionPercent: pinned.rules.gift.platformMinBps / 100,
-      meta: { economyVersion: pinned.version, rulesDigest: pinned.digest,
+      meta: { ...pkMeta, economyVersion: pinned.version, rulesDigest: pinned.digest,
         economyFingerprint: JSON.stringify({ gift: String(gift._id), qty, receivers: receivers.map(r => String(r._id)), room: dto.roomId }),
         economyPayload: payload, accounting: financial, earningCurrency: 'BEAN' },
     }], { session });
     return { transaction, replay: false, data: payload };
   });
-  if (!result.replay) broadcastGiftSuccess({ ...result.data, transaction: result.transaction });
+  if (!result.replay) {
+    await notifyPKGift(pkMeta).catch(error => console.warn('[RoomPK] Gift score notification:', error?.message));
+    broadcastGiftSuccess({ ...result.data, transaction: result.transaction });
+  }
   return { success: true, isReplay: result.replay, data: result.data, transaction: result.transaction, newBalance: result.data.senderBalance };
 }

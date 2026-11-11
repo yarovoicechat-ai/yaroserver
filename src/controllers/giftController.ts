@@ -7,10 +7,7 @@ import { CoinsTransaction } from "../models/spentCoinModel";
 import { CallStatus, TransactionType } from "../constants/user";
 import mongoose from "mongoose";
 import { getIO, getUserRoom } from "../sockets";
-import { getCachedSettings } from "./settingsController";
-import { deductUserWalletAtomic } from "../services/billing.service";
-
-const DEFAULT_COMMISSION_PERCENT = 30;
+import { giftSettlement, GIFT_COMMISSION_PERCENT } from '../utils/giftSettlement';
 
 // Get All Active Gifts (grouped by category for users)
 export const getAllGifts = async (req: AuthRequest, res: Response) => {
@@ -99,18 +96,17 @@ export const sendGift = async (req: AuthRequest, res: Response) => {
 
         const realReceiverId = receiver._id;
 
-        const systemSettings = await getCachedSettings();
-        const giftCommissionPercent = Math.max(
-            0,
-            Math.min(100, Number(systemSettings.giftCommissionPercent ?? DEFAULT_COMMISSION_PERCENT))
-        );
-        const hostEarningShare = (100 - giftCommissionPercent) / 100;
-        const hostEarning = Math.round(totalCost * hostEarningShare);
+        const giftCommissionPercent = GIFT_COMMISSION_PERCENT;
+        const hostEarning = giftSettlement(totalCost).receiverBeans;
         const platformCommission = Math.max(0, totalCost - hostEarning);
 
-        // Deduct from Sender atomically (coins first, then diamonds)
-        const deductResult = await deductUserWalletAtomic(sender._id as any, totalCost, session);
-        if (!deductResult.success) {
+        // Spend purchased Coins only; earned Beans cannot fund a gift.
+        const debitedSender = await User.findOneAndUpdate(
+            { _id: sender._id, diamonds: { $gte: totalCost } },
+            { $inc: { diamonds: -totalCost } },
+            { session, new: true }
+        );
+        if (!debitedSender) {
             await session.abortTransaction();
             return sendResponse(
                 res,

@@ -1010,6 +1010,7 @@ export const registerVoiceRoomHandlers = (io: Server, socket: AuthenticatedSocke
       const roomId = normalizeRoomId(rawRoomId);
 
       const socketRoomChannel = `voice_room_channel:${roomId}`;
+      await withRoomSeatLock(roomId, async () => {
       const state = await getVoiceRoomState(roomId);
       const targetSeat = state.seats[seatIndex];
       const actorIds = getSocketUserIds(socket);
@@ -1059,6 +1060,7 @@ export const registerVoiceRoomHandlers = (io: Server, socket: AuthenticatedSocke
       if (rawRoomId !== roomId) {
         io.to(`voice_room_channel:${rawRoomId}`).emit("voice_room:seat_muted", mutePayload);
       }
+      });
     } catch (err: any) {
       console.error("[VoiceRoom] Mute seat error:", err);
     }
