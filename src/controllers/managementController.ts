@@ -499,7 +499,7 @@ export const createBanner = async (req: Request, res: Response, next: NextFuncti
         if (!title || !imageUrl) {
             return sendResponse(res, 400, false, 'Title and imageUrl are required');
         }
-        if (!placements.length || placements.some((item) => !['home', 'oneToOne', 'party'].includes(item))) {
+        if (!placements.length || placements.some((item) => !['home', 'oneToOne', 'party', 'me'].includes(item))) {
             return sendResponse(res, 400, false, 'Invalid banner placement');
         }
 
@@ -575,7 +575,7 @@ export const updateBannerPriority = async (req: Request, res: Response, next: Ne
             const updatedPlacements = Array.isArray(requestedPlacements)
                 ? [...new Set(requestedPlacements)]
                 : [placement];
-            if (!updatedPlacements.length || updatedPlacements.some((item: string) => !['home', 'oneToOne', 'party'].includes(item))) {
+            if (!updatedPlacements.length || updatedPlacements.some((item: string) => !['home', 'oneToOne', 'party', 'me'].includes(item))) {
                 return sendResponse(res, 400, false, 'Invalid banner placement');
             }
             banner.placements = updatedPlacements as any;

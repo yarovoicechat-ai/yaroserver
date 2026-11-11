@@ -146,6 +146,9 @@ export async function processRoomGift(input: { key: string; sender: string; rece
     await EconomyHostMonth.updateOne({ key: monthKey, settled: { $ne: true } }, { $set: {
       hostId: receiver.id, month, version: pinned.version, giftUnits, reserveBeans,
     } }, { upsert: true, session });
+    if (allocation.instant > 0) {
+      await User.updateOne({ _id: receiver.id }, { $inc: { coins: allocation.instant } }, { session });
+    }
     postings.push(
       { account: 'platform:giftReference', asset: 'BEAN', delta: -allocation.baseBeans },
       { account: availableAccount(receiver.id, pinned.version), asset: 'BEAN', delta: allocation.instant },

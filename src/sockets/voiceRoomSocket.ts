@@ -32,9 +32,11 @@ export interface VoiceRoomSeat {
     level?: number;
     equippedFrame?: any;
     equippedFrameAsset?: any;
+    charm?: number;
   } | null;
   isMuted: boolean;
   isLocked: boolean;
+  charm?: number;
 }
 
 export interface VoiceRoomState {
@@ -490,6 +492,67 @@ export const withRoomSeatLock = async <T>(roomId: string, task: () => Promise<T>
   return withDistributedLock(redis, lockKey, task, { ttlMs: 15_000, waitMs });
 };
 
+export const updateRoomSeatCharmAfterGift = async (
+  roomId: string,
+  receivers: any[],
+  giftDiamonds: number
+): Promise<void> => {
+  if (!roomId || !Array.isArray(receivers) || receivers.length === 0) return;
+  const canonicalId = normalizeRoomId(roomId);
+  try {
+    await withRoomSeatLock(canonicalId, async () => {
+      const state = await getVoiceRoomState(canonicalId);
+      if (!state || !Array.isArray(state.seats)) return;
+
+      const perReceiverPoints = Math.max(1, Math.round(giftDiamonds / receivers.length));
+      let stateChanged = false;
+
+      for (const rec of receivers) {
+        const recKeys = [
+          String(rec.id || ''),
+          String(rec._id || ''),
+          String(rec.userId || ''),
+        ].filter(Boolean);
+
+        for (const seat of state.seats) {
+          if (!seat.user) continue;
+          const uKeys = [
+            String(seat.user.userId || ''),
+            String((seat.user as any).id || ''),
+            String((seat.user as any)._id || ''),
+          ].filter(Boolean);
+
+          if (recKeys.some((k) => uKeys.includes(k))) {
+            seat.charm = (seat.charm || 0) + perReceiverPoints;
+            stateChanged = true;
+          }
+        }
+      }
+
+      if (stateChanged) {
+        await saveVoiceRoomState(state);
+        const { getIO } = await import('./index');
+        const io = getIO();
+        if (io) {
+          const payload = {
+            roomId: canonicalId,
+            seats: state.seats,
+            showSeatCharm: Boolean(state.showSeatCharm),
+          };
+          io.to(`voice_room_channel:${canonicalId}`).emit('voice_room:seat_charm_updated', payload);
+          io.to(`voice_room_channel:${canonicalId}`).emit('voice_room:seats_updated', payload);
+          if (canonicalId !== roomId) {
+            io.to(`voice_room_channel:${roomId}`).emit('voice_room:seat_charm_updated', payload);
+            io.to(`voice_room_channel:${roomId}`).emit('voice_room:seats_updated', payload);
+          }
+        }
+      }
+    });
+  } catch (err: any) {
+    console.warn(`[VoiceRoom] updateRoomSeatCharmAfterGift warning for ${canonicalId}:`, err?.message);
+  }
+};
+
 export const registerVoiceRoomHandlers = (io: Server, socket: AuthenticatedSocket) => {
   const user = socket.user;
 
@@ -616,6 +679,42 @@ export const registerVoiceRoomHandlers = (io: Server, socket: AuthenticatedSocke
       (socket as any).voiceRoomId = roomId;
       (socket as any).voiceRawRoomId = rawRoomId;
       (socket as any).voiceUser = userData;
+
+      // Auto-close previous room if owner joins another room
+      try {
+        const ownerIds = [authUserDbId, authUserNumId].filter(Boolean);
+        if (ownerIds.length > 0) {
+          const otherOwnedRooms = await Room.find({
+            ownerId: { $in: ownerIds },
+            channelName: { $nin: [roomId, rawRoomId, String(roomDocument?.channelName || '')].filter(Boolean) }
+          }).select('channelName title _id').lean();
+
+          for (const otherRoom of otherOwnedRooms) {
+            const otherChan = normalizeRoomId(String(otherRoom.channelName));
+            if (!otherChan || otherChan === roomId || otherChan === rawRoomId) continue;
+            const otherState = await getVoiceRoomState(otherChan);
+            const hasActivity = otherState && (
+              (otherState.seats && otherState.seats.some(s => s.user)) ||
+              (otherState.onlineUsers && Object.keys(otherState.onlineUsers).length > 0) ||
+              otherState.hostUser
+            );
+            if (hasActivity) {
+              io.to(`voice_room_channel:${otherChan}`).emit("voice_room:force_leave", {
+                roomId: otherChan,
+                reason: "Room owner has visited another room. This room is now closed.",
+                code: "OWNER_SWITCHED_ROOM",
+              });
+              otherState.seats = otherState.seats.map(s => ({ ...s, user: null, isMuted: true }));
+              otherState.hostUser = null;
+              otherState.onlineUsers = {};
+              await saveVoiceRoomState(otherState);
+              console.log(`[VoiceRoom] Auto-closed previous room ${otherChan} because owner joined ${roomId}`);
+            }
+          }
+        }
+      } catch (autoCloseErr) {
+        console.warn("[VoiceRoom] Auto-close previous room check warning:", autoCloseErr);
+      }
 
       const state = await getVoiceRoomState(roomId, data.customSeats || 8, authorizedHost ? userData : null);
       if (!state.onlineUsers) state.onlineUsers = {};

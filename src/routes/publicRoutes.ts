@@ -70,7 +70,7 @@ router.get('/banners', async (req: Request, res: Response) => {
                 { $or: [{ startDate: { $exists: false } }, { startDate: null }, { startDate: { $lte: endOfToday } }] },
                 { $or: [{ endDate: { $exists: false } }, { endDate: null }, { endDate: { $gte: startOfToday } }] }
         ];
-        if (['home', 'oneToOne', 'party'].includes(placement)) {
+        if (['home', 'oneToOne', 'party', 'me'].includes(placement)) {
             const placementMatch: any[] = [{ placements: placement }, { placement }];
             if (placement === 'home') {
                 placementMatch.push({

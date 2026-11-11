@@ -55,7 +55,7 @@ const RoomSchema = new Schema<IRoom>({
     isPinned: { type: Boolean, default: false },
     pinnedOrder: { type: Number, default: 0 },
     pinnedAt: { type: Date },
-    themeId: { type: String, default: null },
+    themeId: { type: String, default: 'theme_1' },
     themeAsset: { type: Schema.Types.Mixed, default: null },
     seatSkinId: { type: String, default: null },
     seatSkinAsset: { type: Schema.Types.Mixed, default: null },

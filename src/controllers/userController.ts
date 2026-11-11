@@ -217,6 +217,11 @@ export const getUsers = async (req: AuthRequest, res: Response) => {
         { userName: searchRegex },
         { meethiId: searchRegex },
         { phoneNumber: searchRegex },
+        { equippedVipId: searchRegex },
+        { customDisplayId: searchRegex },
+        { equippedCustomId: searchRegex },
+        { displayId: searchRegex },
+        { uniqueId: searchRegex },
         {
           $expr: {
             $regexMatch: {
@@ -237,7 +242,7 @@ export const getUsers = async (req: AuthRequest, res: Response) => {
       };
       const totalUsers = await User.countDocuments(searchFilter);
       const users = await User.find(searchFilter)
-        .select("country age userId meethiId name userName image gender level isOnline role isVerified isActive bio languages")
+        .select("country age userId meethiId name userName image gender level isOnline role isVerified isActive bio languages equippedVipId customDisplayId equippedCustomId displayId uniqueId")
         .sort({ isOnline: -1, createdAt: -1 })
         .skip(skip)
         .limit(limitNumber)
@@ -305,7 +310,12 @@ export const getUsers = async (req: AuthRequest, res: Response) => {
             { meethiId: searchRegex },
             { employeeCode: searchRegex },
             { specialCode: searchRegex },
-            { referralCode: searchRegex }
+            { referralCode: searchRegex },
+            { equippedVipId: searchRegex },
+            { customDisplayId: searchRegex },
+            { equippedCustomId: searchRegex },
+            { displayId: searchRegex },
+            { uniqueId: searchRegex },
           ];
           if (!isNaN(Number(searchStr))) {
             orConditions.push({ userId: Number(searchStr) });
@@ -315,7 +325,7 @@ export const getUsers = async (req: AuthRequest, res: Response) => {
 
         const totalUsers = await User.countDocuments(filter);
         const users = await User.find(filter)
-          .select("country age userId meethiId name userName coins diamonds isBlocked createdAt role email phoneNumber image gender level isVIP employeeCode specialCode")
+          .select("country age userId meethiId name userName coins diamonds isBlocked createdAt role email phoneNumber image gender level isVIP employeeCode specialCode equippedVipId customDisplayId equippedCustomId displayId uniqueId")
           .sort({ createdAt: -1 })
           .skip(skip)
           .limit(limitNumber)

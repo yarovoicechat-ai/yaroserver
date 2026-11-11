@@ -143,6 +143,16 @@ export const broadcastGiftSuccess = (params: BroadcastGiftParams) => {
         receiverCount: receivers.length,
       });
     }
+
+    // Update room seat charm points for seated recipients
+    try {
+      const { updateRoomSeatCharmAfterGift } = require('../sockets/voiceRoomSocket');
+      if (typeof updateRoomSeatCharmAfterGift === 'function') {
+        updateRoomSeatCharmAfterGift(roomId, receiversSummary, resolvedDiamonds).catch((err: any) =>
+          console.warn('[GiftSocket] updateRoomSeatCharmAfterGift warning:', err?.message)
+        );
+      }
+    } catch (_) {}
   }
 
   // 2. Broadcast to In-Call Channels

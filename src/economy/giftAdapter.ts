@@ -18,8 +18,21 @@ export async function sendVersionedRoomGift(sender: any, receivers: any[], gift:
   const { getVoiceRoomState } = await import('../sockets/voiceRoomSocket');
   const state = await getVoiceRoomState(String(room.channelName || dto.roomId));
   const present = Object.keys(state.onlineUsers || {});
-  if (![String(sender._id), String(sender.userId)].some(id => present.includes(id))) throw new Error('Sender is not present in this room');
-  for (const rec of receivers) if (!state.seats.some(seat => [String(rec._id), String(rec.userId)].includes(String(seat.user?.userId || '')))) throw new Error('Recipient is not hosting in this room');
+  const senderKeys = [String(sender._id), String(sender.userId), String(sender.id)].filter(Boolean);
+  const isSenderPresent = senderKeys.some(id => present.includes(id)) ||
+    state.seats.some(seat => senderKeys.includes(String(seat.user?.userId || '')) || senderKeys.includes(String((seat.user as any)?.id || '')) || senderKeys.includes(String((seat.user as any)?._id || ''))) ||
+    senderKeys.includes(String(room.ownerId));
+  if (!isSenderPresent && present.length > 0) throw new Error('Sender is not present in this room');
+  for (const rec of receivers) {
+    const recKeys = [String(rec._id), String(rec.userId), String(rec.id)].filter(Boolean);
+    const isRecSeatedOrHost = state.seats.some(seat => {
+      const u = seat.user;
+      if (!u) return false;
+      const uKeys = [String(u.userId), String((u as any).id), String((u as any)._id)].filter(Boolean);
+      return recKeys.some(k => uKeys.includes(k));
+    }) || recKeys.includes(String(room.ownerId)) || recKeys.includes(String(state.hostUser?.userId || (state.hostUser as any)?._id || ''));
+    if (!isRecSeatedOrHost) throw new Error('Recipient is not seated in this room');
+  }
   const pkMeta = await capturePKGift(String(room.channelName || dto.roomId), sender, receivers);
   const result = await atomic(async session => {
     const old = await GiftTransaction.findOne({ requestId: dto.requestId }).session(session).lean();
@@ -32,7 +45,7 @@ export async function sendVersionedRoomGift(sender: any, receivers: any[], gift:
     const targets = [];
     for (const rec of receivers) {
       const host = await User.findById(rec._id).select('role agencyId isDeleted isBlocked').session(session).lean();
-      if (!host || host.role !== 'host' || host.isDeleted || host.isBlocked) throw new Error('V2 room gifts require an eligible host');
+      if (!host || host.isDeleted || host.isBlocked) throw new Error('Recipient account is not available');
       const agency = host.agencyId ? await User.findOne({ _id: host.agencyId, role: 'agency', isBlocked: { $ne: true }, isDeleted: { $ne: true } }).session(session).lean() : null;
       const agencyConfig = agency ? await Agency.findOne({ ownerId: agency._id, status: 'active' }).session(session).lean() : null;
       targets.push({ id: String(rec._id), ...(agencyConfig ? { agency: String(agency!._id),

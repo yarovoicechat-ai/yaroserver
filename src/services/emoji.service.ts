@@ -67,17 +67,18 @@ export class EmojiService {
   /**
    * Admin: Create or update emoji
    */
-  static async upsertEmoji(data: Partial<IEmoji>): Promise<IEmoji> {
+  static async upsertEmoji(data: any): Promise<IEmoji> {
     const code = String(data.code || data.name || '').trim().toLowerCase().replace(/\s+/g, '_');
+    const query = data._id ? { _id: data._id } : { code };
     return await Emoji.findOneAndUpdate(
-      { code },
+      query,
       {
         ...data,
         code,
         icon: data.icon || data.pngUrl,
         pngUrl: data.pngUrl || data.icon,
       },
-      { upsert: true, new: true }
+      { upsert: true, new: true, setDefaultsOnInsert: true }
     );
   }
 

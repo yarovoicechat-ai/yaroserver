@@ -34,10 +34,24 @@ export const notifyRoomFollowers = async (room: { ownerId: unknown; channelName:
     ownerId: String(ownerDbId),
   };
 
+  const ownerIdVariants = [
+    ownerDbId,
+    String(ownerDbId),
+    owner.userId,
+    String(owner.userId || ''),
+  ].filter(Boolean);
+
+  const rawFollowers = Array.isArray(owner.followers) ? owner.followers : [];
+  const followerIdVariants = [
+    ...rawFollowers,
+    ...rawFollowers.filter((id: any) => Types.ObjectId.isValid(String(id))).map((id: any) => new Types.ObjectId(String(id))),
+    ...rawFollowers.map(String),
+  ];
+
   const followerFilter: any = {
     $or: [
-      { following: ownerDbId },
-      { _id: { $in: owner.followers || [] } },
+      { following: { $in: ownerIdVariants } },
+      ...(followerIdVariants.length > 0 ? [{ _id: { $in: followerIdVariants } }] : []),
     ],
     _id: { $ne: ownerDbId, $nin: owner.blockedUsers || [] },
     blockedUsers: { $ne: ownerDbId },
