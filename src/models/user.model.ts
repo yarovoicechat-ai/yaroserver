@@ -136,7 +136,7 @@ const userSchema = new Schema<UserInterface>(
     canVideoCall: { type: Boolean, default: true },
     canRoomHost: { type: Boolean, default: true },
     meethiId: { type: String, default: "" },
-    level: { type: Number, default: 3 },
+    level: { type: Number, default: 1 },
     wealthExp: { type: Number, default: 0, index: true },
     wealthLevel: { type: Number, default: 1, index: true },
     charmExp: { type: Number, default: 0, index: true },

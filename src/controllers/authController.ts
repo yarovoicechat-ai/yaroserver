@@ -20,77 +20,17 @@ import { checkAndLockDeviceRegistration } from "../services/deviceLimitService";
 import { getDefaultNameForPolicy, getNamePolicy, validateNameAgainstPolicy } from "../services/namePolicy.service";
 
 /**
- * Generates 3-day welcome frame & tag for newly registered users.
+ * Newly registered users start with a clean slate without any equipped frame,
+ * badge, or store inventory items (no admin or foreign frames).
  */
 export const getNewUserWelcomeCosmetics = async () => {
-  const threeDaysMs = 3 * 24 * 60 * 60 * 1000;
-  const expiresAt = new Date(Date.now() + threeDaysMs);
-
-  let frameName = "Welcome Frame";
-  let frameImage = "https://api.yaroapp.in/uploads/frames/welcome_frame.png";
-  let frameAnim = "";
-
-  try {
-    const existingFrame = await StoreItem.findOne({
-      category: { $in: ["Frames", "Frame"] },
-      imageUrl: { $exists: true, $ne: "" },
-    }).lean();
-
-    if (existingFrame) {
-      frameName = existingFrame.name || frameName;
-      frameImage = existingFrame.imageUrl || frameImage;
-      frameAnim = existingFrame.animationUrl || "";
-    }
-  } catch (_) {}
-
-  const frameAsset = {
-    name: frameName,
-    imageUrl: frameImage,
-    animationUrl: frameAnim,
-    previewColor: "#10B981",
-    expiresAt,
-  };
-
-  const tagAsset = {
-    name: "New User",
-    tagText: "New User",
-    tagColor: "#10B981",
-    previewColor: "#10B981",
-    expiresAt,
-  };
-
-  const inventory = [
-    {
-      name: frameName,
-      category: "Frames",
-      durationDays: 3,
-      purchasedAt: new Date(),
-      expiresAt,
-      imageUrl: frameImage,
-      animationUrl: frameAnim,
-      source: "admin_grant",
-      message: "New user welcome frame (3 days)",
-    },
-    {
-      name: "New User",
-      category: "Tag",
-      durationDays: 3,
-      purchasedAt: new Date(),
-      expiresAt,
-      imageUrl: "",
-      source: "admin_grant",
-      message: "New user welcome tag (3 days)",
-      metadata: { tagText: "New User", tagColor: "#10B981" },
-    },
-  ];
-
   return {
-    equippedFrame: frameName,
-    equippedFrameAsset: frameAsset,
-    equippedTag: "New User",
-    equippedTagAsset: tagAsset,
-    equippedEntryTag: "New User",
-    storeInventory: inventory,
+    equippedFrame: null,
+    equippedFrameAsset: null,
+    equippedTag: null,
+    equippedTagAsset: null,
+    equippedEntryTag: "",
+    storeInventory: [],
   };
 };
 
