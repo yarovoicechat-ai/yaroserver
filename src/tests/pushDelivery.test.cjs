@@ -15,7 +15,7 @@ const load = (relative, dependencies) => {
     console, process: { env: {}, cwd: () => __dirname }, Buffer,
     require: name => {
       if (name in dependencies) return dependencies[name];
-      if (['path', 'fs'].includes(name)) return require(name);
+      if (['path', 'fs', 'crypto'].includes(name)) return require(name);
       throw new Error('Unexpected dependency: ' + name);
     },
   }, { filename });
@@ -45,15 +45,16 @@ test('room opening records follower activity and delivers room navigation data',
   let filter;
   const follower = { _id: 'follower', fcmToken: 'device' };
   const service = load('../services/roomOpenNotification.service.ts', {
+    mongoose: { Types: { ObjectId: { isValid: value => value === 'owner' } } },
     '../models/user.model': { User: {
-      findById: () => ({ select: () => ({ lean: async () => ({ name: 'Host', blockedUsers: ['blocked'] }) }) }),
+      findById: () => ({ select: () => ({ lean: async () => ({ _id: 'owner', name: 'Host', blockedUsers: ['blocked'] }) }) }),
       find: query => { filter = query; return { select: () => ({ lean: () => ({ cursor: () => (async function* () { yield follower; })() }) }) }; },
     } },
     '../controllers/notificationController': { createNotification: async (...args) => activity.push(args) },
     '../utils/pushNotification': { sendPushNotification: async (...args) => pushes.push(args) },
   });
   await service.notifyRoomFollowers({ ownerId: 'owner', channelName: 'room-1', title: 'Music' });
-  assert.equal(filter.following, 'owner');
+  assert.deepEqual([...new Set(filter.$or[0].following.$in.map(String))], ['owner']);
   assert.equal(filter.blockedUsers.$ne, 'owner');
   assert.equal(filter._id.$nin[0], 'blocked');
   assert.equal(activity[0][0], 'follower');

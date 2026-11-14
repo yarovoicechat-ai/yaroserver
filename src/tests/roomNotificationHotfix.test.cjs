@@ -36,7 +36,7 @@ test('room opening records follower activity and delivers room navigation data',
     '../utils/pushNotification': { sendPushNotification: async (...args) => pushes.push(args) },
   });
   await service.notifyRoomFollowers({ ownerId: 'owner', channelName: 'room-1', title: 'Music' });
-  assert.equal(filter.$or[0].following, 'owner');
+  assert.deepEqual([...new Set(filter.$or[0].following.$in.map(String))], ['owner']);
   assert.equal(filter.$or[1]._id.$in[0], 'follower');
   assert.equal(filter.blockedUsers.$ne, 'owner');
   assert.equal(filter._id.$nin[0], 'blocked');

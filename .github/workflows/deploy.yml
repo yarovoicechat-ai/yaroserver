@@ -48,6 +48,9 @@ jobs:
       - name: Room notification and call-token regression tests
         run: node --test src/tests/roomNotificationHotfix.test.cjs
 
+      - name: Live broadcast regression tests
+        run: npm run test:live
+
       - name: Deploy to Contabo
         uses: appleboy/ssh-action@v1.2.0
         with:
