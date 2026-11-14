@@ -48,15 +48,15 @@ export const applyHost = async (req: AuthRequest, res: Response, next: NextFunct
 
         
         const rawHostTypes = req.body.hostTypes || req.body.hostingTypes;
-        let parsedHostTypes: string[] = ['voice'];
+        let parsedHostTypes: string[] = ['live'];
         if (Array.isArray(rawHostTypes) && rawHostTypes.length > 0) {
             const valid = rawHostTypes
                 .map((t: string) => String(t).toLowerCase().trim())
-                .filter((t: string) => ['voice', 'video', 'room', 'voice_call', 'video_call', 'room_hosting'].includes(t))
+                .filter((t: string) => ['live', 'room'].includes(t))
                 .map((t: string) => t === 'voice_call' ? 'voice' : t === 'video_call' ? 'video' : t === 'room_hosting' ? 'room' : t);
             parsedHostTypes = Array.from(new Set(valid));
         }
-        if (parsedHostTypes.length === 0) parsedHostTypes = ['voice'];
+        if (parsedHostTypes.length === 0) parsedHostTypes = ['live'];
 
         const numericUserId = userObj?.userId || (isNum ? Number(rawUserId) : await generateUniqueId());
         const hostId = await generateUniqueId();
@@ -123,8 +123,8 @@ export const applyHost = async (req: AuthRequest, res: Response, next: NextFunct
                     invitedBy: req.body.referralCode ? `Referral: ${req.body.referralCode}` : 'Direct Mobile App Application',
                     hostTypes: parsedHostTypes,
                     hostingTypes: parsedHostTypes,
-                    canVoiceCall: parsedHostTypes.includes('voice'),
-                    canVideoCall: parsedHostTypes.includes('video'),
+                    canVoiceCall: false,
+                    canVideoCall: false,
                     canRoomHost: parsedHostTypes.includes('room'),
                     ...req.body
                 },
@@ -384,10 +384,10 @@ export const approveHost = async (req: AuthRequest, res: Response) => {
         user.phoneVerified = true;
         if (!user.faceVerificationStatus) user.faceVerificationStatus = "NOT_SUBMITTED";
         if (!user.kycVerificationStatus) user.kycVerificationStatus = "NOT_SUBMITTED";
-        const hostTypes = (host as any).hostTypes || ['voice', 'video', 'room'];
+        const hostTypes = (host as any).hostTypes || ['live', 'room'];
         user.hostTypes = hostTypes;
-        user.canVoiceCall = hostTypes.includes('voice');
-        user.canVideoCall = hostTypes.includes('video');
+        user.canVoiceCall = false;
+        user.canVideoCall = false;
         user.canRoomHost = hostTypes.includes('room');
         user.lastActiveAt = new Date();
 
@@ -650,9 +650,9 @@ export const getMyHostStatus = async (req: AuthRequest, res: Response) => {
                 meethiId: user.meethiId || hostRecord?.meethiId || user.userId,
                 hostingCreatedAt: hostRecord?.createdAt || user.createdAt,
                 agencyDetails,
-                hostTypes: user.hostTypes || ['voice', 'video', 'room'],
-                canVoiceCall: user.canVoiceCall !== false,
-                canVideoCall: user.canVideoCall !== false,
+                hostTypes: user.hostTypes || ['live', 'room'],
+                canVoiceCall: false,
+                canVideoCall: false, canLiveHost: true,
                 canRoomHost: user.canRoomHost !== false,
             });
         }
@@ -685,9 +685,9 @@ export const getMyHostStatus = async (req: AuthRequest, res: Response) => {
                 meethiId: user.meethiId || user.userId,
                 hostingCreatedAt: approvedRequest.createdAt || user.createdAt,
                 agencyDetails,
-                hostTypes: user.hostTypes || ['voice', 'video', 'room'],
-                canVoiceCall: user.canVoiceCall !== false,
-                canVideoCall: user.canVideoCall !== false,
+                hostTypes: user.hostTypes || ['live', 'room'],
+                canVoiceCall: false,
+                canVideoCall: false, canLiveHost: true,
                 canRoomHost: user.canRoomHost !== false,
             });
         }

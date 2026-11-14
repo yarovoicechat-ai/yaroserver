@@ -1,6 +1,7 @@
 import teamRoutes from './team/routes';
 import { getPublicShare } from './controllers/shareController';
 import economyRoutes from './economy/routes';
+import liveBroadcastRoutes from "./routes/liveBroadcastRoutes";
 import express, { Application } from "express";
 import cors from "cors";
 import http from "http";
@@ -14,7 +15,7 @@ import { disconnectDB, sanitizeMongoError } from "./utils/db";
 import { initializeDatabase } from "./utils/initializeDatabase";
 import { config } from "./configs/envConfig";
 import { checkPortAvailable } from "./utils/getAvailablePort";
-import { AuthRoutes, avatarRoute, callRoutes, chatRoutes, coinsPriceRoutes, beansPlanRoutes, frameRoute, hostRoutes, UserRoutes, adminRoutes, paymentRoutes, kycRoutes, withdrawalRoutes, giftRoutes, helpRoutes, UploadRoutes, notificationRoutes, upiRoutes, publicRoutes, emsRoutes, recruitmentRoutes, sellerRoutes, voiceClubRoutes, storeRoutes, familyRoutes, coupleRoutes, systemConfigRoutes, emojiRoutes } from "./routes";
+import { AuthRoutes, avatarRoute, chatRoutes, coinsPriceRoutes, beansPlanRoutes, frameRoute, hostRoutes, UserRoutes, adminRoutes, paymentRoutes, kycRoutes, withdrawalRoutes, giftRoutes, helpRoutes, UploadRoutes, notificationRoutes, upiRoutes, publicRoutes, emsRoutes, recruitmentRoutes, sellerRoutes, voiceClubRoutes, storeRoutes, familyRoutes, coupleRoutes, systemConfigRoutes, emojiRoutes } from "./routes";
 
 import { approveStockRequest, rejectStockRequest, getAllStockRequestsAdmin, updateSellerPricingConfig, verifySellerForAdmin, adminCreditSellerDiamonds } from "./controllers/sellerAdminController";
 import chatSocket from "./sockets";
@@ -201,7 +202,7 @@ app.use("/api/v1/recharge-plans", coinsPriceRoutes);
 app.use("/api/beans-plans", beansPlanRoutes);
 app.use("/api/v1/beans-plans", beansPlanRoutes);
 
-app.use("/api/call", callRoutes);
+app.use("/api/live", liveBroadcastRoutes);
 app.use("/api/chat", chatRoutes);
 app.use("/api/frames", frameRoute);
 app.use("/api/avatar", avatarRoute);
@@ -341,10 +342,8 @@ app.get("/api/system-messages", verifyToken, getSystemMessages);
 
 // Enterprise Feature Flag Client Evaluation & Telemetry Ingestion
 import { evaluateClientFlags } from "./controllers/featureFlagController";
-import { recordCallTelemetry } from "./controllers/callTelemetryController";
 app.post("/api/v1/config/flags/evaluate", evaluateClientFlags);
 app.get("/api/v1/config/flags", evaluateClientFlags);
-app.post("/api/call/telemetry", recordCallTelemetry);
 
 // Root Route
 app.get("/", (req, res) => {
@@ -431,9 +430,7 @@ const startServer = async (): Promise<void> => {
     await initializeDatabase();
     GiftService.seedInitialCatalog().catch((e: any) => console.warn('[Gift] Seed warning:', e?.message));
     VipService.seedInitialCatalog().catch((e: any) => console.warn('[VIP] Seed warning:', e?.message));
-    startCallCleanupJob();
     startChatWorker();
-    startWeeklyHostLevelJob();
     startStaleHostCleanupJob();
   } catch (error) {
     console.warn(`[WARN] Initial database connection failed: ${sanitizeMongoError(error)}. Retrying in background...`);
@@ -441,9 +438,7 @@ const startServer = async (): Promise<void> => {
       try {
         await initializeDatabase();
         clearInterval(retryInterval);
-        startCallCleanupJob();
         startChatWorker();
-        startWeeklyHostLevelJob();
         startStaleHostCleanupJob();
         console.info("[INFO] Database connected on retry!");
       } catch (_) {}
@@ -474,7 +469,7 @@ const shutdown = async (signal: "SIGINT" | "SIGTERM"): Promise<void> => {
 process.once("SIGINT", () => void shutdown("SIGINT"));
 process.once("SIGTERM", () => void shutdown("SIGTERM"));
 
-import { startCallCleanupJob, startChatWorker, startWeeklyHostLevelJob, startStaleHostCleanupJob } from "./services/cron.service";
+import { startChatWorker, startStaleHostCleanupJob } from "./services/cron.service";
 
 startServer().catch(async (error) => {
   console.error(`Error starting the server: ${sanitizeMongoError(error)}`);

@@ -16,8 +16,6 @@ const NUMBER_RULES: Record<string, { min: number; max: number }> = {
     withdrawalPlatformFeePercent: { min: 0, max: 100 },
     coinPrice: { min: 0, max: 1000000 },
     minPayout: { min: 0, max: 100000000 },
-    callRatePerMinute: { min: 1, max: 1000000 },
-    hostSharePerMinute: { min: 0, max: 1000000 },
     chatMessageCost: { min: 0, max: 1000000 },
     chatMessageLimit: { min: 1, max: 5000 },
     welcomeRewardDiamonds: { min: 0, max: 100000 },

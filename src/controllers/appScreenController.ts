@@ -4,95 +4,13 @@ import sendResponse from "../utils/reponse";
 
 // Complete pre-populated screen directory matching ALL mobile app screens (meethichaatapp)
 const DEFAULT_SCREENS = [
-  // --- CALLS ---
-  {
-    screenCode: "OngoingWithGifts",
-    screenName: "1-on-1 Video Call & Live Gifts",
-    screenCategory: "Calls",
-    filePath: "src/screens/call/ongoingWithGifts.js",
-    description: "Live Agora 1-on-1 video call room with real-time gift animations and coin deduction.",
-    allowScreenshot: false,
-    allowScreenRecording: false,
-    flagSecureEnabled: true,
-    codeSnippet: `// src/screens/call/ongoingWithGifts.js
-import React, { useEffect } from 'react';
-import { View, Text } from 'react-native';
-import { applyScreenSecurity } from '../../services/SecurityService';
-
-export default function OngoingCallWithGiftsScreen() {
-  useEffect(() => {
-    applyScreenSecurity('OngoingWithGifts');
-  }, []);
-
-  return <View style={{ flex: 1, backgroundColor: '#000' }} />;
-}`,
-  },
-  {
-    screenCode: "CallIncoming",
-    screenName: "Incoming Call Screen",
-    screenCategory: "Calls",
-    filePath: "src/screens/call/callIncomingScreen.js",
-    description: "Full-screen incoming call notification ring screen for hosts and users.",
-    allowScreenshot: false,
-    allowScreenRecording: false,
-    flagSecureEnabled: true,
-    codeSnippet: `// src/screens/call/callIncomingScreen.js
-import React, { useEffect } from 'react';
-import { View, Text } from 'react-native';
-import { applyScreenSecurity } from '../../services/SecurityService';
-
-export default function CallIncomingScreen() {
-  useEffect(() => {
-    applyScreenSecurity('CallIncoming');
-  }, []);
-
-  return <View style={{ flex: 1 }} />;
-}`,
-  },
-  {
-    screenCode: "CallOutgoing",
-    screenName: "Outgoing Call Screen",
-    screenCategory: "Calls",
-    filePath: "src/screens/call/callOutgoing.js",
-    description: "Dialing and connecting outgoing call screen.",
-    allowScreenshot: false,
-    allowScreenRecording: false,
-    flagSecureEnabled: true,
-    codeSnippet: `// src/screens/call/callOutgoing.js
-import React, { useEffect } from 'react';
-import { View } from 'react-native';
-import { applyScreenSecurity } from '../../services/SecurityService';
-
-export default function CallOutgoingScreen() {
-  useEffect(() => {
-    applyScreenSecurity('CallOutgoing');
-  }, []);
-
-  return <View style={{ flex: 1 }} />;
-}`,
-  },
-  {
-    screenCode: "CallHistory",
-    screenName: "Call Logs & History",
-    screenCategory: "Calls",
-    filePath: "src/screens/call/callHistoryScreen.js",
-    description: "Recent audio and video call log history.",
-    allowScreenshot: false,
-    allowScreenRecording: false,
-    flagSecureEnabled: true,
-    codeSnippet: `// src/screens/call/callHistoryScreen.js
-import React, { useEffect } from 'react';
-import { View, FlatList } from 'react-native';
-import { applyScreenSecurity } from '../../services/SecurityService';
-
-export default function CallHistoryScreen() {
-  useEffect(() => {
-    applyScreenSecurity('CallHistory');
-  }, []);
-
-  return <View style={{ flex: 1 }} />;
-}`,
-  },
+  // --- VIDEO LIVE ---
+  ...['LiveStream', 'CreateLive', 'LiveList', 'LiveHistory'].map((code) => ({
+    screenCode: code, screenName: code, screenCategory: 'Live',
+    filePath: 'src/screens/user/' + ({LiveStream: 'LiveStreamScreen', CreateLive: 'CreateLiveScreen', LiveList: 'LiveListScreen', LiveHistory: 'LiveHistoryScreen'} as Record<string,string>)[code] + '.js',
+    description: 'Video live broadcasting and discovery',
+    allowScreenshot: false, allowScreenRecording: false, flagSecureEnabled: true, codeSnippet: '',
+  })),
 
   // --- FINANCE & RECHARGES ---
   {
@@ -1148,7 +1066,7 @@ export default function RulesScreen() {
  */
 export const getAllScreens = async (_req: Request, res: Response) => {
   try {
-    let screens = await AppScreen.find().sort({ screenCategory: 1, screenName: 1 });
+    let screens = await AppScreen.find({ screenCategory: { $ne: 'Calls' } }).sort({ screenCategory: 1, screenName: 1 });
 
     // Upsert missing default screens so all screens exist in DB
     const existingCodes = new Set(screens.map((s) => s.screenCode));
@@ -1172,7 +1090,7 @@ export const getAllScreens = async (_req: Request, res: Response) => {
  */
 export const getPublicScreenSecurityConfig = async (_req: Request, res: Response) => {
   try {
-    let screens = await AppScreen.find({ isActive: true });
+    let screens = await AppScreen.find({ isActive: true, screenCategory: { $ne: 'Calls' } });
 
     if (screens.length === 0) {
       await AppScreen.insertMany(DEFAULT_SCREENS);

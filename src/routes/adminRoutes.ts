@@ -90,7 +90,6 @@ router.patch('/block-admin/:id', verifyToken, toggleBlockAdmin);
 router.get('/dashboard/stats', verifyToken, getDashboardStats);
 router.get('/dashboard/revenue-chart', verifyToken, getRevenueChart);
 router.get('/dashboard/earnings-chart', verifyToken, getEarningsChart);
-router.get('/dashboard/call-trends', verifyToken, getCallTrends);
 router.get('/dashboard/coin-distribution', verifyToken, getCoinDistribution);
 
 // ============ Reports/Moderation Routes ============
@@ -118,8 +117,6 @@ import { triggerWeeklyLevelRecalculation } from '../controllers/managementContro
 router.post('/hosts/recalculate-levels', verifyToken, triggerWeeklyLevelRecalculation);
 
 // ============ Call Management Routes ============
-import { getAllCallHistory } from '../controllers/callController';
-router.get('/calls/history', verifyToken, getAllCallHistory);
 
 // ============ System Settings Routes ============
 import { getSettings, updateSettings } from '../controllers/settingsController';
@@ -610,12 +607,6 @@ import {
     adjustWalletBalance
 } from '../controllers/financeCommandController';
 import {
-    getActiveCallsWithTelemetry,
-    forceTerminateCall,
-    getCallDiagnostics,
-    recordCallTelemetry
-} from '../controllers/callTelemetryController';
-import {
     getAllFeatureFlags,
     getFeatureFlagByKey,
     createFeatureFlag,
@@ -647,10 +638,6 @@ router.post('/finance/run-reconciliation', verifyToken, requireRoles('owner', 's
 router.post('/wallet/adjust', verifyToken, requireRoles('owner', 'superAdmin', 'admin'), adjustWalletBalance);
 
 // Live Operations
-router.get('/calls/active', verifyToken, requireRoles('owner', 'superAdmin', 'admin', 'operator', 'customerSupport'), getActiveCallsWithTelemetry);
-router.post('/calls/:id/terminate', verifyToken, requireRoles('owner', 'superAdmin', 'admin', 'operator', 'customerSupport'), forceTerminateCall);
-router.get('/calls/:id/diagnostics', verifyToken, requireRoles('owner', 'superAdmin', 'admin', 'operator'), getCallDiagnostics);
-router.post('/calls/telemetry', recordCallTelemetry);
 
 router.get('/rooms/active', verifyToken, requireRoles('owner', 'superAdmin', 'admin', 'operator', 'customerSupport'), getActiveRoomsAdmin);
 router.post('/rooms/:id/pin', verifyToken, requireRoles('owner', 'superAdmin', 'admin', 'operator'), togglePinRoomAdmin);

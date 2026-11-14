@@ -1,21 +1,14 @@
-import { sendMissedCallNotification } from '../utils/pushNotification';
 import { Server } from "socket.io";
 import { Types } from "mongoose";
 import { createAdapter } from "@socket.io/redis-adapter";
 import redis from "../configs/redisConfig";
 import { sendMessage, markMessagesSeen } from "../services/chat.service";
-import { CoinsTransaction } from "../models/spentCoinModel";
 import Conversation from "../models/conversation.model";
 import { AuthenticatedSocket, socketAuth } from "../middlewares/auth.socket";
 import { User } from "../models/user.model";
 import Notification from "../models/notification.model";
-import { CallStatus } from "../constants/user";
 import { getAllHostsService, invalidateHostCache } from "../services/user.service";
-import { BillingService } from '../services/billing.service';
 import { PermissionEngine } from "../utils/permissionEngine";
-import { notifyHostCallState } from "../services/callStateNotification.service";
-import { recordCallActivityState } from "../services/callActivity.service";
-import { CallActivityStatus } from "../utils/callActivityRules";
 import { registerVoiceRoomHandlers } from "./voiceRoomSocket";
 import { startRoomPKScheduler } from '../services/roomPk.service';
 
@@ -27,45 +20,6 @@ let ioInstance: Server;
 
 // Helper: Get 'room' name for user
 export const getUserRoom = (userId: string) => `user:${userId}`;
-
-const publishCallActivityState = async (
-    io: Server,
-    transactionId: string,
-    callerId: unknown,
-    hostId: unknown,
-    callerStatus: CallActivityStatus,
-    hostStatus: CallActivityStatus = callerStatus,
-) => {
-    try {
-        const [caller, host] = await Promise.all([
-            User.findById(callerId).select('name image').lean(),
-            User.findById(hostId).select('name image fcmToken').lean(),
-        ]);
-        const callerIdString = String(callerId);
-        const hostIdString = String(hostId);
-        const updates = await Promise.all([
-            recordCallActivityState({
-                userId: callerIdString, transactionId, recipient: 'caller', status: callerStatus,
-                peerId: hostIdString, peerName: host?.name || 'Host', peerImage: host?.image || '',
-            }),
-            recordCallActivityState({
-                userId: hostIdString, transactionId, recipient: 'host', status: hostStatus,
-                peerId: callerIdString, peerName: caller?.name || 'User', peerImage: caller?.image || '',
-            }),
-        ]);
-        if (['expired', 'missed'].includes(hostStatus) && host?.fcmToken) {
-            await sendMissedCallNotification(host.fcmToken, caller?.name || 'User', caller?.image || '', callerIdString, transactionId);
-        }
-        await Promise.all(updates.map(async (notification, index) => {
-            if (!notification) return;
-            const recipientId = index === 0 ? callerIdString : hostIdString;
-            const unreadCount = await Notification.countDocuments({ userId: recipientId, isRead: false });
-            io.to(getUserRoom(recipientId)).emit('notification:new', { notification, unreadCount });
-        }));
-    } catch (error) {
-        console.warn('[CallActivity] Could not update call activity state:', error);
-    }
-};
 
 // Deleted deprecated getSocketIdByUserId
 
@@ -226,187 +180,6 @@ const chatSocket = (io: Server) => {
             socket.leave(conversationId);
         });
 
-        // ------------------ Call Handlers ------------------
-
-        socket.on("acceptCall", async ({ transactionId }: { transactionId: string }) => {
-            if (!transactionId) return;
-            const txn = await CoinsTransaction.findOneAndUpdate(
-                {
-                    _id: transactionId,
-                    hostId: socket.user!.id,
-                    status: { $in: [CallStatus.INITIATED, CallStatus.RINGING] },
-                    ringExpiresAt: { $gt: new Date() },
-                },
-                { status: CallStatus.ACCEPTED, lastHeartbeat: new Date() },
-                { new: true }
-            );
-            if (!txn) {
-                const accepted = await CoinsTransaction.findOne({
-                    _id: transactionId,
-                    hostId: socket.user!.id,
-                    status: { $in: [CallStatus.ACCEPTED, CallStatus.CONNECTING, CallStatus.CONNECTED] },
-                });
-                if (accepted) {
-                    const meta = accepted.meta as any;
-                    socket.emit('acceptedBySystem', {
-                        transactionId,
-                        channelName: accepted.channelName || meta?.channelName,
-                        agora: {
-                            callerToken: meta?.callerToken,
-                            callerAgoraUid: meta?.callerAgoraUid,
-                            hostToken: meta?.hostToken,
-                            hostAgoraUid: meta?.hostAgoraUid,
-                            appId: meta?.appId,
-                        },
-                    });
-                    await publishCallActivityState(io, transactionId, accepted.userId, accepted.hostId, 'accepted');
-                    return;
-                }
-                socket.emit("callActionError", { transactionId, action: "accept", message: "Call is unavailable" });
-                return;
-            }
-
-            await User.findByIdAndUpdate(txn.hostId, { $set: { isBusy: true } });
-            socket.data.transactionId = transactionId;
-            const meta = txn.meta as any;
-            const isVideo = meta?.isVideo === true || meta?.callType === 'video';
-            const payload = {
-                transactionId,
-                channelName: txn.channelName || meta?.channelName,
-                isVideo,
-                callType: isVideo ? 'video' : 'audio',
-                agora: {
-                    callerToken: meta?.callerToken,
-                    callerAgoraUid: meta?.callerAgoraUid,
-                    hostToken: meta?.hostToken,
-                    hostAgoraUid: meta?.hostAgoraUid,
-                    appId: meta?.appId,
-                },
-            };
-            io.to(getUserRoom(String(txn.userId))).emit("callAccepted", payload);
-            socket.emit("acceptedBySystem", payload);
-            await publishCallActivityState(io, transactionId, txn.userId, txn.hostId, 'accepted');
-        });
-
-        socket.on("joinChannel", async ({ transactionId }: { transactionId: string }) => {
-            if (!transactionId) return;
-            try {
-                const txn = await CoinsTransaction.findOne({
-                    _id: transactionId,
-                    $or: [{ userId: socket.user!.id }, { hostId: socket.user!.id }],
-                    status: { $in: [CallStatus.ACCEPTED, CallStatus.CONNECTING, CallStatus.CONNECTED] },
-                });
-                if (!txn) {
-                    socket.emit("callActionError", { transactionId, action: "join", message: "Call is unavailable" });
-                    return;
-                }
-
-                const callRoom = `call:${transactionId}`;
-                socket.data.userId = String(socket.user!.id);
-                socket.data.transactionId = transactionId;
-                await socket.join(callRoom);
-
-                const roomSockets = await io.in(callRoom).fetchSockets();
-                const participantIds = new Set(roomSockets.map(s => String(s.data.userId || '')));
-                const bothParticipantsJoined =
-                    participantIds.has(String(txn.userId)) &&
-                    participantIds.has(String(txn.hostId));
-
-                if (bothParticipantsJoined && txn.status !== CallStatus.CONNECTED) {
-                    const connected = await CoinsTransaction.findOneAndUpdate(
-                        {
-                            _id: transactionId,
-                            status: { $in: [CallStatus.ACCEPTED, CallStatus.CONNECTING] },
-                        },
-                        {
-                            $set: {
-                                status: CallStatus.CONNECTED,
-                                callStart: txn.callStart || new Date(),
-                                lastHeartbeat: new Date(),
-                            },
-                        },
-                        { new: true }
-                    );
-                    if (connected) {
-                        BillingService.processActiveCallBilling(connected._id as any).catch(err =>
-                            console.error("Failed initial minute billing:", err)
-                        );
-                        io.to(callRoom).emit("callConnected", {
-                            transactionId,
-                            callStart: connected.callStart,
-                        });
-                    }
-                } else if (txn.status === CallStatus.ACCEPTED) {
-                    await CoinsTransaction.updateOne(
-                        { _id: transactionId, status: CallStatus.ACCEPTED },
-                        { $set: { status: CallStatus.CONNECTING, lastHeartbeat: new Date() } }
-                    );
-                }
-            } catch (error) {
-                console.error("joinChannel failed:", error);
-            }
-        });
-
-        socket.on("leaveChannel", async ({ transactionId }: { transactionId: string }) => {
-            if (!transactionId) return;
-            const isParticipant = await CoinsTransaction.exists({
-                _id: transactionId,
-                $or: [{ userId: socket.user!.id }, { hostId: socket.user!.id }],
-            });
-            if (isParticipant) await socket.leave(`call:${transactionId}`);
-        });
-
-        socket.on("rejectCall", async ({ transactionId }: { transactionId: string }) => {
-            if (!transactionId) return;
-            const txn = await CoinsTransaction.findOneAndUpdate(
-                {
-                    _id: transactionId,
-                    hostId: socket.user!.id,
-                    status: { $in: [CallStatus.INITIATED, CallStatus.RINGING] },
-                },
-                { status: CallStatus.REJECTED, callEnd: new Date() },
-                { new: true }
-            );
-            if (!txn) return;
-            await User.findByIdAndUpdate(txn.hostId, { $set: { isBusy: false } });
-            io.to(getUserRoom(String(txn.userId))).emit("callRejected", { transactionId });
-            io.to(getUserRoom(String(txn.hostId))).emit("callEnded", { transactionId, reason: "rejected" });
-            await publishCallActivityState(io, transactionId, txn.userId, txn.hostId, 'rejected');
-            await notifyHostCallState(txn.hostId, String(txn._id), "rejected");
-        });
-
-        socket.on("missedCall", async ({ transactionId }: { transactionId: string }) => {
-            if (!transactionId) return;
-            const now = new Date();
-            const txn = await CoinsTransaction.findOneAndUpdate(
-                {
-                    _id: transactionId,
-                    $or: [{ userId: socket.user!.id }, { hostId: socket.user!.id }],
-                    status: { $in: [CallStatus.INITIATED, CallStatus.RINGING] },
-                    ringExpiresAt: { $lte: now },
-                },
-                { status: CallStatus.EXPIRED, callEnd: now },
-                { new: true }
-            );
-            if (!txn) return;
-            await User.findByIdAndUpdate(txn.hostId, { $set: { isBusy: false } });
-            const payload = { transactionId, reason: 'no_answer' };
-            io.to(getUserRoom(String(txn.userId))).emit('callEnded', payload);
-            io.to(getUserRoom(String(txn.hostId))).emit('callEnded', payload);
-            await publishCallActivityState(io, transactionId, txn.userId, txn.hostId, 'expired');
-            await notifyHostCallState(txn.hostId, String(txn._id), 'expired', now);
-        });
-
-        socket.on("endCall", async ({
-            transactionId,
-            durationSeconds,
-        }: {
-            transactionId: string;
-            durationSeconds?: number;
-        }) => {
-            if (!transactionId) return;
-            await handleEndCall(io, transactionId, String(socket.user!.id), durationSeconds);
-        });
         // ------------------ Disconnect ------------------
         socket.on("disconnect", async () => {
             try {
@@ -430,15 +203,11 @@ const chatSocket = (io: Server) => {
                 if (sockets.size === 0) {
                     await redis.srem("online_users", uid);
                     const lastOnline = new Date();
-                    const hasActiveCall = await CoinsTransaction.exists({
-                        hostId: uid,
-                        status: { $in: [CallStatus.INITIATED, CallStatus.RINGING, CallStatus.ACCEPTED, CallStatus.CONNECTING, CallStatus.CONNECTED] },
-                    });
                     await User.findByIdAndUpdate(uid, {
                         $set: {
                             lastOnline,
                             isOnline: false,
-                            ...(hasActiveCall ? {} : { isBusy: false }),
+                            isBusy: false,
                         }
                     });
 
@@ -460,93 +229,6 @@ const chatSocket = (io: Server) => {
 // -------------------- 🔑 Common Call End Logic --------------------
 // BUG-01 FIX: Fetch userId/hostId BEFORE processCallEnd commits the transaction,
 // so we are guaranteed to have the data for socket emission — no second DB read needed.
-const handleEndCall = async (
-    io: Server,
-    transactionId: string,
-    participantId: string,
-    durationSeconds?: number
-) => {
-    try {
-        console.log(`[BILLING] MANUAL HANGUP / TERMINATION: TransactionID ${transactionId} (DurationSec: ${durationSeconds ?? 'unspecified'})`);
-        // Fetch participant IDs before billing so they are always available for routing
-        const txRef = await CoinsTransaction.findOne({
-            _id: transactionId,
-            $or: [{ userId: participantId }, { hostId: participantId }],
-        }).select('userId hostId callStart status').lean() as any;
-        if (!txRef) {
-            console.warn(`Unauthorized endCall ignored for transaction ${transactionId}`);
-            return;
-        }
-
-        const result = await BillingService.processCallEnd(
-            transactionId,
-            new Date(),
-            0,
-            durationSeconds
-        );
-
-        if (result.success) {
-            const payload = result.data ?? { transactionId };
-
-            if (txRef) {
-                const callerDoc = await User.findById(txRef.userId).select('_id userId meethiId name image coins diamonds').lean();
-                const hostDoc = await User.findById(txRef.hostId).select('_id userId meethiId name image coins diamonds').lean();
-
-                const callerRooms = [
-                    `user:${txRef.userId}`,
-                    ...(callerDoc?.userId ? [`user:${callerDoc.userId}`] : []),
-                    ...(callerDoc?.meethiId ? [`user:${callerDoc.meethiId}`] : [])
-                ];
-                const hostRooms = [
-                    `user:${txRef.hostId}`,
-                    ...(hostDoc?.userId ? [`user:${hostDoc.userId}`] : []),
-                    ...(hostDoc?.meethiId ? [`user:${hostDoc.meethiId}`] : [])
-                ];
-
-                callerRooms.forEach(room => io.to(room).emit("callEnded", payload));
-                hostRooms.forEach(room => io.to(room).emit("callEnded", payload));
-
-                if (callerDoc) {
-                    const callerBalPayload = {
-                        userId: String(callerDoc._id),
-                        coins: Number(callerDoc.coins || 0),
-                        diamonds: Number(callerDoc.diamonds || 0),
-                        totalBalance: Number(callerDoc.coins || 0) + Number(callerDoc.diamonds || 0),
-                    };
-                    callerRooms.forEach(room => io.to(room).emit("balanceUpdated", callerBalPayload));
-                }
-
-                if (hostDoc) {
-                    const hostBalPayload = {
-                        userId: String(hostDoc._id),
-                        coins: Number(hostDoc.coins || 0),
-                        diamonds: Number(hostDoc.diamonds || 0),
-                        totalBalance: Number(hostDoc.coins || 0) + Number(hostDoc.diamonds || 0),
-                    };
-                    hostRooms.forEach(room => io.to(room).emit("balanceUpdated", hostBalPayload));
-                }
-            }
-            io.to(`call:${transactionId}`).emit("callEnded", payload);
-            const endedBeforeAccept = !txRef.callStart &&
-                ![CallStatus.ACCEPTED, CallStatus.CONNECTING, CallStatus.CONNECTED].includes(txRef.status);
-            await publishCallActivityState(
-                io,
-                transactionId,
-                txRef.userId,
-                txRef.hostId,
-                endedBeforeAccept ? 'cancelled' : 'ended',
-                endedBeforeAccept ? 'missed' : 'ended',
-            );
-            await notifyHostCallState(txRef.hostId, transactionId, "ended");
-        } else {
-            console.error(`❌ Call End Failed for ${transactionId}: ${result.message}`);
-        }
-
-    } catch (error) {
-        console.error(`❌ Handle End Call Error:`, error);
-    }
-};
 
 export default chatSocket;
-// Export onlineUsers to keep other files from crashing, but it is empty/useless now.
-export const onlineUsers = {}; 
+export const onlineUsers = {};

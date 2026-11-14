@@ -32,7 +32,7 @@ const HostSchema = new Schema<IHost>(
     addressProof: { type: String },
     profilePhoto: { type: String },
     termsAccepted: { type: Boolean, required: true, default: false },
-    hostTypes: { type: [String], default: ['voice', 'video', 'room'] },
+    hostTypes: { type: [String], default: ['live', 'room'] },
     isDeleted: { type: Boolean, default: false },
     isApproved: { type: Boolean, default: false },
   },

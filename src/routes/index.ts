@@ -2,7 +2,6 @@ import AuthRoutes from "./authRoutes";
 import UserRoutes from "./userRoutes";
 import hostRoutes from "./hostRoutes";
 import coinsPriceRoutes from "./coinPriceRoutes";
-import callRoutes from "./callRoutes";
 import chatRoutes from "./chatRoutes";
 import frameRoute from "./frameRoutes";
 import avatarRoute from "./avatarRoutes";
@@ -29,4 +28,4 @@ import beansPlanRoutes from "./beansPlanRoutes";
 import emojiRoutes from "./emoji.routes";
 
 
-export { AuthRoutes, UserRoutes, hostRoutes, coinsPriceRoutes, beansPlanRoutes, callRoutes, chatRoutes, avatarRoute, frameRoute, adminRoutes, paymentRoutes, kycRoutes, withdrawalRoutes, giftRoutes, helpRoutes, UploadRoutes, notificationRoutes, upiRoutes, publicRoutes, emsRoutes, recruitmentRoutes, sellerRoutes, voiceClubRoutes, storeRoutes, familyRoutes, coupleRoutes, systemConfigRoutes, emojiRoutes };
+export { AuthRoutes, UserRoutes, hostRoutes, coinsPriceRoutes, beansPlanRoutes, chatRoutes, avatarRoute, frameRoute, adminRoutes, paymentRoutes, kycRoutes, withdrawalRoutes, giftRoutes, helpRoutes, UploadRoutes, notificationRoutes, upiRoutes, publicRoutes, emsRoutes, recruitmentRoutes, sellerRoutes, voiceClubRoutes, storeRoutes, familyRoutes, coupleRoutes, systemConfigRoutes, emojiRoutes };

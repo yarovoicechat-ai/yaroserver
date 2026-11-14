@@ -4,26 +4,17 @@ import { User } from "../models/user.model";
 import sendResponse from "../utils/reponse";
 import { AuthRequest } from "../middlewares/authorize.middleware";
 import { getIO, getUserRoom } from "../sockets";
-import { upsertCallActivity } from "../services/callActivity.service";
 
 // Helper to create notification internally
 export const createNotification = async (
     userId: string,
     title: string,
     message: string,
-    type: 'system' | 'promo' | 'transaction' | 'call' | 'event' | 'follow' = 'system',
+    type: 'system' | 'promo' | 'transaction' | 'event' | 'follow' = 'system',
     data: Record<string, unknown> = {}
 ) => {
     try {
-        const notification = type === 'call' && data.transactionId
-            ? await upsertCallActivity({
-                userId,
-                transactionId: String(data.transactionId),
-                title,
-                message,
-                data,
-            })
-            : await Notification.create({ userId, title, message, type, data });
+        const notification = await Notification.create({ userId, title, message, type, data });
         const unreadCount = await Notification.countDocuments({ userId, isRead: false });
         try {
             getIO().to(getUserRoom(String(userId))).emit("notification:new", {
@@ -54,9 +45,10 @@ export const getMyNotifications = async (req: AuthRequest, res: Response) => {
         const limit = parseInt(req.query.limit as string) || 20;
         const skip = (page - 1) * limit;
         const requestedType = String(req.query.type || '').trim().toLowerCase();
-        const allowedTypes = ['system', 'promo', 'transaction', 'call', 'event', 'follow'];
+        const allowedTypes = ['system', 'promo', 'transaction', 'event', 'follow'];
         const notificationFilter: any = {
             userId,
+            type: { $ne: 'call' },
             title: { $not: /dummy/i },
             message: { $not: /dummy/i },
         };
@@ -64,7 +56,7 @@ export const getMyNotifications = async (req: AuthRequest, res: Response) => {
         if (allowedTypes.includes(requestedType)) {
             notificationFilter.type = requestedType;
         } else if (String(req.query.excludeSystem || '').toLowerCase() === 'true') {
-            notificationFilter.type = { $ne: 'system' };
+            notificationFilter.type = { $nin: ['system', 'call'] };
         }
 
         const notifications = await Notification.find(notificationFilter)

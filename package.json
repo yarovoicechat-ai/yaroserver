@@ -21,7 +21,8 @@
     "script:updateLevels": "ts-node src/scripts/updateLevels.ts",
     "script:migrateVerificationSummaries": "ts-node src/scripts/migrateVerificationSummaries.ts",
     "test:economy": "node --test -r ts-node/register src/tests/economyRules.test.ts src/tests/economyTransactions.test.cjs src/tests/economy.integration.test.ts src/tests/rechargeCatalog.test.ts src/tests/rechargeSecurity.test.cjs",
-    "economy:report": "ts-node src/scripts/economyReport.ts"
+    "economy:report": "ts-node src/scripts/economyReport.ts",
+    "test:live": "node --test -r ts-node/register/transpile-only src/tests/liveBroadcast.test.cjs"
   },
   "keywords": [],
   "author": "",
