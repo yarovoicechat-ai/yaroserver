@@ -682,7 +682,7 @@ export const registerVoiceRoomHandlers = (io: Server, socket: AuthenticatedSocke
 
       // Auto-close previous room if owner joins another room
       try {
-        const ownerIds = [authUserDbId, authUserNumId].filter(Boolean);
+        const ownerIds = [authUserDbId].filter(id => id && mongoose.Types.ObjectId.isValid(String(id)));
         if (ownerIds.length > 0) {
           const otherOwnedRooms = await Room.find({
             ownerId: { $in: ownerIds },

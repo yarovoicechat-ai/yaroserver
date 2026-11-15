@@ -10,6 +10,7 @@ import Notification from "../models/notification.model";
 import { getAllHostsService, invalidateHostCache } from "../services/user.service";
 import { PermissionEngine } from "../utils/permissionEngine";
 import { registerVoiceRoomHandlers } from "./voiceRoomSocket";
+import { registerLiveBroadcastHandlers } from "./liveBroadcastSocket";
 import { startRoomPKScheduler } from '../services/roomPk.service';
 
 // Redis Pub/Sub for Adapter
@@ -53,6 +54,7 @@ const chatSocket = (io: Server) => {
 
         // Register Voice Room Handlers SYNCHRONOUSLY before any async calls so no early client emits are lost
         registerVoiceRoomHandlers(io, socket);
+        registerLiveBroadcastHandlers(io, socket);
 
         const userIdStr = socket.user.id.toString();
         const userRoom = getUserRoom(userIdStr);

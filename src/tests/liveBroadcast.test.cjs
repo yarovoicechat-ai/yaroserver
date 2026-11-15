@@ -41,6 +41,7 @@ const model = {
     return {
       ...data,
       _id: roomId,
+      async populate() { return this; },
       toObject() {
         return { ...data, _id: roomId };
       },
@@ -63,6 +64,9 @@ Module._load = function (name, parent, isMain) {
     return { __esModule: true, default: model };
   if (name.endsWith("/models/user.model")) return { User: {} };
   if (name.endsWith("/gift/gift.model")) return { GiftTransaction: {} };
+  if (name.endsWith("/gift/gift.service")) return { GiftService: {} };
+  if (name === '../sockets') return { getIOOptional: () => null };
+  if (name.endsWith('/sockets/liveBroadcastSocket')) return { getLiveBroadcastRoomChannel: id => `live:${id}` };
   if (name.endsWith("/middlewares/authorize.middleware"))
     return {
       verifyToken: (req, res, next) => {
@@ -166,9 +170,19 @@ test("viewer cannot request broadcaster privileges via client data", async () =>
   assert.equal(data.room.projectId, undefined);
   assert.equal(data.room.viewers, undefined);
 });
-test("only the actual room host receives publisher token", async () => {
+test("the actual room host receives a publisher token", async () => {
   const response = await request(`/rooms/${roomId}/join`, host);
   assert.equal((await response.json()).data.rtc.isHost, true);
+  assert.equal(tokenRole, 1);
+});
+
+test("accepted co-hosts retain publisher privileges when renewing credentials", async () => {
+  room.guests = [{ user: viewer, agoraUid: 20 }];
+  const response = await request(`/rooms/${roomId}/join`, viewer);
+  const { data } = await response.json();
+  assert.equal(response.status, 200);
+  assert.equal(data.rtc.isHost, false);
+  assert.equal(data.rtc.isCoHost, true);
   assert.equal(tokenRole, 1);
 });
 test("rejects invalid IDs and ended rooms without issuing credentials", async () => {

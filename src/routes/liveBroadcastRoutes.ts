@@ -8,8 +8,11 @@ import {
   checkPermission,
 } from "../middlewares/authorize.middleware";
 import { AgoraTokenService } from "../services/agora/agoraToken.service";
-import { GiftTransaction } from "../gift/gift.model";
+import { GiftTransaction, Gift } from "../gift/gift.model";
+import { GiftService } from "../gift/gift.service";
 import { User } from '../models/user.model';
+import { getIOOptional } from "../sockets";
+import { getLiveBroadcastRoomChannel } from "../sockets/liveBroadcastSocket";
 
 const router = Router();
 const lease = () => new Date(Date.now() - 90000);
@@ -59,6 +62,7 @@ async function credentials(room: any, userId: unknown) {
   if (String(project._id) !== room.projectId || !certificate)
     throw new Error("Live video project is unavailable.");
   const isHost = String(room.host?._id || room.host) === String(userId);
+  const isCoHost = (room.guests || []).some((guest: any) => String(guest.user?._id || guest.user) === String(userId));
   const agoraUid = uid(userId);
   const channelName = `live_${room._id}`;
   const token = agoraToken.RtcTokenBuilder.buildTokenWithUid(
@@ -66,7 +70,7 @@ async function credentials(room: any, userId: unknown) {
     certificate,
     channelName,
     agoraUid,
-    isHost ? agoraToken.RtcRole.PUBLISHER : agoraToken.RtcRole.SUBSCRIBER,
+    isHost || isCoHost ? agoraToken.RtcRole.PUBLISHER : agoraToken.RtcRole.SUBSCRIBER,
     3600,
     3600
   );
@@ -77,6 +81,7 @@ async function credentials(room: any, userId: unknown) {
     agoraUid,
     hostUid: room.hostUid,
     isHost,
+    isCoHost,
   };
 }
 
@@ -208,14 +213,19 @@ router.post(
           message:
             "Configure an Agora certificate in the panel before going live.",
         });
+    const mode = req.body.mode === "multi" ? "multi" : "single";
+    const maxGuests = mode === "multi" ? 6 : 1;
     const room = await LiveBroadcast.create({
       host: req.user!.id,
       title,
       category,
+      mode,
+      maxGuests,
       coverImage,
       projectId: String(project._id),
       hostUid: uid(req.user!.id),
     });
+    await room.populate("host", "name image avatar gender userId level equippedSvipId");
     res
       .status(201)
       .json({
@@ -308,7 +318,11 @@ router.post(
     const room = await LiveBroadcast.findOne({
       _id: req.params.id,
       ...active(),
-    }).populate("host", "name image userId");
+    })
+      .populate("host", "name image avatar gender userId level equippedSvipId")
+      .populate("guests.user", "name image avatar gender userId level")
+      .populate("pk.rivalHost", "name image avatar gender userId level")
+      .populate("topContributors.user", "name image avatar gender userId level");
     if (!room)
       return res
         .status(404)
@@ -411,4 +425,254 @@ router.post(
       });
   })
 );
+router.post(
+  "/rooms/:id/gift",
+  wrap(async (req: any, res: any) => {
+    const { giftId, quantity = 1, target = "host" } = req.body;
+    const room = await LiveBroadcast.findById(req.params.id).populate("host", "name avatar image");
+    if (!room || room.status !== "live") {
+      return res.status(404).json({ success: false, message: "Live broadcast is not active." });
+    }
+
+    const gift = await Gift.findById(giftId).lean();
+    if (!gift) {
+      return res.status(404).json({ success: false, message: "Gift not found." });
+    }
+
+    const qty = Math.max(1, Math.min(Number(quantity) || 1, 999));
+    const unitPrice = Number(gift.price || gift.cost || 1);
+    const totalCost = unitPrice * qty;
+
+    let receiverId = room.host?._id ? String(room.host._id) : String(room.host);
+    if (target === "rival" && room.pk?.isActive && room.pk?.rivalHost) {
+      receiverId = String(room.pk.rivalHost);
+    }
+
+    await GiftService.sendGift(req.user.id, {
+      requestId: `rest-live-gift-${Date.now()}-${req.user.id}`,
+      giftId: String(gift._id),
+      quantity: qty,
+      receiverId,
+      roomId: String(room._id),
+    });
+
+    const senderUser = await User.findById(req.user.id).select("name avatar image gender level").lean();
+
+    const updatedRoom = await LiveBroadcast.findByIdAndUpdate(
+      room._id,
+      {
+        $inc: {
+          totalDiamonds: totalCost,
+          ...(room.pk?.isActive
+            ? target === "rival"
+              ? { "pk.rightScore": totalCost }
+              : { "pk.leftScore": totalCost }
+            : {}),
+        },
+      },
+      { new: true }
+    ).populate("topContributors.user", "name avatar image userId");
+
+    const io = getIOOptional();
+    if (io) {
+      const roomChannel = getLiveBroadcastRoomChannel(String(room._id));
+      io.to(roomChannel).emit("live:gift_received", {
+        sender: {
+          id: String(req.user.id),
+          name: senderUser?.name || "Donor",
+          avatar: (senderUser as any)?.avatar || senderUser?.image,
+          level: senderUser?.level || 1,
+        },
+        target,
+        receiverId,
+        gift: {
+          id: String(gift._id),
+          name: gift.name,
+          icon: gift.icon,
+          price: unitPrice,
+          quantity: qty,
+        },
+        totalDiamonds: updatedRoom?.totalDiamonds || totalCost,
+        leftScore: updatedRoom?.pk?.leftScore || 0,
+        rightScore: updatedRoom?.pk?.rightScore || 0,
+        topSupporters: (updatedRoom?.topContributors || []).map((tc: any, i: number) => ({
+          id: String(tc.user?._id || tc.user),
+          name: tc.user?.name || "Supporter",
+          avatar: tc.user?.avatar || tc.user?.image,
+          score: tc.amount > 999 ? `${Math.round(tc.amount / 1000)}K` : String(tc.amount),
+          crown: i === 0 ? "#F59E0B" : i === 1 ? "#94A3B8" : "#CD7F32",
+        })),
+      });
+
+      io.to(roomChannel).emit("live:chat_message", {
+        id: `gift-${Date.now()}-${req.user.id}`,
+        type: "gift",
+        senderId: String(req.user.id),
+        senderName: senderUser?.name || "User",
+        avatar: (senderUser as any)?.avatar || senderUser?.image,
+        level: senderUser?.level || 1,
+        text: `Sent ${gift.name} x ${qty}`,
+        giftIcon: gift.icon,
+        giftName: gift.name,
+        quantity: qty,
+        timestamp: Date.now(),
+      });
+    }
+
+    res.json({
+      success: true,
+      data: {
+        totalDiamonds: updatedRoom?.totalDiamonds || totalCost,
+        leftScore: updatedRoom?.pk?.leftScore || 0,
+        rightScore: updatedRoom?.pk?.rightScore || 0,
+      },
+    });
+  })
+);
+
+router.post(
+  "/rooms/:id/like",
+  wrap(async (req: any, res: any) => {
+    const count = Math.min(Math.max(1, Number(req.body.count) || 1), 10);
+    const updated = await LiveBroadcast.findByIdAndUpdate(
+      req.params.id,
+      { $inc: { totalLikes: count } },
+      { new: true }
+    ).select("totalLikes").lean();
+
+    const io = getIOOptional();
+    if (io) {
+      io.to(getLiveBroadcastRoomChannel(req.params.id)).emit("live:like_update", {
+        totalLikes: updated?.totalLikes || 1,
+        increment: count,
+        senderId: String(req.user.id),
+      });
+    }
+    res.json({ success: true, data: { totalLikes: updated?.totalLikes || 1 } });
+  })
+);
+
+router.post(
+  "/rooms/:id/apply",
+  wrap(async (req: any, res: any) => {
+    const room = await LiveBroadcast.findById(req.params.id).populate("host", "name avatar image");
+    if (!room || room.status !== "live") {
+      return res.status(404).json({ success: false, message: "Room is not live" });
+    }
+    await LiveBroadcast.updateOne(
+      { _id: room._id },
+      { $addToSet: { joinRequests: { user: new Types.ObjectId(req.user.id), requestedAt: new Date() } } }
+    );
+    const dbUser = await User.findById(req.user.id).select("name avatar image level").lean();
+    const io = getIOOptional();
+    if (io) {
+      io.to(`user:${room.host?._id || room.host}`).emit("live:join_request_received", {
+        user: {
+          id: String(req.user.id),
+          name: dbUser?.name || "Viewer",
+          avatar: (dbUser as any)?.avatar || dbUser?.image,
+          level: dbUser?.level || 1,
+        },
+        roomId: String(room._id),
+      });
+    }
+    res.json({ success: true, message: "Application sent" });
+  })
+);
+
+router.post(
+  "/rooms/:id/accept_guest",
+  wrap(async (req: any, res: any) => {
+    const { targetUserId } = req.body;
+    const room = await LiveBroadcast.findById(req.params.id);
+    if (!room || String(room.host) !== String(req.user.id)) {
+      return res.status(403).json({ success: false, message: "Forbidden" });
+    }
+    const limit = room.mode === "multi" ? 6 : 1;
+    if ((room.guests || []).length >= limit) {
+      return res.status(400).json({ success: false, message: `Maximum ${limit} guest(s) allowed` });
+    }
+    const guestUid = uid(targetUserId);
+    const { project, certificate } = await AgoraTokenService.resolveProject(room.projectId);
+    const guestToken = agoraToken.RtcTokenBuilder.buildTokenWithUid(
+      project.appId,
+      certificate,
+      `live_${room._id}`,
+      guestUid,
+      agoraToken.RtcRole.PUBLISHER,
+      3600,
+      3600
+    );
+    await LiveBroadcast.updateOne(
+      { _id: room._id },
+      {
+        $push: {
+          guests: {
+            user: new Types.ObjectId(targetUserId),
+            agoraUid: guestUid,
+            role: "guest",
+            joinedAt: new Date(),
+          },
+        },
+        $pull: { joinRequests: { user: new Types.ObjectId(targetUserId) } },
+      }
+    );
+    const guestUser = await User.findById(targetUserId).select("name avatar image level").lean();
+    const io = getIOOptional();
+    if (io) {
+      io.to(`user:${targetUserId}`).emit("live:guest_accepted", {
+        roomId: String(room._id),
+        rtc: {
+          appId: project.appId,
+          channelName: `live_${room._id}`,
+          token: guestToken,
+          agoraUid: guestUid,
+          isHost: false,
+          isCoHost: true,
+        },
+      });
+      io.to(getLiveBroadcastRoomChannel(String(room._id))).emit("live:guest_joined", {
+        guest: {
+          id: targetUserId,
+          name: guestUser?.name || "Guest",
+          avatar: (guestUser as any)?.avatar || guestUser?.image,
+          agoraUid: guestUid,
+        },
+      });
+    }
+    res.json({ success: true, message: "Guest accepted" });
+  })
+);
+
+router.post(
+  "/rooms/:id/reject_guest",
+  wrap(async (req: any, res: any) => {
+    const { targetUserId } = req.body;
+    await LiveBroadcast.updateOne(
+      { _id: req.params.id },
+      { $pull: { joinRequests: { user: new Types.ObjectId(targetUserId) } } }
+    );
+    const io = getIOOptional();
+    if (io) {
+      io.to(`user:${targetUserId}`).emit("live:guest_rejected", { roomId: req.params.id });
+    }
+    res.json({ success: true, message: "Guest rejected" });
+  })
+);
+
+router.post(
+  "/rooms/:id/leave_guest",
+  wrap(async (req: any, res: any) => {
+    await LiveBroadcast.updateOne(
+      { _id: req.params.id },
+      { $pull: { guests: { user: new Types.ObjectId(req.user.id) } } }
+    );
+    const io = getIOOptional();
+    if (io) {
+      io.to(getLiveBroadcastRoomChannel(req.params.id)).emit("live:guest_left", { userId: String(req.user.id) });
+    }
+    res.json({ success: true, message: "Guest left" });
+  })
+);
+
 export default router;

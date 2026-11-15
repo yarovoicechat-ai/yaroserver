@@ -21,6 +21,7 @@ router.get('/settings', async (req: Request, res: Response) => {
             termsAndConditions: settings.termsAndConditions,
             coinPrice: settings.coinPrice,
             withdrawalPlatformFeePercent: settings.withdrawalPlatformFeePercent,
+            minimumSupportedVersion: settings.minimumSupportedVersion,
         };
         return sendResponse(res, 200, true, 'Settings fetched successfully', publicSettings);
     } catch (error) {
