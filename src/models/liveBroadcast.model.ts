@@ -5,6 +5,7 @@ const schema = new Schema(
     host: { type: Schema.Types.ObjectId, ref: "User", required: true },
     title: { type: String, required: true, maxlength: 80 },
     category: { type: String, enum: ["Live", "Beauty", "PK"], default: "Live" },
+    country: { type: String, default: "India" },
     mode: { type: String, enum: ["single", "multi"], default: "single" },
     maxGuests: { type: Number, default: 1 },
     coverImage: { type: String, default: "" },

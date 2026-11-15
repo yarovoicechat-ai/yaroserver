@@ -173,12 +173,21 @@ router.get(
 );
 router.get(
   "/rooms",
-  wrap(async (_req: AuthRequest, res: any) => {
+  wrap(async (req: AuthRequest, res: any) => {
     await expire();
-    const rooms = await LiveBroadcast.find(active())
+    const query: any = active();
+    const country = req.query.country ? String(req.query.country).trim() : '';
+    if (country && country.toLowerCase() !== 'all') {
+      query.country = new RegExp(`^${country}$`, 'i');
+    }
+    const category = req.query.category ? String(req.query.category).trim() : '';
+    if (category && category !== 'Live' && category !== 'New') {
+      query.category = category;
+    }
+    const rooms = await LiveBroadcast.find(query)
       .sort({ isPinned: -1, createdAt: -1 })
       .limit(100)
-      .populate("host", "name image userId");
+      .populate("host", "name image avatar gender userId level country equippedSvipId");
     res.json({ success: true, data: rooms.map(clean) });
   })
 );
@@ -188,6 +197,7 @@ router.post(
     const title = String(req.body.title || "").trim();
     const category = String(req.body.category || "Live");
     const coverImage = String(req.body.coverImage || "").trim();
+    const country = String(req.body.country || (req.user as any)?.country || "India").trim();
     if (
       !title ||
       title.length > 80 ||
@@ -222,10 +232,11 @@ router.post(
       mode,
       maxGuests,
       coverImage,
+      country,
       projectId: String(project._id),
       hostUid: uid(req.user!.id),
     });
-    await room.populate("host", "name image avatar gender userId level equippedSvipId");
+    await room.populate("host", "name image avatar gender userId level country equippedSvipId");
     res
       .status(201)
       .json({
