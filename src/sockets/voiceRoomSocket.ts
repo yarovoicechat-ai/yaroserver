@@ -680,41 +680,9 @@ export const registerVoiceRoomHandlers = (io: Server, socket: AuthenticatedSocke
       (socket as any).voiceRawRoomId = rawRoomId;
       (socket as any).voiceUser = userData;
 
-      // Auto-close previous room if owner joins another room
-      try {
-        const ownerIds = [authUserDbId].filter(id => id && mongoose.Types.ObjectId.isValid(String(id)));
-        if (ownerIds.length > 0) {
-          const otherOwnedRooms = await Room.find({
-            ownerId: { $in: ownerIds },
-            channelName: { $nin: [roomId, rawRoomId, String(roomDocument?.channelName || '')].filter(Boolean) }
-          }).select('channelName title _id').lean();
-
-          for (const otherRoom of otherOwnedRooms) {
-            const otherChan = normalizeRoomId(String(otherRoom.channelName));
-            if (!otherChan || otherChan === roomId || otherChan === rawRoomId) continue;
-            const otherState = await getVoiceRoomState(otherChan);
-            const hasActivity = otherState && (
-              (otherState.seats && otherState.seats.some(s => s.user)) ||
-              (otherState.onlineUsers && Object.keys(otherState.onlineUsers).length > 0) ||
-              otherState.hostUser
-            );
-            if (hasActivity) {
-              io.to(`voice_room_channel:${otherChan}`).emit("voice_room:force_leave", {
-                roomId: otherChan,
-                reason: "Room owner has visited another room. This room is now closed.",
-                code: "OWNER_SWITCHED_ROOM",
-              });
-              otherState.seats = otherState.seats.map(s => ({ ...s, user: null, isMuted: true }));
-              otherState.hostUser = null;
-              otherState.onlineUsers = {};
-              await saveVoiceRoomState(otherState);
-              console.log(`[VoiceRoom] Auto-closed previous room ${otherChan} because owner joined ${roomId}`);
-            }
-          }
-        }
-      } catch (autoCloseErr) {
-        console.warn("[VoiceRoom] Auto-close previous room check warning:", autoCloseErr);
-      }
+      // Previously, an aggressive check auto-closed other rooms if an owner joined/visited another room,
+      // which caused "Room owner has visited another room. This room is now closed." errors whenever
+      // the owner browsed other rooms or joined rooms across multiple devices. Disabled to keep rooms persistent.
 
       const state = await getVoiceRoomState(roomId, data.customSeats || 8, authorizedHost ? userData : null);
       if (!state.onlineUsers) state.onlineUsers = {};

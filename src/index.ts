@@ -1,3 +1,4 @@
+import { arRouter, arAdminRouter } from './ar/arRoutes';
 import teamRoutes from './team/routes';
 import { getPublicShare } from './controllers/shareController';
 import economyRoutes from './economy/routes';
@@ -376,6 +377,9 @@ app.get("/api", (req, res) => {
 });
 
 // Error handler
+app.use('/api/ar', arRouter);
+app.use('/api/admin/ar', arAdminRouter);
+
 app.use(errorHandler);
 
 // Create HTTP server
