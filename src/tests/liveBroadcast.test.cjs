@@ -243,12 +243,38 @@ test("validates metadata and takes host identity from authenticated account", as
         title: " Hello ",
         category: "Beauty",
         host: viewer,
+        country: "India",
       })
     ).status,
     201
   );
   assert.equal(createData.host, host);
   assert.equal(createData.title, "Hello");
+  assert.equal(createData.country, "India");
+});
+test("country filtering and backward compatibility", async () => {
+  // 1. Without country param - backward compatibility returns all active rooms
+  const resAll = await request("/rooms", viewer, {}, "user", "GET");
+  assert.equal(resAll.status, 200);
+  assert.equal(lastFilter.country, undefined);
+
+  // 2. With country=India - applies case-insensitive country filter
+  const resIndia = await request("/rooms?country=India", viewer, {}, "user", "GET");
+  assert.equal(resIndia.status, 200);
+  assert.ok(lastFilter.country instanceof RegExp);
+  assert.ok(lastFilter.country.test("India"));
+  assert.ok(lastFilter.country.test("india"));
+  assert.ok(!lastFilter.country.test("Pakistan"));
+
+  // 3. With country=Pakistan - applies case-insensitive country filter
+  const resPak = await request("/rooms?country=Pakistan", viewer, {}, "user", "GET");
+  assert.equal(resPak.status, 200);
+  assert.ok(lastFilter.country.test("Pakistan"));
+
+  // 4. With country=All - returns all rooms without country constraint
+  const resAllParam = await request("/rooms?country=All", viewer, {}, "user", "GET");
+  assert.equal(resAllParam.status, 200);
+  assert.equal(lastFilter.country, undefined);
 });
 test("viewer heartbeat is atomic and cannot extend the host lease", async () => {
   assert.equal((await request(`/rooms/${roomId}/heartbeat`)).status, 200);
