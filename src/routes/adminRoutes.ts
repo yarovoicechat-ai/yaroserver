@@ -723,6 +723,8 @@ router.get('/app-access/users', verifyToken, requireRoles('owner', 'superAdmin',
         query.isAgency = true;
       } else if (filter === 'bd') {
         query.isBd = true;
+      } else if (filter === 'privateLive') {
+        query.canPrivateLive = true;
       }
     } else {
       // Blank search (no search filter)
@@ -730,12 +732,14 @@ router.get('/app-access/users', verifyToken, requireRoles('owner', 'superAdmin',
         query.isAgency = true;
       } else if (filter === 'bd') {
         query.isBd = true;
+      } else if (filter === 'privateLive') {
+        query.canPrivateLive = true;
       }
       // If filter === 'all' or empty, list recent active users so admin can browse and assign!
     }
 
     const users = await User.find(query)
-      .select('userId meethiId uniqueId customDisplayId displayId name userName image avatar role isAgency isBd createdAt')
+      .select('userId meethiId uniqueId customDisplayId displayId name userName image avatar role isAgency isBd canPrivateLive createdAt')
       .sort({ updatedAt: -1 })
       .limit(50)
       .lean();
@@ -753,12 +757,12 @@ router.get('/app-access/users', verifyToken, requireRoles('owner', 'superAdmin',
 router.post('/app-access/toggle', verifyToken, requireRoles('owner', 'superAdmin', 'admin'), async (req: any, res: any) => {
   try {
     const { userId, type, enabled } = req.body;
-    if (!userId || !type || !['agency', 'bd'].includes(type)) {
-      return res.status(400).json({ success: false, message: 'Invalid payload: userId and type (agency|bd) are required.' });
+    if (!userId || !type || !['agency', 'bd', 'privateLive', 'canPrivateLive'].includes(type)) {
+      return res.status(400).json({ success: false, message: 'Invalid payload: userId and type (agency|bd|privateLive) are required.' });
     }
 
     const isEnabled = Boolean(enabled);
-    const updateField = type === 'agency' ? 'isAgency' : 'isBd';
+    const updateField = (type === 'privateLive' || type === 'canPrivateLive') ? 'canPrivateLive' : (type === 'agency' ? 'isAgency' : 'isBd');
 
     let userDoc: any = null;
     if (mongoose.Types.ObjectId.isValid(String(userId))) {
@@ -795,6 +799,7 @@ router.post('/app-access/toggle', verifyToken, requireRoles('owner', 'superAdmin
         role: userDoc.role,
         isAgency: userDoc.isAgency,
         isBd: userDoc.isBd,
+        canPrivateLive: userDoc.canPrivateLive,
       },
     });
   } catch (err: any) {

@@ -15,7 +15,7 @@ export const bundledAREffects = [
     "active": true,
     "premium": false,
     "status": "pending",
-    "bundledStatus": "pending"
+    "bundledStatus": "experimental"
   },
   {
     "id": "angry-face",
@@ -32,7 +32,7 @@ export const bundledAREffects = [
     "active": true,
     "premium": false,
     "status": "pending",
-    "bundledStatus": "pending"
+    "bundledStatus": "experimental"
   },
   {
     "id": "anime-blush",
@@ -49,7 +49,7 @@ export const bundledAREffects = [
     "active": true,
     "premium": false,
     "status": "pending",
-    "bundledStatus": "pending"
+    "bundledStatus": "experimental"
   },
   {
     "id": "anime-cat",
@@ -66,7 +66,7 @@ export const bundledAREffects = [
     "active": true,
     "premium": false,
     "status": "pending",
-    "bundledStatus": "pending"
+    "bundledStatus": "experimental"
   },
   {
     "id": "anime-eyes",
@@ -83,7 +83,7 @@ export const bundledAREffects = [
     "active": true,
     "premium": false,
     "status": "pending",
-    "bundledStatus": "pending"
+    "bundledStatus": "experimental"
   },
   {
     "id": "birthday",
@@ -100,7 +100,7 @@ export const bundledAREffects = [
     "active": true,
     "premium": false,
     "status": "pending",
-    "bundledStatus": "pending"
+    "bundledStatus": "experimental"
   },
   {
     "id": "bunny",
@@ -117,7 +117,7 @@ export const bundledAREffects = [
     "active": true,
     "premium": false,
     "status": "pending",
-    "bundledStatus": "pending"
+    "bundledStatus": "experimental"
   },
   {
     "id": "butterflies",
@@ -134,7 +134,7 @@ export const bundledAREffects = [
     "active": true,
     "premium": false,
     "status": "pending",
-    "bundledStatus": "pending"
+    "bundledStatus": "experimental"
   },
   {
     "id": "butterfly-hair",
@@ -151,7 +151,7 @@ export const bundledAREffects = [
     "active": true,
     "premium": false,
     "status": "pending",
-    "bundledStatus": "pending"
+    "bundledStatus": "experimental"
   },
   {
     "id": "confetti",
@@ -168,7 +168,7 @@ export const bundledAREffects = [
     "active": true,
     "premium": false,
     "status": "pending",
-    "bundledStatus": "pending"
+    "bundledStatus": "experimental"
   },
   {
     "id": "cry-baby",
@@ -185,7 +185,7 @@ export const bundledAREffects = [
     "active": true,
     "premium": false,
     "status": "pending",
-    "bundledStatus": "pending"
+    "bundledStatus": "experimental"
   },
   {
     "id": "crystal-butterfly",
@@ -202,7 +202,7 @@ export const bundledAREffects = [
     "active": true,
     "premium": true,
     "status": "pending",
-    "bundledStatus": "pending"
+    "bundledStatus": "experimental"
   },
   {
     "id": "cyber-headset",
@@ -219,7 +219,7 @@ export const bundledAREffects = [
     "active": true,
     "premium": false,
     "status": "pending",
-    "bundledStatus": "pending"
+    "bundledStatus": "experimental"
   },
   {
     "id": "devil",
@@ -236,7 +236,7 @@ export const bundledAREffects = [
     "active": true,
     "premium": false,
     "status": "pending",
-    "bundledStatus": "pending"
+    "bundledStatus": "experimental"
   },
   {
     "id": "diamond-face",
@@ -253,7 +253,7 @@ export const bundledAREffects = [
     "active": true,
     "premium": true,
     "status": "pending",
-    "bundledStatus": "pending"
+    "bundledStatus": "experimental"
   },
   {
     "id": "disco-king",
@@ -270,7 +270,7 @@ export const bundledAREffects = [
     "active": true,
     "premium": false,
     "status": "pending",
-    "bundledStatus": "pending"
+    "bundledStatus": "experimental"
   },
   {
     "id": "dragon-mask",
@@ -287,7 +287,7 @@ export const bundledAREffects = [
     "active": true,
     "premium": true,
     "status": "pending",
-    "bundledStatus": "pending"
+    "bundledStatus": "experimental"
   },
   {
     "id": "fairy",
@@ -304,7 +304,7 @@ export const bundledAREffects = [
     "active": true,
     "premium": false,
     "status": "pending",
-    "bundledStatus": "pending"
+    "bundledStatus": "experimental"
   },
   {
     "id": "fire-king",
@@ -321,7 +321,7 @@ export const bundledAREffects = [
     "active": true,
     "premium": false,
     "status": "pending",
-    "bundledStatus": "pending"
+    "bundledStatus": "experimental"
   },
   {
     "id": "flame-face",
@@ -338,7 +338,7 @@ export const bundledAREffects = [
     "active": true,
     "premium": false,
     "status": "pending",
-    "bundledStatus": "pending"
+    "bundledStatus": "experimental"
   },
   {
     "id": "flower-crown",
@@ -355,7 +355,7 @@ export const bundledAREffects = [
     "active": true,
     "premium": false,
     "status": "pending",
-    "bundledStatus": "pending"
+    "bundledStatus": "experimental"
   },
   {
     "id": "fox",
@@ -372,7 +372,7 @@ export const bundledAREffects = [
     "active": true,
     "premium": false,
     "status": "pending",
-    "bundledStatus": "pending"
+    "bundledStatus": "experimental"
   },
   {
     "id": "funny-face",
@@ -389,7 +389,7 @@ export const bundledAREffects = [
     "active": true,
     "premium": false,
     "status": "pending",
-    "bundledStatus": "pending"
+    "bundledStatus": "experimental"
   },
   {
     "id": "galaxy-face",
@@ -406,7 +406,7 @@ export const bundledAREffects = [
     "active": true,
     "premium": false,
     "status": "pending",
-    "bundledStatus": "pending"
+    "bundledStatus": "experimental"
   },
   {
     "id": "gold-rain",
@@ -423,7 +423,7 @@ export const bundledAREffects = [
     "active": true,
     "premium": false,
     "status": "pending",
-    "bundledStatus": "pending"
+    "bundledStatus": "experimental"
   },
   {
     "id": "golden-earrings",
@@ -440,7 +440,7 @@ export const bundledAREffects = [
     "active": true,
     "premium": false,
     "status": "pending",
-    "bundledStatus": "pending"
+    "bundledStatus": "experimental"
   },
   {
     "id": "golden-shine",
@@ -474,7 +474,7 @@ export const bundledAREffects = [
     "active": true,
     "premium": false,
     "status": "pending",
-    "bundledStatus": "pending"
+    "bundledStatus": "experimental"
   },
   {
     "id": "heart-glasses",
@@ -491,7 +491,7 @@ export const bundledAREffects = [
     "active": true,
     "premium": false,
     "status": "pending",
-    "bundledStatus": "pending"
+    "bundledStatus": "experimental"
   },
   {
     "id": "hologram",
@@ -508,7 +508,7 @@ export const bundledAREffects = [
     "active": true,
     "premium": true,
     "status": "pending",
-    "bundledStatus": "pending"
+    "bundledStatus": "experimental"
   },
   {
     "id": "ice-queen",
@@ -525,7 +525,7 @@ export const bundledAREffects = [
     "active": true,
     "premium": false,
     "status": "pending",
-    "bundledStatus": "pending"
+    "bundledStatus": "experimental"
   },
   {
     "id": "kitty",
@@ -542,7 +542,7 @@ export const bundledAREffects = [
     "active": true,
     "premium": false,
     "status": "pending",
-    "bundledStatus": "pending"
+    "bundledStatus": "experimental"
   },
   {
     "id": "love-hearts",
@@ -559,7 +559,7 @@ export const bundledAREffects = [
     "active": true,
     "premium": false,
     "status": "pending",
-    "bundledStatus": "pending"
+    "bundledStatus": "experimental"
   },
   {
     "id": "magic-eyes",
@@ -576,7 +576,7 @@ export const bundledAREffects = [
     "active": true,
     "premium": false,
     "status": "pending",
-    "bundledStatus": "pending"
+    "bundledStatus": "experimental"
   },
   {
     "id": "neon-party",
@@ -593,7 +593,7 @@ export const bundledAREffects = [
     "active": true,
     "premium": false,
     "status": "pending",
-    "bundledStatus": "pending"
+    "bundledStatus": "experimental"
   },
   {
     "id": "neon-rings",
@@ -610,7 +610,7 @@ export const bundledAREffects = [
     "active": true,
     "premium": false,
     "status": "pending",
-    "bundledStatus": "pending"
+    "bundledStatus": "experimental"
   },
   {
     "id": "panda",
@@ -627,7 +627,7 @@ export const bundledAREffects = [
     "active": true,
     "premium": false,
     "status": "pending",
-    "bundledStatus": "pending"
+    "bundledStatus": "experimental"
   },
   {
     "id": "pink-glow",
@@ -661,7 +661,7 @@ export const bundledAREffects = [
     "active": true,
     "premium": false,
     "status": "pending",
-    "bundledStatus": "pending"
+    "bundledStatus": "experimental"
   },
   {
     "id": "rainbow-aura",
@@ -678,7 +678,7 @@ export const bundledAREffects = [
     "active": true,
     "premium": false,
     "status": "pending",
-    "bundledStatus": "pending"
+    "bundledStatus": "experimental"
   },
   {
     "id": "robot-face",
@@ -695,7 +695,7 @@ export const bundledAREffects = [
     "active": true,
     "premium": false,
     "status": "pending",
-    "bundledStatus": "pending"
+    "bundledStatus": "experimental"
   },
   {
     "id": "rosy-cheeks",
@@ -729,7 +729,7 @@ export const bundledAREffects = [
     "active": true,
     "premium": false,
     "status": "pending",
-    "bundledStatus": "pending"
+    "bundledStatus": "experimental"
   },
   {
     "id": "snowfall",
@@ -746,7 +746,7 @@ export const bundledAREffects = [
     "active": true,
     "premium": false,
     "status": "pending",
-    "bundledStatus": "pending"
+    "bundledStatus": "experimental"
   },
   {
     "id": "soft-makeup",
@@ -780,7 +780,7 @@ export const bundledAREffects = [
     "active": true,
     "premium": false,
     "status": "pending",
-    "bundledStatus": "pending"
+    "bundledStatus": "experimental"
   },
   {
     "id": "star-shower",
@@ -797,7 +797,7 @@ export const bundledAREffects = [
     "active": true,
     "premium": false,
     "status": "pending",
-    "bundledStatus": "pending"
+    "bundledStatus": "experimental"
   },
   {
     "id": "yaro-beauty",
@@ -831,7 +831,7 @@ export const bundledAREffects = [
     "active": true,
     "premium": true,
     "status": "pending",
-    "bundledStatus": "pending"
+    "bundledStatus": "experimental"
   },
   {
     "id": "yaro-signature",
@@ -848,6 +848,6 @@ export const bundledAREffects = [
     "active": true,
     "premium": false,
     "status": "pending",
-    "bundledStatus": "pending"
+    "bundledStatus": "experimental"
   }
 ];

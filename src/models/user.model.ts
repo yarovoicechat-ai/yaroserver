@@ -128,6 +128,7 @@ const userSchema = new Schema<UserInterface>(
     },
     isAgency: { type: Boolean, default: false },
     isBd: { type: Boolean, default: false },
+    canPrivateLive: { type: Boolean, default: false },
     isActive: { type: Boolean, default: false },
     isBusy: { type: Boolean, default: false },
     recruitmentRevision: { type: Number, default: 0 },

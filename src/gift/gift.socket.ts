@@ -110,6 +110,8 @@ export const broadcastGiftSuccess = (params: BroadcastGiftParams) => {
   };
 
   const animationPayload = {
+    roomId: roomId || '',
+    callId: callId || '',
     animationId: `anim_${transaction?._id || Date.now()}_${Math.random().toString(36).substr(2, 5)}`,
     animationType: giftSummary.animationType,
     duration: giftSummary.duration,

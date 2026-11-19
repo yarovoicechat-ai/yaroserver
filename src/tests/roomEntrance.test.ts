@@ -57,7 +57,13 @@ test('VIP without entry gets plain arrival; entrance-only and current panel sett
       animationUrl: 'new-bike.svga', isActive: true,
       metadata: { showAvatar: true, comingText: 'is coming', duration: 6000 },
     }) });
-    const arrival = await EntryEffectService.broadcastEntry('room-a', { id });
+    const channels: string[] = [];
+    const emitted: any[] = [];
+    const roomIO: any = {
+      to(channel: string) { channels.push(channel); return this; },
+      emit(event: string, payload: any) { emitted.push({ event, payload }); },
+    };
+    const arrival = await EntryEffectService.broadcastEntry('room-a', { id }, undefined, roomIO);
     assert.ok(arrival);
     assert.equal(arrival.hasEntry, true);
     assert.equal(arrival.entry, null, 'Entrance does not leak into Entry slot');
@@ -65,6 +71,10 @@ test('VIP without entry gets plain arrival; entrance-only and current panel sett
     assert.equal(arrival.entrance.metadata.showAvatar, true);
     assert.equal(arrival.tagText, 'entered the room');
     assert.equal(arrival.user.name, account.name);
+    assert.ok(channels.includes('live_broadcast_room:room-a'));
+    assert.ok(channels.includes('voice_room_channel:room-a'));
+    assert.equal(emitted[0].event, 'entry:effect');
+    assert.equal(emitted[0].payload.entrance.animationUrl, 'new-bike.svga');
 
     account.equippedEntranceAsset = { name: 'Static banner', imageUrl: 'banner.png' };
     (StoreItem as any).findOne = () => ({ lean: async () => null });

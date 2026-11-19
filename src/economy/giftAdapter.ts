@@ -3,37 +3,16 @@ import { broadcastGiftSuccess } from '../gift/gift.socket';
 import { User } from '../models/user.model';
 import { atomic, PinnedEconomy, processRoomGift } from './service';
 import { diamondUnits, mul } from './rules';
-import { Room } from '../models/room.model';
-import { Types } from 'mongoose';
 import { Agency } from '../models/agency.model';
 import { capturePKGift, notifyPKGift } from '../services/roomPk.service';
+import { validateGiftRoomContext } from './giftContext';
 
 /** Called only after the existing catalog, VIP, sender and recipient checks. */
 export async function sendVersionedRoomGift(sender: any, receivers: any[], gift: any, dto: any, qty: number, pinned: PinnedEconomy) {
   if (!/^[A-Za-z0-9_:-]{1,128}$/.test(dto.requestId)) throw new Error('Valid bounded gift requestId required');
   const unitPrice = Number(gift.price ?? gift.cost), unitsPerReceiver = mul(diamondUnits(unitPrice), qty);
-  const room = await Room.findOne({ $or: [{ channelName: String(dto.roomId) },
-    ...(Types.ObjectId.isValid(String(dto.roomId)) ? [{ _id: dto.roomId }] : [])] }).lean();
-  if (!room || room.isBanned) throw new Error('Room is unavailable');
-  const { getVoiceRoomState } = await import('../sockets/voiceRoomSocket');
-  const state = await getVoiceRoomState(String(room.channelName || dto.roomId));
-  const present = Object.keys(state.onlineUsers || {});
-  const senderKeys = [String(sender._id), String(sender.userId), String(sender.id)].filter(Boolean);
-  const isSenderPresent = senderKeys.some(id => present.includes(id)) ||
-    state.seats.some(seat => senderKeys.includes(String(seat.user?.userId || '')) || senderKeys.includes(String((seat.user as any)?.id || '')) || senderKeys.includes(String((seat.user as any)?._id || ''))) ||
-    senderKeys.includes(String(room.ownerId));
-  if (!isSenderPresent && present.length > 0) throw new Error('Sender is not present in this room');
-  for (const rec of receivers) {
-    const recKeys = [String(rec._id), String(rec.userId), String(rec.id)].filter(Boolean);
-    const isRecSeatedOrHost = state.seats.some(seat => {
-      const u = seat.user;
-      if (!u) return false;
-      const uKeys = [String(u.userId), String((u as any).id), String((u as any)._id)].filter(Boolean);
-      return recKeys.some(k => uKeys.includes(k));
-    }) || recKeys.includes(String(room.ownerId)) || recKeys.includes(String(state.hostUser?.userId || (state.hostUser as any)?._id || ''));
-    if (!isRecSeatedOrHost) throw new Error('Recipient is not seated in this room');
-  }
-  const pkMeta = await capturePKGift(String(room.channelName || dto.roomId), sender, receivers);
+  const voiceChannel = await validateGiftRoomContext(String(dto.roomId), sender, receivers);
+  const pkMeta = voiceChannel ? await capturePKGift(voiceChannel, sender, receivers) : {};
   const result = await atomic(async session => {
     const old = await GiftTransaction.findOne({ requestId: dto.requestId }).session(session).lean();
     if (old) {

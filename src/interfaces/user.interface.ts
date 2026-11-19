@@ -86,6 +86,7 @@ export interface UserInterface extends Document {
     isGlobalRoomManager?: boolean;
   };
     isBd?: boolean;
+  canPrivateLive?: boolean;
   isActive?: boolean;
   isBusy?: boolean;
   recruitmentRevision?: number;
@@ -220,6 +221,7 @@ export interface UserInterface extends Document {
   hasAgency?: boolean;
   isBD?: boolean;
   isBdLeader?: boolean;
+  canPrivateLive?: boolean;
   hasAppOption?: boolean;
   hasAppAccess?: boolean;
   appRole?: string;

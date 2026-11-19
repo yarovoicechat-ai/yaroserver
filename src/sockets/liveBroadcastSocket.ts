@@ -7,6 +7,8 @@ import { Gift } from "../gift/gift.model";
 import { GiftService } from "../gift/gift.service";
 import { AuthenticatedSocket } from "../middlewares/auth.socket";
 import { AgoraTokenService } from "../services/agora/agoraToken.service";
+import { EntryEffectService } from '../services/entryEffect.service';
+import { incrementLiveSupporter, reserveLiveGuest } from '../services/liveBroadcastState';
 
 const uid = (id: unknown) =>
   (parseInt(String(id).slice(-8), 16) % 4294967294) + 1;
@@ -25,7 +27,8 @@ export const registerLiveBroadcastHandlers = (io: Server, socket: AuthenticatedS
     try {
       if (!roomId || !Types.ObjectId.isValid(roomId)) return;
       const roomChannel = getLiveBroadcastRoomChannel(roomId);
-      socket.join(roomChannel);
+      if (socket.rooms.has(roomChannel)) return;
+      await socket.join(roomChannel);
 
       const dbUser: any = await User.findById(user.id)
         .select("name avatar image gender level equippedSvipId")
@@ -49,6 +52,10 @@ export const registerLiveBroadcastHandlers = (io: Server, socket: AuthenticatedS
         .lean();
 
       const viewerCount = (room?.viewers || []).length;
+      if (!room || room.status !== 'live') {
+        await socket.leave(roomChannel);
+        return;
+      }
 
       // Broadcast viewer joined to all clients in the live room
       io.to(roomChannel).emit("live:viewer_joined", {
@@ -74,6 +81,7 @@ export const registerLiveBroadcastHandlers = (io: Server, socket: AuthenticatedS
         text: `${dbUser?.name || "User"} entered the broadcast 🌟`,
         timestamp: Date.now(),
       });
+      await EntryEffectService.broadcastEntry(roomId, { id: user.id, ...dbUser }, undefined, io);
     } catch (err: any) {
       console.error("[live:join] Error:", err.message);
     }
@@ -192,7 +200,7 @@ export const registerLiveBroadcastHandlers = (io: Server, socket: AuthenticatedS
         }
 
         // Deduct diamonds using GiftService
-        await GiftService.sendGift(user.id, {
+        const settlement = await GiftService.sendGift(user.id, {
           requestId: `live-gift-${Date.now()}-${user.id}`,
           giftId: String(gift._id),
           quantity: qty,
@@ -205,7 +213,7 @@ export const registerLiveBroadcastHandlers = (io: Server, socket: AuthenticatedS
           .lean();
 
         // Update live room total diamonds & top contributors
-        const updatedRoom: any = await LiveBroadcast.findByIdAndUpdate(
+        await LiveBroadcast.findByIdAndUpdate(
           roomId,
           {
             $inc: {
@@ -222,29 +230,7 @@ export const registerLiveBroadcastHandlers = (io: Server, socket: AuthenticatedS
           .populate("topContributors.user", "name avatar image")
           .lean();
 
-        // Update top contributors list
-        const existingDonorIdx = (updatedRoom?.topContributors || []).findIndex(
-          (c: any) => String(c.user?._id || c.user) === userIdStr
-        );
-        if (existingDonorIdx >= 0) {
-          await LiveBroadcast.updateOne(
-            { _id: roomId, "topContributors.user": new Types.ObjectId(userIdStr) },
-            { $inc: { "topContributors.$.amount": totalCost } }
-          );
-        } else {
-          await LiveBroadcast.updateOne(
-            { _id: roomId },
-            {
-              $push: {
-                topContributors: {
-                  $each: [{ user: new Types.ObjectId(userIdStr), amount: totalCost }],
-                  $sort: { amount: -1 },
-                  $slice: 10,
-                },
-              },
-            }
-          );
-        }
+        await incrementLiveSupporter(roomId, userIdStr, totalCost);
 
         const freshRoom: any = await LiveBroadcast.findById(roomId)
           .populate("topContributors.user", "name avatar image userId")
@@ -254,6 +240,10 @@ export const registerLiveBroadcastHandlers = (io: Server, socket: AuthenticatedS
 
         // Broadcast gift banner / animation to all clients
         io.to(roomChannel).emit("live:gift_received", {
+          roomId,
+          transactionId: String(settlement.transaction?._id || ''),
+          quantity: qty,
+          receiver: { id: receiverId, name: target === 'rival' ? 'Rival host' : room.host?.name || 'Host' },
           sender: {
             id: userIdStr,
             name: senderUser?.name || "Donor",
@@ -267,6 +257,10 @@ export const registerLiveBroadcastHandlers = (io: Server, socket: AuthenticatedS
             name: gift.name,
             icon: gift.icon,
             image: gift.image || gift.icon,
+            animationUrl: gift.animationUrl || '',
+            mediaType: gift.mediaType || 'image',
+            animationType: gift.animationType || 'NORMAL',
+            duration: gift.duration || 4200,
             price: unitPrice,
             quantity: qty,
           },
@@ -366,7 +360,7 @@ export const registerLiveBroadcastHandlers = (io: Server, socket: AuthenticatedS
       if (!(room.joinRequests || []).some((request: any) => String(request.user) === targetUserId) ||
           (room.guests || []).some((guest: any) => String(guest.user) === targetUserId)) return;
 
-      const limit = room.mode === "multi" ? 6 : 1;
+      const limit = room.maxGuests || (room.mode === "multi" ? 6 : 1);
       if ((room.guests || []).length >= limit) {
         socket.emit("live:error", { message: `Maximum ${limit} guest(s) allowed in ${room.mode} mode.` });
         return;
@@ -386,21 +380,10 @@ export const registerLiveBroadcastHandlers = (io: Server, socket: AuthenticatedS
         3600
       );
 
-      // Add guest to room in DB & remove from requests
-      await LiveBroadcast.updateOne(
-        { _id: roomId },
-        {
-          $push: {
-            guests: {
-              user: new Types.ObjectId(targetUserId),
-              agoraUid: guestUid,
-              role: "guest",
-              joinedAt: new Date(),
-            },
-          },
-          $pull: { joinRequests: { user: new Types.ObjectId(targetUserId) } },
-        }
-      );
+      if (!await reserveLiveGuest(roomId, userIdStr, targetUserId, guestUid, limit)) {
+        socket.emit('live:error', { message: 'Guest already joined or the live layout is full.' });
+        return;
+      }
 
       const guestUser: any = await User.findById(targetUserId).select("name avatar image userId level").lean();
       const targetUserRoom = `user:${targetUserId}`;
@@ -438,6 +421,33 @@ export const registerLiveBroadcastHandlers = (io: Server, socket: AuthenticatedS
     } catch (err: any) {
       console.error("[live:accept_guest] Error:", err.message);
     }
+  });
+
+  socket.on('live:guest_media', async ({ roomId, muted, camera }: { roomId: string; muted: boolean; camera: boolean }) => {
+    try {
+      if (!Types.ObjectId.isValid(roomId) || typeof muted !== 'boolean' || typeof camera !== 'boolean') return;
+      const room = await LiveBroadcast.findOne({ _id: roomId, status: 'live', 'guests.user': userIdStr }).lean();
+      const guest = room?.guests?.find((item: any) => String(item.user) === userIdStr);
+      if (!guest) return;
+      await LiveBroadcast.updateOne({ _id: roomId, 'guests.user': userIdStr },
+        { $set: { 'guests.$.muted': muted, 'guests.$.camera': camera } });
+      io.to(getLiveBroadcastRoomChannel(roomId)).emit('live:guest_media', {
+        roomId, userId: userIdStr, agoraUid: guest.agoraUid, muted, camera,
+      });
+    } catch (error: any) { socket.emit('live:error', { message: error.message || 'Could not update guest controls.' }); }
+  });
+
+  socket.on('live:mute_guest', async ({ roomId, targetUserId }: { roomId: string; targetUserId: string }) => {
+    try {
+      if (!Types.ObjectId.isValid(roomId) || !Types.ObjectId.isValid(targetUserId)) return;
+      const room = await LiveBroadcast.findOne({ _id: roomId, host: userIdStr, status: 'live' }).lean();
+      const guest = room?.guests?.find((item: any) => String(item.user) === targetUserId);
+      if (!guest) return;
+      await LiveBroadcast.updateOne({ _id: roomId, 'guests.user': targetUserId }, { $set: { 'guests.$.muted': true } });
+      io.to(getLiveBroadcastRoomChannel(roomId)).emit('live:guest_media', {
+        roomId, userId: targetUserId, agoraUid: guest.agoraUid, muted: true, camera: guest.camera !== false,
+      });
+    } catch (error: any) { socket.emit('live:error', { message: error.message || 'Could not mute guest.' }); }
   });
 
   // 8. Host Rejects Guest Co-Host

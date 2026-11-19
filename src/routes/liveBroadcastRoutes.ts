@@ -13,6 +13,7 @@ import { GiftService } from "../gift/gift.service";
 import { User } from '../models/user.model';
 import { getIOOptional } from "../sockets";
 import { getLiveBroadcastRoomChannel } from "../sockets/liveBroadcastSocket";
+import { incrementLiveSupporter, reserveLiveGuest } from '../services/liveBroadcastState';
 
 const router = Router();
 const lease = () => new Date(Date.now() - 90000);
@@ -20,11 +21,12 @@ const active = () => ({ status: "live", heartbeatAt: { $gt: lease() } });
 const uid = (id: unknown) =>
   (parseInt(String(id).slice(-8), 16) % 4294967294) + 1;
 const clean = (room: any) => {
-  const { viewers, projectId, ...data } = room.toObject
+  const { viewers, projectId, pin, ...data } = room.toObject
     ? room.toObject()
     : room;
   return {
     ...data,
+    isPrivate: Boolean(data.isPrivate),
     viewerCount: data.status === 'live' ? (viewers || []).filter((v: any) => v.heartbeatAt > lease()).length : 0,
   };
 };
@@ -223,16 +225,39 @@ router.post(
           message:
             "Configure an Agora certificate in the panel before going live.",
         });
+    const isPrivate = Boolean(req.body.isPrivate);
+    const pin = String(req.body.pin || "").trim();
+    if (isPrivate) {
+      const hostUser = await User.findById(req.user!.id).select('canPrivateLive role').lean();
+      const isAllowed = hostUser?.canPrivateLive === true || ['owner', 'superAdmin', 'admin'].includes(String(hostUser?.role));
+      if (!isAllowed) {
+        return res.status(403).json({
+          success: false,
+          message: "Private live is not enabled for your account. Please contact admin to activate this feature.",
+        });
+      }
+      if (!pin || pin.length !== 4 || !/^\d{4}$/.test(pin)) {
+        return res.status(400).json({
+          success: false,
+          message: "Please enter a valid 4-digit PIN for private live broadcast.",
+        });
+      }
+    }
     const mode = req.body.mode === "multi" ? "multi" : "single";
-    const maxGuests = mode === "multi" ? 6 : 1;
+    const requestedSeats = Number(req.body.seatCount);
+    const seatCount = mode === "multi" ? ([4, 6, 9].includes(requestedSeats) ? requestedSeats : 4) : 2;
+    const maxGuests = seatCount - 1;
     const room = await LiveBroadcast.create({
       host: req.user!.id,
       title,
       category,
       mode,
       maxGuests,
+      seatCount,
       coverImage,
       country,
+      isPrivate,
+      pin: isPrivate ? pin : "",
       projectId: String(project._id),
       hostUid: uid(req.user!.id),
     });
@@ -338,9 +363,85 @@ router.post(
       return res
         .status(404)
         .json({ success: false, message: "This live has ended." });
+
+    if (room.isPrivate) {
+      const hostIdStr = String((room.host as any)?._id || room.host);
+      const isHost = hostIdStr === String(req.user?.id);
+      if (!isHost) {
+        const clientPin = String(req.body?.pin || "").trim();
+        if (!clientPin || clientPin !== String((room as any).pin || "")) {
+          return res.status(403).json({
+            success: false,
+            isLocked: true,
+            message: "This live room is private. Please enter 4-digit password to join.",
+          });
+        }
+      }
+    }
+
     res.json({
       success: true,
       data: { room: clean(room), rtc: await credentials(room, req.user.id) },
+    });
+  })
+);
+
+router.post(
+  "/rooms/:id/verify-pin",
+  wrap(async (req: any, res: any) => {
+    const room = await LiveBroadcast.findOne({ _id: req.params.id, ...active() });
+    if (!room) return res.status(404).json({ success: false, message: "Live has ended." });
+    if (!room.isPrivate) return res.json({ success: true, valid: true });
+    const hostIdStr = String((room.host as any)?._id || room.host);
+    if (hostIdStr === String(req.user?.id)) return res.json({ success: true, valid: true });
+
+    const clientPin = String(req.body?.pin || "").trim();
+    if (clientPin && clientPin === String((room as any).pin || "")) {
+      return res.json({ success: true, valid: true });
+    }
+    return res.status(403).json({ success: false, valid: false, message: "Incorrect password" });
+  })
+);
+
+router.post(
+  "/rooms/:id/lock",
+  wrap(async (req: any, res: any) => {
+    const room = await LiveBroadcast.findOne({ _id: req.params.id, ...active() });
+    if (!room) return res.status(404).json({ success: false, message: "Live room not found." });
+    const hostIdStr = String((room.host as any)?._id || room.host);
+    if (hostIdStr !== String(req.user?.id)) {
+      return res.status(403).json({ success: false, message: "Only the host can lock or unlock this room." });
+    }
+
+    const hostUser = await User.findById(req.user!.id).select('canPrivateLive role').lean();
+    const isAllowed = hostUser?.canPrivateLive === true || ['owner', 'superAdmin', 'admin'].includes(String(hostUser?.role));
+    if (!isAllowed) {
+      return res.status(403).json({ success: false, message: "Private live is not enabled for your account. Please contact admin." });
+    }
+
+    const shouldLock = Boolean(req.body.isLocked);
+    const pin = String(req.body.pin || "").trim();
+    if (shouldLock && (!pin || pin.length !== 4 || !/^\d{4}$/.test(pin))) {
+      return res.status(400).json({ success: false, message: "Please enter a 4-digit password." });
+    }
+
+    room.isPrivate = shouldLock;
+    room.pin = shouldLock ? pin : "";
+    await room.save();
+
+    const io = getIOOptional();
+    if (io) {
+      const channel = getLiveBroadcastRoomChannel(String(room._id));
+      io.to(channel).emit('live_broadcast:lock_state', {
+        roomId: String(room._id),
+        isPrivate: shouldLock,
+      });
+    }
+
+    return res.json({
+      success: true,
+      data: { isPrivate: room.isPrivate },
+      message: shouldLock ? "Live stream locked successfully." : "Live stream unlocked.",
     });
   })
 );
@@ -459,7 +560,7 @@ router.post(
       receiverId = String(room.pk.rivalHost);
     }
 
-    await GiftService.sendGift(req.user.id, {
+    const settlement = await GiftService.sendGift(req.user.id, {
       requestId: `rest-live-gift-${Date.now()}-${req.user.id}`,
       giftId: String(gift._id),
       quantity: qty,
@@ -484,36 +585,58 @@ router.post(
       { new: true }
     ).populate("topContributors.user", "name avatar image userId");
 
+    await incrementLiveSupporter(String(room._id), String(req.user.id), totalCost);
+    const supporters = await LiveBroadcast.findById(room._id)
+      .populate('topContributors.user', 'name avatar image userId').lean();
+    const giftEvent = {
+      roomId: String(room._id),
+      transactionId: String(settlement.transaction?._id || ''),
+      quantity: qty,
+      receiver: {
+        id: receiverId,
+        name:
+          target === 'rival' ? 'Rival host' : (room.host as any)?.name || 'Host',
+      },
+      sender: {
+        id: String(req.user.id),
+        name: senderUser?.name || 'Donor',
+        avatar: (senderUser as any)?.avatar || senderUser?.image,
+        level: senderUser?.level || 1,
+      },
+      target,
+      receiverId,
+      gift: {
+        id: String(gift._id),
+        name: gift.name,
+        icon: gift.icon,
+        image: gift.image || gift.previewUrl || '',
+        animationUrl: gift.animationUrl || '',
+        mediaType: gift.mediaType || 'image',
+        animationType: gift.animationType || 'NORMAL',
+        duration: gift.duration || 4200,
+        price: unitPrice,
+        quantity: qty,
+      },
+      totalDiamonds: updatedRoom?.totalDiamonds || totalCost,
+      leftScore: updatedRoom?.pk?.leftScore || 0,
+      rightScore: updatedRoom?.pk?.rightScore || 0,
+      topSupporters: (supporters?.topContributors || []).map(
+        (tc: any, i: number) => ({
+          id: String(tc.user?._id || tc.user),
+          name: tc.user?.name || 'Supporter',
+          avatar: tc.user?.avatar || tc.user?.image,
+          score:
+            tc.amount > 999
+              ? `${Math.round(tc.amount / 1000)}K`
+              : String(tc.amount),
+          crown: i === 0 ? '#F59E0B' : i === 1 ? '#94A3B8' : '#CD7F32',
+        }),
+      ),
+    };
     const io = getIOOptional();
     if (io) {
       const roomChannel = getLiveBroadcastRoomChannel(String(room._id));
-      io.to(roomChannel).emit("live:gift_received", {
-        sender: {
-          id: String(req.user.id),
-          name: senderUser?.name || "Donor",
-          avatar: (senderUser as any)?.avatar || senderUser?.image,
-          level: senderUser?.level || 1,
-        },
-        target,
-        receiverId,
-        gift: {
-          id: String(gift._id),
-          name: gift.name,
-          icon: gift.icon,
-          price: unitPrice,
-          quantity: qty,
-        },
-        totalDiamonds: updatedRoom?.totalDiamonds || totalCost,
-        leftScore: updatedRoom?.pk?.leftScore || 0,
-        rightScore: updatedRoom?.pk?.rightScore || 0,
-        topSupporters: (updatedRoom?.topContributors || []).map((tc: any, i: number) => ({
-          id: String(tc.user?._id || tc.user),
-          name: tc.user?.name || "Supporter",
-          avatar: tc.user?.avatar || tc.user?.image,
-          score: tc.amount > 999 ? `${Math.round(tc.amount / 1000)}K` : String(tc.amount),
-          crown: i === 0 ? "#F59E0B" : i === 1 ? "#94A3B8" : "#CD7F32",
-        })),
-      });
+      io.to(roomChannel).emit("live:gift_received", giftEvent);
 
       io.to(roomChannel).emit("live:chat_message", {
         id: `gift-${Date.now()}-${req.user.id}`,
@@ -533,6 +656,7 @@ router.post(
     res.json({
       success: true,
       data: {
+        giftEvent,
         totalDiamonds: updatedRoom?.totalDiamonds || totalCost,
         leftScore: updatedRoom?.pk?.leftScore || 0,
         rightScore: updatedRoom?.pk?.rightScore || 0,
@@ -595,11 +719,14 @@ router.post(
   "/rooms/:id/accept_guest",
   wrap(async (req: any, res: any) => {
     const { targetUserId } = req.body;
+    if (!Types.ObjectId.isValid(String(targetUserId || ''))) {
+      return res.status(400).json({ success: false, message: 'Invalid guest ID.' });
+    }
     const room = await LiveBroadcast.findById(req.params.id);
-    if (!room || String(room.host) !== String(req.user.id)) {
+    if (!room || room.status !== 'live' || String(room.host) !== String(req.user.id)) {
       return res.status(403).json({ success: false, message: "Forbidden" });
     }
-    const limit = room.mode === "multi" ? 6 : 1;
+    const limit = room.maxGuests || (room.mode === "multi" ? 6 : 1);
     if ((room.guests || []).length >= limit) {
       return res.status(400).json({ success: false, message: `Maximum ${limit} guest(s) allowed` });
     }
@@ -614,20 +741,9 @@ router.post(
       3600,
       3600
     );
-    await LiveBroadcast.updateOne(
-      { _id: room._id },
-      {
-        $push: {
-          guests: {
-            user: new Types.ObjectId(targetUserId),
-            agoraUid: guestUid,
-            role: "guest",
-            joinedAt: new Date(),
-          },
-        },
-        $pull: { joinRequests: { user: new Types.ObjectId(targetUserId) } },
-      }
-    );
+    if (!await reserveLiveGuest(String(room._id), String(req.user.id), targetUserId, guestUid, limit)) {
+      return res.status(409).json({ success: false, message: 'Guest already joined or the live layout is full.' });
+    }
     const guestUser = await User.findById(targetUserId).select("name avatar image level").lean();
     const io = getIOOptional();
     if (io) {

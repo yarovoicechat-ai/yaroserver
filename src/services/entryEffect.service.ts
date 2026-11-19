@@ -443,7 +443,7 @@ export class EntryEffectService {
         // io.to(...).to(...) deduplicates sockets in multiple rooms so each client receives exactly once
         const clean = String(roomId || '').trim();
         const norm = /^10000\d{3}$/.test(clean) ? `100000000${clean.slice(5)}`.slice(-10) : clean;
-        let target = io.to(`voice_room_channel:${clean}`).to(`room:${clean}`);
+        let target = io.to(`voice_room_channel:${clean}`).to(`room:${clean}`).to(`live_broadcast_room:${clean}`);
         if (norm && norm !== clean) {
           target = target.to(`voice_room_channel:${norm}`).to(`room:${norm}`);
         }

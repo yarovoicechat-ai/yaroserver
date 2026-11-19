@@ -1709,6 +1709,8 @@ export const registerVoiceRoomHandlers = (io: Server, socket: AuthenticatedSocke
       const socketRoomChannel = `voice_room_channel:${roomId}`;
       const payload = {
         id: "react-" + Date.now() + Math.random(),
+        roomId,
+        timestamp: Date.now(),
         emoji: data.emoji,
         gifUrl: data.gifUrl || data.emojiData?.gifUrl || null,
         name: data.name || data.emojiData?.name || null,

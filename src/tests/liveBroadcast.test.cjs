@@ -6,6 +6,11 @@ const host = "507f1f77bcf86cd799439011";
 const viewer = "507f1f77bcf86cd799439012";
 const roomId = "507f1f77bcf86cd799439020";
 let room, lastFilter, lastUpdate, tokenRole, createData;
+let socketEnabled = false;
+const broadcasts = [];
+const giftAsset = { _id: '507f1f77bcf86cd799439030', name: 'Rose', icon: '🌹', price: 10,
+  image: 'https://example.com/rose.png', animationUrl: 'https://example.com/rose.svga', mediaType: 'svga', duration: 5000 };
+const socketServer = { to: channel => ({ emit: (event, payload) => broadcasts.push({ channel, event, payload }) }) };
 const document = () => ({
   ...room,
   toObject() {
@@ -13,6 +18,8 @@ const document = () => ({
   },
 });
 const query = (value) => ({
+  select() { return this; },
+  lean() { return Promise.resolve(value); },
   populate() {
     return this;
   },
@@ -27,6 +34,11 @@ const query = (value) => ({
   },
 });
 const model = {
+  findById: () => query(room ? document() : null),
+  findByIdAndUpdate: (id, update) => {
+    lastUpdate = update;
+    return query({ ...document(), totalDiamonds: (room.totalDiamonds || 0) + (update.$inc?.totalDiamonds || 0) });
+  },
   updateMany: async () => ({}),
   find: (filter) => {
     lastFilter = filter;
@@ -62,10 +74,12 @@ const original = Module._load;
 Module._load = function (name, parent, isMain) {
   if (name.endsWith("/models/liveBroadcast.model"))
     return { __esModule: true, default: model };
-  if (name.endsWith("/models/user.model")) return { User: {} };
-  if (name.endsWith("/gift/gift.model")) return { GiftTransaction: {} };
-  if (name.endsWith("/gift/gift.service")) return { GiftService: {} };
-  if (name === '../sockets') return { getIOOptional: () => null };
+  if (name.endsWith("/models/user.model")) return { User: { findById: () => query({ name: 'Sender', level: 1 }) } };
+  if (name.endsWith("/gift/gift.model")) return { GiftTransaction: {}, Gift: { findById: () => query(giftAsset) } };
+  if (name.endsWith("/gift/gift.service")) return { GiftService: {
+    sendGift: async () => ({ transaction: { _id: 'transaction-1' } }),
+  } };
+  if (name === '../sockets') return { getIOOptional: () => socketEnabled ? socketServer : null };
   if (name.endsWith('/sockets/liveBroadcastSocket')) return { getLiveBroadcastRoomChannel: id => `live:${id}` };
   if (name.endsWith("/middlewares/authorize.middleware"))
     return {
@@ -134,6 +148,8 @@ test.beforeEach(() => {
     ],
   };
   lastFilter = lastUpdate = createData = tokenRole = null;
+  socketEnabled = false;
+  broadcasts.length = 0;
 });
 const request = (
   path,
@@ -288,4 +304,28 @@ test("host heartbeat extends only an active host lease", async () => {
   assert.ok(lastUpdate.$set.heartbeatAt instanceof Date);
   room = null;
   assert.equal((await request(`/rooms/${roomId}/heartbeat`, host)).status, 410);
+});
+
+test('four-box multi-live persists three guest places and ignores invalid layouts', async () => {
+  assert.equal((await request('/rooms', host, { title: 'Four', mode: 'multi', seatCount: 4 })).status, 201);
+  assert.equal(createData.seatCount, 4);
+  assert.equal(createData.maxGuests, 3);
+  assert.equal((await request('/rooms', host, { title: 'Invalid layout', mode: 'multi', seatCount: 100 })).status, 201);
+  assert.equal(createData.seatCount, 4);
+  assert.equal(createData.maxGuests, 3);
+});
+
+test('live gifts deliver matching animation assets to viewers and the REST sender', async () => {
+  socketEnabled = true;
+  const response = await request(`/rooms/${roomId}/gift`, viewer, { giftId: giftAsset._id, quantity: 2 });
+  const body = await response.json();
+  assert.equal(response.status, 200, JSON.stringify(body));
+  const event = broadcasts.find(item => item.event === 'live:gift_received');
+  assert.equal(event.channel, `live:${roomId}`);
+  assert.equal(event.payload.roomId, roomId);
+  assert.equal(event.payload.gift.animationUrl, giftAsset.animationUrl);
+  assert.equal(event.payload.gift.mediaType, 'svga');
+  assert.equal(event.payload.quantity, 2);
+  assert.equal(event.payload.transactionId, 'transaction-1');
+  assert.deepEqual(body.data.giftEvent, JSON.parse(JSON.stringify(event.payload)));
 });
