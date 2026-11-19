@@ -651,6 +651,35 @@ router.post(
         quantity: qty,
         timestamp: Date.now(),
       });
+
+      // Synchronize PK scores to current room and rival room
+      if (room.pk?.isActive) {
+        io.to(roomChannel).emit("live:pk_score_update", {
+          leftScore: updatedRoom?.pk?.leftScore || 0,
+          rightScore: updatedRoom?.pk?.rightScore || 0,
+        });
+
+        if (room.pk?.rivalRoomId) {
+          const rivalRoomId = String(room.pk.rivalRoomId);
+          const rivalScoreInc = target === "rival"
+            ? { "pk.leftScore": totalCost }
+            : { "pk.rightScore": totalCost };
+
+          LiveBroadcast.findByIdAndUpdate(
+            rivalRoomId,
+            { $inc: rivalScoreInc },
+            { new: true }
+          ).then(updatedRival => {
+            const rivalChannel = getLiveBroadcastRoomChannel(rivalRoomId);
+            io.to(rivalChannel).emit("live:pk_score_update", {
+              leftScore: updatedRival?.pk?.leftScore || 0,
+              rightScore: updatedRival?.pk?.rightScore || 0,
+            });
+          }).catch(err => {
+            console.error("[live:gift PK rival sync] Error:", err?.message);
+          });
+        }
+      }
     }
 
     res.json({

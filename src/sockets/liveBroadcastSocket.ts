@@ -291,13 +291,33 @@ export const registerLiveBroadcastHandlers = (io: Server, socket: AuthenticatedS
           timestamp: Date.now(),
         });
 
-        // Also if PK is active and rival room exists, notify rival room
-        if (room.pk?.isActive && room.pk?.rivalRoomId) {
-          const rivalChannel = getLiveBroadcastRoomChannel(String(room.pk.rivalRoomId));
-          io.to(rivalChannel).emit("live:pk_score_update", {
+        // Also if PK is active, synchronize PK scores to both current and rival rooms
+        if (room.pk?.isActive) {
+          io.to(roomChannel).emit("live:pk_score_update", {
             leftScore: freshRoom?.pk?.leftScore || 0,
             rightScore: freshRoom?.pk?.rightScore || 0,
           });
+
+          if (room.pk?.rivalRoomId) {
+            const rivalRoomId = String(room.pk.rivalRoomId);
+            const rivalScoreInc = target === "rival"
+              ? { "pk.leftScore": totalCost }
+              : { "pk.rightScore": totalCost };
+
+            LiveBroadcast.findByIdAndUpdate(
+              rivalRoomId,
+              { $inc: rivalScoreInc },
+              { new: true }
+            ).then(updatedRival => {
+              const rivalChannel = getLiveBroadcastRoomChannel(rivalRoomId);
+              io.to(rivalChannel).emit("live:pk_score_update", {
+                leftScore: updatedRival?.pk?.leftScore || 0,
+                rightScore: updatedRival?.pk?.rightScore || 0,
+              });
+            }).catch(err => {
+              console.error("[live:send_gift PK rival sync] Error:", err?.message);
+            });
+          }
         }
       } catch (err: any) {
         console.error("[live:send_gift] Error:", err.message);
