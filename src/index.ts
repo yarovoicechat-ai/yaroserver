@@ -34,6 +34,7 @@ import { svipPlanRouter } from "./routes/svipPlan.routes";
 import { kingPlanRouter } from "./routes/kingPlan.routes";
 import { identityStudioRouter } from "./routes/identityStudio.routes";
 import levelRouter from "./routes/level.routes";
+import gameRoutes from "./modules/games/game.routes";
 import { GiftService } from "./gift/gift.service";
 import { VipService } from "./services/vip.service";
 import { assertAgoraSecurityConfig } from "./services/agora/agoraSecurity";
@@ -56,6 +57,7 @@ const allowedOrigins = [
   'http://localhost:5174',
   'http://localhost:5050',
 
+  'https://games.yaroapp.in',
   'https://yaroapp.in',
   'https://www.yaroapp.in',
   'https://api.yaroapp.in',
@@ -148,6 +150,12 @@ app.use("/uploads", express.static(path.join(__dirname, "../uploads"), {
 }));
 app.use("/api/uploads", express.static(path.join(__dirname, "../uploads"), {
   maxAge: '1d', etag: true, lastModified: true,
+}));
+app.use("/games", express.static(path.join(__dirname, "../public/games"), {
+  maxAge: '1h', etag: true, lastModified: true,
+}));
+app.use("/public/games", express.static(path.join(__dirname, "../public/games"), {
+  maxAge: '1h', etag: true, lastModified: true,
 }));
 app.use('/api/vip-assets', express.static(path.join(__dirname, '../assets/vip'), {
   maxAge: '1d', etag: true, dotfiles: 'deny', index: false,
@@ -248,6 +256,8 @@ app.use("/api/system-config", systemConfigRoutes);
 app.use("/api/v1/system-config", systemConfigRoutes);
 app.use("/api/public/app-config", systemConfigRoutes);
 app.use("/api/emojis", emojiRoutes);
+app.use("/api/games", gameRoutes);
+app.use("/api/v1/games", gameRoutes);
 app.use("/api/v1/emojis", emojiRoutes);
 app.use("/api/vip", vipRouter);
 app.use("/api/v1/vip", vipRouter);

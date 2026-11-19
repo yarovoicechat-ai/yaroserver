@@ -11,6 +11,7 @@ import { getAllHostsService, invalidateHostCache } from "../services/user.servic
 import { PermissionEngine } from "../utils/permissionEngine";
 import { registerVoiceRoomHandlers } from "./voiceRoomSocket";
 import { registerLiveBroadcastHandlers } from "./liveBroadcastSocket";
+import { registerGameSocketHandlers } from "../modules/games/game.socket";
 import { startRoomPKScheduler } from '../services/roomPk.service';
 
 // Redis Pub/Sub for Adapter
@@ -55,6 +56,7 @@ const chatSocket = (io: Server) => {
         // Register Voice Room Handlers SYNCHRONOUSLY before any async calls so no early client emits are lost
         registerVoiceRoomHandlers(io, socket);
         registerLiveBroadcastHandlers(io, socket);
+        registerGameSocketHandlers(io, socket);
 
         const userIdStr = socket.user.id.toString();
         const userRoom = getUserRoom(userIdStr);

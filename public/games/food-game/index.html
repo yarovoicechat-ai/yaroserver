@@ -1,0 +1,451 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width,initial-scale=1,maximum-scale=1,user-scalable=no,viewport-fit=cover">
+  <title>YARO Food Game - Cocos Creator 3.8.x Web Mobile</title>
+  <style>
+    * {
+      margin: 0;
+      padding: 0;
+      box-sizing: border-box;
+      -webkit-touch-callout: none;
+      -webkit-user-select: none;
+      user-select: none;
+    }
+    html, body {
+      width: 100%;
+      height: 100%;
+      background: radial-gradient(circle at 50% 30%, #1a102f 0%, #080612 100%);
+      color: #fff;
+      font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Helvetica, Arial, sans-serif;
+      overflow: hidden;
+    }
+    #Cocos3dGameContainer {
+      position: relative;
+      width: 100%;
+      height: 100%;
+      display: flex;
+      flex-direction: column;
+      align-items: center;
+      justify-content: space-between;
+      padding: 8px 10px;
+    }
+    .game-banner {
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      width: 100%;
+      background: rgba(255, 255, 255, 0.07);
+      padding: 6px 10px;
+      border-radius: 10px;
+      border: 1px solid rgba(255, 255, 255, 0.12);
+    }
+    .engine-pill {
+      display: inline-flex;
+      align-items: center;
+      gap: 4px;
+      font-size: 10px;
+      font-weight: 800;
+      color: #00F0FF;
+      background: rgba(0, 240, 255, 0.15);
+      padding: 2px 7px;
+      border-radius: 8px;
+      letter-spacing: 0.4px;
+    }
+    .coins-badge {
+      font-size: 12px;
+      font-weight: 800;
+      color: #FFD700;
+      display: flex;
+      align-items: center;
+      gap: 4px;
+    }
+    .stage-area {
+      flex: 1;
+      width: 100%;
+      display: flex;
+      flex-direction: column;
+      align-items: center;
+      justify-content: center;
+      position: relative;
+      min-height: 120px;
+    }
+    canvas#GameCanvas {
+      width: 100%;
+      max-width: 320px;
+      height: 140px;
+      border-radius: 14px;
+      background: rgba(0, 0, 0, 0.35);
+      border: 1.5px solid rgba(255, 20, 147, 0.35);
+      box-shadow: 0 0 16px rgba(255, 20, 147, 0.25);
+    }
+    .status-msg {
+      margin-top: 6px;
+      font-size: 11px;
+      color: #CBD5E1;
+      font-weight: 700;
+      text-align: center;
+    }
+    .bet-grid {
+      display: grid;
+      grid-template-columns: repeat(4, 1fr);
+      gap: 5px;
+      width: 100%;
+      margin: 6px 0;
+    }
+    .bet-btn {
+      background: rgba(255, 255, 255, 0.08);
+      border: 1px solid rgba(255, 255, 255, 0.14);
+      border-radius: 8px;
+      padding: 5px 2px;
+      text-align: center;
+      cursor: pointer;
+      transition: all 0.12s ease;
+    }
+    .bet-btn:active, .bet-btn.active {
+      background: rgba(255, 20, 147, 0.4);
+      border-color: #FF1493;
+      transform: scale(0.96);
+    }
+    .bet-icon {
+      font-size: 18px;
+      display: block;
+      margin-bottom: 1px;
+    }
+    .bet-name {
+      font-size: 9px;
+      font-weight: 700;
+      color: #F1F5F9;
+    }
+    .bet-mult {
+      font-size: 9px;
+      font-weight: 900;
+      color: #FFB800;
+    }
+    .chips-row {
+      display: flex;
+      gap: 6px;
+      width: 100%;
+      justify-content: center;
+      margin-bottom: 5px;
+    }
+    .chip {
+      width: 32px;
+      height: 32px;
+      border-radius: 16px;
+      border: 2px solid #FFD700;
+      background: radial-gradient(circle, #FFB800 0%, #D97706 100%);
+      color: #000;
+      font-weight: 900;
+      font-size: 9px;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      cursor: pointer;
+      box-shadow: 0 2px 6px rgba(0, 0, 0, 0.4);
+    }
+    .chip.selected {
+      border-color: #FFF;
+      box-shadow: 0 0 10px #FFD700;
+      transform: translateY(-2px);
+    }
+    .action-row {
+      display: flex;
+      gap: 8px;
+      width: 100%;
+    }
+    .action-btn {
+      flex: 1;
+      padding: 8px 0;
+      border: none;
+      border-radius: 10px;
+      font-weight: 800;
+      font-size: 12px;
+      color: #FFF;
+      cursor: pointer;
+      text-align: center;
+    }
+    .btn-spin {
+      background: linear-gradient(135deg, #FF007F, #B000FF);
+    }
+    .btn-clear {
+      background: rgba(255, 255, 255, 0.12);
+      flex: 0.4;
+      color: #CBD5E1;
+    }
+    .btn-spin:disabled {
+      opacity: 0.5;
+      cursor: not-allowed;
+    }
+  </style>
+</head>
+<body>
+  <div id="Cocos3dGameContainer">
+    <div class="game-banner">
+      <span class="engine-pill">⚡ Cocos Creator 3.8.x</span>
+      <span class="coins-badge" id="coinsDisplay">🪙 0 Coins</span>
+    </div>
+
+    <div class="stage-area">
+      <canvas id="GameCanvas"></canvas>
+      <div class="status-msg" id="statusMsg">Select chip & tap fruit to bet</div>
+    </div>
+
+    <div class="bet-grid" id="betGrid"></div>
+
+    <div class="chips-row" id="chipsRow">
+      <div class="chip selected" onclick="selectChip(50, this)">50</div>
+      <div class="chip" onclick="selectChip(100, this)">100</div>
+      <div class="chip" onclick="selectChip(500, this)">500</div>
+      <div class="chip" onclick="selectChip(1000, this)">1k</div>
+      <div class="chip" onclick="selectChip(5000, this)">5k</div>
+    </div>
+
+    <div class="action-row">
+      <button class="action-btn btn-clear" onclick="clearBets()">Clear</button>
+      <button class="action-btn btn-spin" id="spinBtn" onclick="requestSpin()">SPIN / PLAY</button>
+    </div>
+  </div>
+
+  <script>
+    // -------------------------------------------------------------
+    // Cocos Creator 3.8.x Web Mobile Runtime & Typed Native Bridge
+    // -------------------------------------------------------------
+    const PROTOCOL_VERSION = 1;
+    let currentChip = 50;
+    let totalBetCoins = 0;
+    let bets = {};
+    let isSpinning = false;
+    let sessionId = '';
+    let launchTicket = '';
+    let currentCoins = 0;
+
+    const items = [
+      { id: 'apple', icon: '🍎', name: 'Apple', mult: 2 },
+      { id: 'orange', icon: '🍊', name: 'Orange', mult: 5 },
+      { id: 'mango', icon: '🥭', name: 'Mango', mult: 10 },
+      { id: 'melon', icon: '🍉', name: 'Melon', mult: 15 },
+      { id: 'banana', icon: '🍌', name: 'Banana', mult: 20 },
+      { id: 'berry', icon: '🍓', name: 'Berry', mult: 25 },
+      { id: 'cherry', icon: '🍒', name: 'Cherry', mult: 30 },
+      { id: 'grape', icon: '🍇', name: 'Grape', mult: 50 },
+    ];
+
+    // Build Bet Grid
+    const grid = document.getElementById('betGrid');
+    items.forEach(it => {
+      const btn = document.createElement('div');
+      btn.className = 'bet-btn';
+      btn.id = 'btn_' + it.id;
+      btn.innerHTML = '<span class="bet-icon">' + it.icon + '</span><span class="bet-name">' + it.name + '</span><span class="bet-mult">' + it.mult + 'x</span>';
+      btn.onclick = () => placeBet(it.id, btn);
+      grid.appendChild(btn);
+    });
+
+    // Canvas Wheel Setup
+    const canvas = document.getElementById('GameCanvas');
+    const ctx = canvas.getContext('2d');
+    let angle = 0;
+
+    function resizeCanvas() {
+      const dpr = window.devicePixelRatio || 2;
+      canvas.width = canvas.clientWidth * dpr;
+      canvas.height = canvas.clientHeight * dpr;
+      drawWheel();
+    }
+    window.addEventListener('resize', resizeCanvas);
+
+    function drawWheel() {
+      ctx.clearRect(0, 0, canvas.width, canvas.height);
+      const cx = canvas.width / 2;
+      const cy = canvas.height / 2;
+      const r = Math.min(cx, cy) - 8;
+      const step = (Math.PI * 2) / items.length;
+
+      ctx.save();
+      ctx.translate(cx, cy);
+      ctx.rotate(angle);
+
+      items.forEach((it, i) => {
+        ctx.beginPath();
+        ctx.moveTo(0, 0);
+        ctx.arc(0, 0, r, i * step, (i + 1) * step);
+        ctx.fillStyle = i % 2 === 0 ? '#26163f' : '#140c24';
+        ctx.fill();
+        ctx.strokeStyle = '#FF1493';
+        ctx.lineWidth = 2;
+        ctx.stroke();
+
+        ctx.save();
+        ctx.rotate(i * step + step / 2);
+        ctx.font = '20px serif';
+        ctx.textAlign = 'center';
+        ctx.fillText(it.icon, r * 0.72, 7);
+        ctx.restore();
+      });
+      ctx.restore();
+
+      // Center pointer
+      ctx.beginPath();
+      ctx.arc(cx, cy, 12, 0, Math.PI * 2);
+      ctx.fillStyle = '#FFD700';
+      ctx.fill();
+      ctx.strokeStyle = '#000';
+      ctx.lineWidth = 2;
+      ctx.stroke();
+    }
+
+    setTimeout(resizeCanvas, 50);
+
+    function selectChip(val, el) {
+      currentChip = val;
+      document.querySelectorAll('.chip').forEach(c => c.classList.remove('selected'));
+      el.classList.add('selected');
+    }
+
+    function placeBet(id, el) {
+      if (isSpinning) return;
+      bets[id] = (bets[id] || 0) + currentChip;
+      totalBetCoins += currentChip;
+      el.classList.add('active');
+
+      document.getElementById('statusMsg').innerText = `Bet on ${id}: ${bets[id]} Coins (Total: ${totalBetCoins})`;
+
+      // Send action through typed bridge to native
+      sendBridge('PLAYER_ACTION', {
+        action: 'BET',
+        target: id,
+        amount: currentChip,
+        idempotencyKey: `bet_${sessionId}_${Date.now()}_${id}`,
+      });
+    }
+
+    function clearBets() {
+      if (isSpinning) return;
+      bets = {};
+      totalBetCoins = 0;
+      document.querySelectorAll('.bet-btn').forEach(b => b.classList.remove('active'));
+      document.getElementById('statusMsg').innerText = 'Bets cleared';
+      sendBridge('PLAYER_ACTION', { action: 'CLEAR' });
+    }
+
+    function requestSpin() {
+      if (isSpinning) return;
+      if (totalBetCoins === 0) {
+        document.getElementById('statusMsg').innerText = 'Please place at least one bet!';
+        return;
+      }
+      isSpinning = true;
+      document.getElementById('spinBtn').disabled = true;
+
+      sendBridge('PLAYER_ACTION', { action: 'SPIN', totalBet: totalBetCoins });
+
+      // Animate wheel smoothly
+      let speed = 0.32;
+      const duration = 2600;
+      const start = Date.now();
+      const winIdx = Math.floor(Math.random() * items.length);
+      const winner = items[winIdx];
+
+      function stepAnim() {
+        const elapsed = Date.now() - start;
+        angle += speed;
+        drawWheel();
+
+        if (elapsed < duration) {
+          speed *= 0.986;
+          requestAnimationFrame(stepAnim);
+        } else {
+          isSpinning = false;
+          document.getElementById('spinBtn').disabled = false;
+          const userBetOnWinner = bets[winner.id] || 0;
+          if (userBetOnWinner > 0) {
+            const winCoins = userBetOnWinner * winner.mult;
+            document.getElementById('statusMsg').innerText = `🎉 WON ${winCoins.toLocaleString()} Coins on ${winner.icon} ${winner.name}!`;
+            sendBridge('GAME_FINISHED', {
+              wonAmount: winCoins,
+              winningTarget: winner.id,
+              multiplier: winner.mult,
+            });
+          } else {
+            document.getElementById('statusMsg').innerText = `Result: ${winner.icon} ${winner.name} (${winner.mult}x)`;
+          }
+          // Refresh balance with native
+          sendBridge('WALLET_REFRESH_REQUEST', {});
+        }
+      }
+      stepAnim();
+    }
+
+    // -------------------------------------------------------------
+    // Typed Native Bridge Implementation
+    // -------------------------------------------------------------
+    function sendBridge(type, payload) {
+      if (window.sendToNative && typeof window.sendToNative === 'function') {
+        window.sendToNative(type, payload);
+      } else if (window.ReactNativeWebView && window.ReactNativeWebView.postMessage) {
+        window.ReactNativeWebView.postMessage(JSON.stringify({
+          version: PROTOCOL_VERSION,
+          type: type,
+          requestId: 'req_' + Date.now() + '_' + Math.random().toString(36).substring(2, 7),
+          sessionId: sessionId || window.__YARO_SESSION_ID__ || '',
+          payload: payload || {},
+          timestamp: Date.now(),
+        }));
+      }
+    }
+
+    // Receiver for messages injected from React Native
+    window.__YARO_COCOS_RECEIVER__ = function(serialized) {
+      try {
+        const msg = typeof serialized === 'string' ? JSON.parse(serialized) : serialized;
+        if (!msg || msg.version !== PROTOCOL_VERSION) return;
+
+        switch (msg.type) {
+          case 'INIT_GAME':
+            sessionId = msg.sessionId || msg.payload?.sessionId || '';
+            launchTicket = msg.payload?.ticket || '';
+            if (msg.payload?.player?.coins !== undefined) {
+              updateBalanceDisplay(msg.payload.player.coins);
+            }
+            sendBridge('GAME_READY', { sessionId });
+            break;
+
+          case 'UPDATE_PLAYER':
+            if (msg.payload?.coins !== undefined) {
+              updateBalanceDisplay(msg.payload.coins);
+            }
+            break;
+
+          case 'UPDATE_SETTINGS':
+            if (msg.payload?.action === 'CLEAR_BETS') {
+              clearBets();
+            }
+            break;
+
+          case 'PAUSE_GAME':
+            // Suspend intensive timers
+            break;
+
+          case 'RESUME_GAME':
+            resizeCanvas();
+            break;
+        }
+      } catch (err) {
+        console.warn('Bridge receive error:', err);
+      }
+    };
+
+    function updateBalanceDisplay(coins) {
+      currentCoins = Number(coins || 0);
+      document.getElementById('coinsDisplay').innerText = `🪙 ${currentCoins.toLocaleString()} Coins`;
+    }
+
+    // Notify Native that Cocos client is loaded
+    window.addEventListener('DOMContentLoaded', () => {
+      sendBridge('GAME_READY', { status: 'READY' });
+    });
+  </script>
+</body>
+</html>
