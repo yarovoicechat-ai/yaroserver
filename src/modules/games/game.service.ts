@@ -161,15 +161,64 @@ export class GameService {
   }
 
   /**
-   * Get all active games
+   * Get all active games (excluding hidden games for client catalog)
    */
   public static async getAllGames(category?: string): Promise<IGameDocument[]> {
     await this.seedGamesIfEmpty();
-    const query: any = { isActive: true };
+    const query: any = { isActive: true, isHidden: { $ne: true } };
     if (category && category !== 'All' && category !== 'Hot') {
       query.category = category;
     }
     return Game.find(query).sort({ createdAt: 1 }).lean();
+  }
+
+  /**
+   * Get all games for Admin Management Panel
+   */
+  public static async getAdminGames(): Promise<IGameDocument[]> {
+    await this.seedGamesIfEmpty();
+    return Game.find().sort({ createdAt: 1 }).lean();
+  }
+
+  /**
+   * Update game status / visibility from Management Panel
+   */
+  public static async updateGameStatus(
+    gameId: string,
+    updateData: {
+      isActive?: boolean;
+      isHidden?: boolean;
+      showInVoiceRoom?: boolean;
+      showInLiveRoom?: boolean;
+      showFloatingBanner?: boolean;
+    }
+  ): Promise<IGameDocument | null> {
+    await this.seedGamesIfEmpty();
+    return Game.findOneAndUpdate(
+      { gameId },
+      { $set: updateData },
+      { new: true }
+    ).lean();
+  }
+
+  /**
+   * Get game visibility config for client apps
+   */
+  public static async getGameConfig(): Promise<any> {
+    await this.seedGamesIfEmpty();
+    const games = await Game.find({ gameId: 'greedy-king' }).lean();
+    const gk = games[0];
+    return {
+      greedyKing: {
+        gameId: 'greedy-king',
+        title: gk?.title || 'Greedy King',
+        isActive: gk ? gk.isActive !== false : true,
+        isHidden: gk ? Boolean(gk.isHidden) : false,
+        showInVoiceRoom: gk ? gk.showInVoiceRoom !== false : true,
+        showInLiveRoom: gk ? gk.showInLiveRoom !== false : true,
+        showFloatingBanner: gk ? gk.showFloatingBanner !== false : true,
+      },
+    };
   }
 
   /**

@@ -4,8 +4,14 @@ import { verifyToken } from '../../middlewares/authorize.middleware';
 
 const router = Router();
 
-// Game Catalog
+// Game Catalog & Client Visibility Config
+router.get('/config', GameController.getGameConfig);
 router.get('/', verifyToken, GameController.getAllGames);
+
+// Admin Management
+router.get('/admin/all', verifyToken, GameController.getAdminGames);
+router.patch('/:gameId/status', verifyToken, GameController.updateGameStatus);
+router.put('/:gameId/status', verifyToken, GameController.updateGameStatus);
 
 // Game Sessions
 router.post('/session', verifyToken, GameController.createOrJoinSession);

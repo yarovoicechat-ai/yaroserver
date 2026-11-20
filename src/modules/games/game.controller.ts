@@ -1,4 +1,4 @@
-import { Response } from 'express';
+import { Request, Response } from 'express';
 import { AuthRequest } from '../../middlewares/authorize.middleware';
 import sendResponse from '../../utils/reponse';
 import { GameService } from './game.service';
@@ -256,6 +256,56 @@ export class GameController {
       });
     } catch (err: any) {
       return sendResponse(res, 500, false, err.message || 'Failed to fetch wallet');
+    }
+  }
+
+  /**
+   * GET /api/games/config
+   * Returns client game visibility configuration (public/auth)
+   */
+  public static async getGameConfig(req: Request, res: Response) {
+    try {
+      const config = await GameService.getGameConfig();
+      return sendResponse(res, 200, true, 'Game config fetched', config);
+    } catch (err: any) {
+      return sendResponse(res, 500, false, err.message || 'Failed to fetch game config');
+    }
+  }
+
+  /**
+   * GET /api/games/admin/all
+   * Admin endpoint to get all games with visibility settings
+   */
+  public static async getAdminGames(req: AuthRequest, res: Response) {
+    try {
+      const games = await GameService.getAdminGames();
+      return sendResponse(res, 200, true, 'Admin games fetched', games);
+    } catch (err: any) {
+      return sendResponse(res, 500, false, err.message || 'Failed to fetch admin games');
+    }
+  }
+
+  /**
+   * PATCH /api/games/:gameId/status
+   * Admin endpoint to toggle active, hidden, and room visibility
+   */
+  public static async updateGameStatus(req: AuthRequest, res: Response) {
+    try {
+      const { gameId } = req.params;
+      const { isActive, isHidden, showInVoiceRoom, showInLiveRoom, showFloatingBanner } = req.body;
+      const updated = await GameService.updateGameStatus(gameId, {
+        isActive,
+        isHidden,
+        showInVoiceRoom,
+        showInLiveRoom,
+        showFloatingBanner,
+      });
+      if (!updated) {
+        return sendResponse(res, 404, false, 'Game not found');
+      }
+      return sendResponse(res, 200, true, 'Game status updated successfully', updated);
+    } catch (err: any) {
+      return sendResponse(res, 500, false, err.message || 'Failed to update game status');
     }
   }
 }

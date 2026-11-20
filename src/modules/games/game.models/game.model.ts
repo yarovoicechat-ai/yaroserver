@@ -12,6 +12,10 @@ export interface IGameDocument extends Document {
   maxBet: number;
   multipliers: number[];
   isActive: boolean;
+  isHidden: boolean;
+  showInVoiceRoom: boolean;
+  showInLiveRoom: boolean;
+  showFloatingBanner: boolean;
   isMultiplayer: boolean;
   maxPlayers: number;
   engineVersion: string;
@@ -38,6 +42,10 @@ const GameSchema = new Schema<IGameDocument>(
     maxBet: { type: Number, default: 50000 },
     multipliers: { type: [Number], default: [2, 5, 10, 15, 20, 25, 30, 50] },
     isActive: { type: Boolean, default: true, index: true },
+    isHidden: { type: Boolean, default: false, index: true },
+    showInVoiceRoom: { type: Boolean, default: true },
+    showInLiveRoom: { type: Boolean, default: true },
+    showFloatingBanner: { type: Boolean, default: true },
     isMultiplayer: { type: Boolean, default: true },
     maxPlayers: { type: Number, default: 100 },
     engineVersion: { type: String, default: 'Cocos Creator 3.8.x' },
