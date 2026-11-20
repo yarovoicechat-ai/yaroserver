@@ -72,7 +72,7 @@ export class GameSessionService {
 
     // Look up game info for gameUrl
     const game = await Game.findOne({ gameId, isActive: true }).lean();
-    const baseGameUrl = game?.gameUrl || `https://games.yaroapp.in/${gameId}/`;
+    const baseGameUrl = `https://api.yaroapp.in/games/${gameId}/`;
 
     // Generate random 32-byte cryptographic ticket
     const ticket = crypto.randomBytes(32).toString('hex');
