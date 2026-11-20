@@ -159,6 +159,59 @@ export class GameController {
   }
 
   /**
+   * POST /api/games/session/:id/payout
+   * Claim authoritative winning payout for a completed round
+   */
+  public static async claimPayout(req: AuthRequest, res: Response) {
+    try {
+      const userId = req.user?.id;
+      if (!userId) {
+        return sendResponse(res, 401, false, 'Unauthorized');
+      }
+
+      const sessionId = req.params.id;
+      const {
+        gameId = 'greedy-king',
+        roundNumber = 1,
+        betTarget,
+        multiplier = 1,
+        winAmount,
+        idempotencyKey,
+      } = req.body;
+
+      if (!winAmount || Number(winAmount) <= 0) {
+        return sendResponse(res, 400, false, 'Invalid winAmount');
+      }
+
+      const amountToCredit = Number(winAmount);
+      const mult = Number(multiplier);
+
+      // Validate allowed multipliers (2x - 50x)
+      if (mult < 1 || mult > 100) {
+        return sendResponse(res, 400, false, 'Invalid multiplier');
+      }
+
+      const result = await GameWalletService.creditWin({
+        userId,
+        gameId,
+        sessionId,
+        roundNumber,
+        betTarget: betTarget || 'winner',
+        multiplier: mult,
+        winAmount: amountToCredit,
+        idempotencyKey: idempotencyKey || `payout_${sessionId}_r${roundNumber}_u${userId}_${amountToCredit}`,
+      });
+
+      return sendResponse(res, 200, true, 'Payout credited successfully', {
+        ...result,
+        status: 'SUCCESS',
+      });
+    } catch (err: any) {
+      return sendResponse(res, 500, false, err.message || 'Failed to claim payout');
+    }
+  }
+
+  /**
    * POST /api/games/session/:id/result
    * Settle round and distribute winnings
    */

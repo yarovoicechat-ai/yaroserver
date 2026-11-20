@@ -14,6 +14,7 @@ router.get('/session/:id', verifyToken, GameController.getSession);
 router.post('/session/:id/join', verifyToken, GameController.joinSession);
 router.post('/session/:id/leave', verifyToken, GameController.leaveSession);
 router.post('/session/:id/bet', verifyToken, GameController.placeBet);
+router.post('/session/:id/payout', verifyToken, GameController.claimPayout);
 router.post('/session/:id/result', verifyToken, GameController.settleRound);
 
 // Game Wallet

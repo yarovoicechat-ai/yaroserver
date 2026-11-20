@@ -1,7 +1,15 @@
 import mongoose, { Schema, Document, Types } from 'mongoose';
 
 export type GameTransactionType = 'BET' | 'WIN' | 'REFUND';
-export type GameTransactionStatus = 'PENDING' | 'COMPLETED' | 'FAILED' | 'ROLLED_BACK';
+export type GameTransactionStatus =
+  | 'PENDING'
+  | 'PROCESSING'
+  | 'SUCCESS'
+  | 'COMPLETED'
+  | 'FAILED'
+  | 'REFUND_PENDING'
+  | 'REFUNDED'
+  | 'ROLLED_BACK';
 
 export interface IGameTransactionDocument extends Document {
   transactionId: string;
@@ -43,7 +51,7 @@ const GameTransactionSchema = new Schema<IGameTransactionDocument>(
     metadata: { type: Schema.Types.Mixed, default: {} },
     status: {
       type: String,
-      enum: ['PENDING', 'COMPLETED', 'FAILED', 'ROLLED_BACK'],
+      enum: ['PENDING', 'PROCESSING', 'SUCCESS', 'COMPLETED', 'FAILED', 'REFUND_PENDING', 'REFUNDED', 'ROLLED_BACK'],
       default: 'COMPLETED',
       index: true,
     },

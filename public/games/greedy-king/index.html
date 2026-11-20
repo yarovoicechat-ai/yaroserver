@@ -1,9 +1,10 @@
 <!DOCTYPE html>
 <html lang="en">
 <head>
-  <meta charset="utf-8">
-  <meta name="viewport" content="width=device-width,initial-scale=1,maximum-scale=1,user-scalable=no,viewport-fit=cover">
-  <title>YARO Greedy King - Cocos Creator 3.8.x Web Mobile</title>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no, viewport-fit=cover" />
+  <title>Greedy King</title>
+  <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.7.2/css/all.min.css" crossorigin="anonymous" referrerpolicy="no-referrer" />
   <style>
     * {
       margin: 0;
@@ -16,455 +17,986 @@
     html, body {
       width: 100%;
       height: 100%;
-      background: radial-gradient(circle at 50% 25%, #2a1506 0%, #0d0602 100%);
+      background-color: #0b0716;
       color: #fff;
       font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Helvetica, Arial, sans-serif;
       overflow: hidden;
+      display: flex;
+      justify-content: center;
+      align-items: center;
     }
-    #Cocos3dGameContainer {
+
+    .game-viewport {
+      position: relative;
+      width: 100vw;
+      max-width: 480px;
+      height: 100vh;
+      max-height: 960px;
+      display: flex;
+      flex-direction: column;
+      justify-content: space-between;
+      align-items: center;
+      overflow: hidden;
+      background: #0b0716;
+    }
+
+    .wheel-container {
       position: relative;
       width: 100%;
       height: 100%;
       display: flex;
       flex-direction: column;
-      align-items: center;
       justify-content: space-between;
-      padding: 8px 10px;
+      align-items: center;
     }
-    .game-banner {
-      display: flex;
-      align-items: center;
-      justify-content: space-between;
+
+    .wheel-bg {
+      position: absolute;
+      top: 0;
+      left: 0;
       width: 100%;
-      background: rgba(255, 255, 255, 0.08);
-      padding: 6px 12px;
-      border-radius: 12px;
-      border: 1px solid rgba(254, 240, 138, 0.25);
+      height: 100%;
+      object-fit: fill;
+      z-index: 1;
+      pointer-events: none;
     }
-    .engine-pill {
+
+    /* Top Head Controls Bar */
+    .head {
+      position: relative;
+      z-index: 10;
+      width: 100%;
+      display: flex;
+      flex-direction: row;
+      justify-content: space-between;
+      align-items: center;
+      padding: 10px 16px;
+      margin-top: 4px;
+    }
+
+    .btn1 {
       display: inline-flex;
       align-items: center;
-      gap: 4px;
-      font-size: 10px;
+      gap: 8px;
+      background: linear-gradient(135deg, rgba(20, 20, 78, 0.95), rgba(30, 30, 95, 0.95));
+      border: 1px solid rgba(255, 215, 0, 0.4);
+      padding: 4px 10px;
+      border-radius: 16px;
+      box-shadow: 0 2px 8px rgba(0, 0, 0, 0.4);
+    }
+
+    .coin-symbol {
+      font-size: 15px;
+    }
+
+    .coins-text {
+      color: #FFD700;
       font-weight: 800;
-      color: #FDE047;
-      background: rgba(245, 158, 11, 0.2);
-      padding: 2px 8px;
-      border-radius: 8px;
+      font-size: 14px;
       letter-spacing: 0.5px;
     }
-    .coins-badge {
-      font-size: 13px;
-      font-weight: 900;
-      color: #FFD700;
-      display: flex;
-      align-items: center;
-      gap: 4px;
-      text-shadow: 0 0 8px rgba(255, 215, 0, 0.5);
-    }
-    .wheel-stage {
-      position: relative;
-      width: 100%;
-      max-width: 320px;
-      aspect-ratio: 1;
+
+    #plus {
+      background-color: #FACC15;
+      border-radius: 50%;
+      height: 20px;
+      width: 20px;
+      color: #000;
       display: flex;
       align-items: center;
       justify-content: center;
-      margin: auto;
+      font-size: 11px;
+      cursor: pointer;
+      font-weight: 900;
+      transition: transform 0.15s ease;
     }
-    .wheel-canvas {
-      width: 90%;
-      height: 90%;
+    #plus:active {
+      transform: scale(0.9);
+    }
+
+    .top-actions {
+      display: flex;
+      align-items: center;
+      gap: 8px;
+    }
+
+    .icons {
+      background-color: rgba(0, 0, 0, 0.55);
+      color: #fff;
+      height: 28px;
+      width: 28px;
+      display: flex;
+      align-items: center;
+      justify-content: center;
       border-radius: 50%;
-      box-shadow: 0 0 25px rgba(245, 158, 11, 0.5), inset 0 0 20px rgba(0,0,0,0.8);
-      transition: transform 4.5s cubic-bezier(0.15, 0.9, 0.2, 1);
-      border: 4px solid #F59E0B;
+      cursor: pointer;
+      border: 1px solid rgba(255, 255, 255, 0.3);
+      font-size: 13px;
+      transition: all 0.15s ease;
     }
-    .wheel-pointer {
+    .icons:active {
+      transform: scale(0.9);
+      background-color: rgba(245, 158, 11, 0.6);
+    }
+
+    /* Sub-header row */
+    .head2 {
       position: absolute;
-      top: 0;
-      left: 50%;
-      transform: translateX(-50%);
-      width: 0;
-      height: 0;
-      border-left: 12px solid transparent;
-      border-right: 12px solid transparent;
-      border-top: 24px solid #EF4444;
+      top: 50px;
+      left: 0;
+      right: 0;
       z-index: 10;
-      filter: drop-shadow(0 2px 4px rgba(0,0,0,0.6));
+      display: flex;
+      justify-content: space-between;
+      align-items: center;
+      padding: 0 20px;
     }
-    .king-hub {
+
+    .trophy-wrap {
+      display: flex;
+      flex-direction: column;
+      align-items: center;
+      color: #FFD700;
+      font-size: 10px;
+      font-weight: 800;
+      cursor: pointer;
+    }
+    .trophy-wrap img {
+      width: 26px;
+      height: 26px;
+      object-fit: contain;
+    }
+
+    /* Fruit vs Fastfood Category Pills */
+    .head3 {
       position: absolute;
-      width: 72px;
-      height: 72px;
-      border-radius: 50%;
-      background: radial-gradient(circle, #F59E0B 0%, #78350F 100%);
-      border: 3px solid #FEF08A;
+      top: 52%;
+      left: 0;
+      right: 0;
+      z-index: 10;
+      display: flex;
+      justify-content: space-between;
+      padding: 0 26px;
+    }
+
+    .cat-badge {
+      display: flex;
+      flex-direction: column;
+      align-items: center;
+      gap: 2px;
+    }
+    .cat-badge img {
+      width: 36px;
+      height: 36px;
+      object-fit: contain;
+    }
+    .cat-label {
+      padding: 2px 10px;
+      border-radius: 10px;
+      background-color: #EAB308;
+      color: #000;
+      font-size: 11px;
+      font-weight: 800;
+    }
+
+    /* 8 Fruit / Food Spot Targets */
+    .food-spot {
+      position: absolute;
+      z-index: 12;
+      width: 58px;
+      height: 58px;
+      cursor: pointer;
+      transform: translate(-50%, -50%);
       display: flex;
       flex-direction: column;
       align-items: center;
       justify-content: center;
-      box-shadow: 0 0 15px rgba(254, 240, 138, 0.8);
-      z-index: 5;
+      border-radius: 50%;
+      transition: transform 0.15s ease;
     }
-    .king-hub-emoji {
-      font-size: 24px;
+    .food-spot:active {
+      transform: translate(-50%, -50%) scale(0.94);
     }
-    .king-hub-text {
-      font-size: 8px;
-      font-weight: 900;
+    .food-spot.processing {
+      box-shadow: 0 0 15px 4px #F59E0B;
+      animation: pulseSpot 0.8s infinite alternate;
+    }
+    @keyframes pulseSpot {
+      from { box-shadow: 0 0 8px 2px #F59E0B; }
+      to { box-shadow: 0 0 20px 6px #EF4444; }
+    }
+
+    .food-icon {
+      width: 38px;
+      height: 38px;
+      object-fit: contain;
+    }
+
+    .food-mult {
+      position: absolute;
+      bottom: -6px;
+      width: 28px;
+      height: 16px;
+      object-fit: contain;
+    }
+
+    .spot-bet-badge {
+      position: absolute;
+      top: -6px;
+      right: -6px;
+      background: linear-gradient(135deg, #FF007F, #7928CA);
       color: #FFF;
-      letter-spacing: 0.5px;
+      font-size: 9px;
+      font-weight: 900;
+      padding: 1px 5px;
+      border-radius: 8px;
+      border: 1px solid #FFD700;
+      box-shadow: 0 2px 4px rgba(0,0,0,0.6);
+      display: none;
     }
-    .status-ribbon {
-      background: rgba(0, 0, 0, 0.5);
-      border: 1px solid rgba(245, 158, 11, 0.3);
-      padding: 4px 16px;
-      border-radius: 12px;
-      font-size: 12px;
-      font-weight: 800;
-      color: #FDE047;
-      text-align: center;
-      margin-bottom: 6px;
+
+    /* Ferris Wheel Pod Coordinates matching original Cocos design */
+    .spot1 { top: 12.8%; left: 50.0%; } /* Apple */
+    .spot2 { top: 18.2%; left: 27.5%; } /* Chicken */
+    .spot3 { top: 31.0%; left: 19.0%; } /* Pizza */
+    .spot4 { top: 43.8%; left: 27.0%; } /* Burger */
+    .spot5 { top: 49.2%; left: 50.5%; } /* Fish */
+    .spot6 { top: 43.8%; left: 73.0%; } /* Mango */
+    .spot7 { top: 31.0%; left: 81.0%; } /* Strawberry */
+    .spot8 { top: 18.2%; left: 72.5%; } /* Orange */
+
+    /* Center Countdown */
+    #countdown, #secondCountdown {
+      position: absolute;
+      top: 31.0%;
+      left: 50%;
+      transform: translate(-50%, -50%);
+      font-size: 28px;
+      color: #FFFFFF;
+      font-weight: 900;
+      z-index: 15;
+      text-shadow: 0 0 10px rgba(255, 215, 0, 0.8), 0 2px 4px #000;
+      letter-spacing: 1px;
     }
-    .chip-selector {
+
+    /* Glow Light Ring */
+    .glow-light {
+      position: absolute;
+      width: 74px;
+      height: 74px;
+      border-radius: 50%;
+      box-shadow: 0 0 20px 10px rgba(255, 255, 80, 0.95), 0 0 35px 20px rgba(255, 200, 0, 0.7);
+      border: 3px solid #FFF59D;
+      pointer-events: none;
+      z-index: 14;
+      transform: translate(-50%, -50%);
+      display: none;
+      transition: top 0.08s linear, left 0.08s linear;
+    }
+
+    /* Instructions & Today Win */
+    .win-info-bar {
+      position: absolute;
+      top: 57.5%;
+      left: 0;
+      right: 0;
+      z-index: 10;
       display: flex;
+      flex-direction: column;
+      align-items: center;
+      gap: 3px;
+    }
+
+    .today-win-badge {
+      background: rgba(220, 38, 38, 0.8);
+      border: 1px solid rgba(254, 240, 138, 0.3);
+      padding: 2px 14px;
+      border-radius: 12px;
+      font-size: 11px;
+      color: #FFF;
+      font-weight: 800;
+    }
+    .today-win-badge span {
+      color: #FDE047;
+      margin-left: 6px;
+    }
+
+    .choose-instruction {
+      background: rgba(80, 35, 35, 0.85);
+      border: 1.5px solid #A16207;
+      padding: 2px 16px;
+      border-radius: 6px;
+      font-size: 10px;
+      color: #F1F5F9;
+      font-weight: 700;
+      letter-spacing: 0.3px;
+    }
+
+    /* Chips Tray */
+    .chips-container {
+      position: absolute;
+      top: 64.5%;
+      left: 0;
+      right: 0;
+      z-index: 20;
+      display: flex;
+      align-items: center;
+      gap: 10px;
+      padding: 0 16px;
+      overflow-x: auto;
+      overflow-y: hidden;
+      scrollbar-width: none;
+    }
+    .chips-container::-webkit-scrollbar {
+      display: none;
+    }
+
+    .chip-item {
+      flex-shrink: 0;
+      width: 48px;
+      height: 48px;
+      cursor: pointer;
+      border-radius: 50%;
+      transition: all 0.15s ease;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+    }
+    .chip-item img {
+      width: 100%;
+      height: 100%;
+      object-fit: contain;
+    }
+    .chip-item.active {
+      transform: translateY(-4px) scale(1.1);
+      filter: drop-shadow(0 0 10px #FFD700);
+    }
+
+    /* Result History */
+    .result-section {
+      position: absolute;
+      top: 74.5%;
+      left: 0;
+      right: 0;
+      z-index: 10;
+      display: flex;
+      flex-direction: column;
+      align-items: center;
+      gap: 6px;
+    }
+
+    .result-tag {
+      background: #451A03;
+      border: 1px solid #B45309;
+      padding: 1px 20px;
+      border-radius: 5px;
+      font-size: 11px;
+      font-weight: 800;
+      color: #FDE68A;
+    }
+
+    .fruitlist {
+      display: flex;
+      align-items: center;
       justify-content: center;
       gap: 8px;
+      padding: 0 20px;
+      overflow: hidden;
       width: 100%;
-      padding: 4px 0;
     }
-    .chip-btn {
-      padding: 6px 12px;
-      border-radius: 16px;
+
+    .history-fruit {
+      width: 32px;
+      height: 32px;
+      object-fit: contain;
       background: rgba(255, 255, 255, 0.08);
-      border: 1.5px solid rgba(255, 255, 255, 0.2);
-      color: #fff;
-      font-weight: 800;
-      font-size: 11px;
-      cursor: pointer;
-      transition: all 0.2s;
-    }
-    .chip-btn.active {
-      background: linear-gradient(135deg, #F59E0B 0%, #D97706 100%);
-      border-color: #FEF08A;
-      color: #000;
-      transform: scale(1.08);
-      box-shadow: 0 0 12px rgba(245, 158, 11, 0.6);
-    }
-    .action-row {
-      display: flex;
-      gap: 10px;
-      width: 100%;
-      max-width: 340px;
-    }
-    .bet-btn {
-      flex: 1;
-      padding: 10px;
-      border-radius: 14px;
-      border: none;
-      background: linear-gradient(135deg, #F59E0B 0%, #EF4444 100%);
-      color: #FFF;
-      font-weight: 900;
-      font-size: 14px;
-      letter-spacing: 0.5px;
-      box-shadow: 0 4px 12px rgba(245, 158, 11, 0.4);
-      cursor: pointer;
-    }
-    .bet-btn:disabled {
-      opacity: 0.5;
-      cursor: not-allowed;
-    }
-    .multipliers-grid {
-      display: grid;
-      grid-template-columns: repeat(4, 1fr);
-      gap: 6px;
-      width: 100%;
-      max-width: 340px;
-      margin-bottom: 6px;
-    }
-    .multiplier-slot {
-      background: rgba(255, 255, 255, 0.05);
-      border: 1px solid rgba(255, 255, 255, 0.1);
+      border: 1px solid rgba(255, 215, 0, 0.3);
       border-radius: 8px;
-      padding: 4px;
-      text-align: center;
-      cursor: pointer;
-      transition: all 0.15s;
+      padding: 2px;
     }
-    .multiplier-slot.selected {
-      border-color: #F59E0B;
-      background: rgba(245, 158, 11, 0.25);
+
+    /* Winning Settlement Popup */
+    .popup-overlay {
+      position: absolute;
+      top: 0;
+      left: 0;
+      right: 0;
+      bottom: 0;
+      z-index: 100;
+      background: rgba(0, 0, 0, 0.75);
+      display: none;
+      align-items: center;
+      justify-content: center;
+      backdrop-filter: blur(2px);
     }
-    .slot-icon { font-size: 16px; }
-    .slot-mult { font-size: 9px; font-weight: 800; color: #FDE047; }
+
+    .popup-box {
+      position: relative;
+      width: 85%;
+      max-width: 320px;
+      background: linear-gradient(180deg, #1E1B4B 0%, #0F172A 100%);
+      border: 2px solid #F59E0B;
+      border-radius: 20px;
+      box-shadow: 0 0 30px rgba(245, 158, 11, 0.6);
+      padding: 20px 16px;
+      display: flex;
+      flex-direction: column;
+      align-items: center;
+      gap: 12px;
+      animation: popZoom 0.3s cubic-bezier(0.18, 0.89, 0.32, 1.28);
+    }
+    @keyframes popZoom {
+      from { transform: scale(0.6); opacity: 0; }
+      to { transform: scale(1); opacity: 1; }
+    }
+
+    .popup-crowns {
+      display: flex;
+      align-items: flex-end;
+      justify-content: center;
+      gap: 12px;
+      width: 100%;
+    }
+    .popup-crown {
+      display: flex;
+      flex-direction: column;
+      align-items: center;
+      font-size: 11px;
+      color: #FFF;
+      gap: 2px;
+    }
+    .popup-crown img.crown-icon {
+      width: 28px;
+      height: 28px;
+      object-fit: contain;
+    }
+
+    .winner-display {
+      display: flex;
+      align-items: center;
+      gap: 14px;
+      background: rgba(255, 255, 255, 0.08);
+      border: 1px solid rgba(255, 215, 0, 0.3);
+      padding: 10px 18px;
+      border-radius: 14px;
+      width: 100%;
+      justify-content: center;
+    }
+    .winner-display img {
+      width: 44px;
+      height: 44px;
+      object-fit: contain;
+    }
+    .win-amount-text {
+      font-size: 26px;
+      font-weight: 900;
+      color: #FFD700;
+      text-shadow: 0 0 10px rgba(255, 215, 0, 0.8);
+    }
+
+    /* Toast Notification */
+    .toast-msg {
+      position: absolute;
+      top: 70px;
+      left: 50%;
+      transform: translateX(-50%);
+      z-index: 200;
+      background: rgba(220, 38, 38, 0.95);
+      border: 1px solid #FFD700;
+      color: #FFF;
+      padding: 8px 18px;
+      border-radius: 20px;
+      font-size: 12px;
+      font-weight: 800;
+      display: none;
+      box-shadow: 0 4px 12px rgba(0,0,0,0.5);
+    }
   </style>
 </head>
 <body>
-  <div id="Cocos3dGameContainer">
-    <!-- Header -->
-    <div class="game-banner">
-      <div class="engine-pill">👑 GREEDY KING 3.8.x</div>
-      <div class="coins-badge">🪙 <span id="playerCoins">50,000</span></div>
-    </div>
+  <div class="game-viewport">
+    <div class="wheel-container">
+      <!-- Authentic Ferris Wheel Background Image -->
+      <img src="assets/images/game.jpeg" class="wheel-bg" alt="Greedy King Wheel" />
 
-    <!-- Status -->
-    <div class="status-ribbon" id="statusRibbon">PLACE YOUR BET • 15s</div>
+      <!-- Top Controls Bar -->
+      <div class="head">
+        <div class="btn1">
+          <span class="coin-symbol">🪙</span>
+          <span id="playerCoins" class="coins-text">0</span>
+          <span id="plus" title="Recharge Coins"><i class="fa-solid fa-plus"></i></span>
+        </div>
 
-    <!-- Multiplier Selection Grid -->
-    <div class="multipliers-grid" id="slotsGrid">
-      <div class="multiplier-slot selected" data-target="crown" data-mult="50">
-        <div class="slot-icon">👑</div>
-        <div class="slot-mult">50x</div>
+        <div class="top-actions">
+          <span id="muteBtn" class="icons" title="Toggle Sound"><i id="muteIcon" class="fa-solid fa-volume-xmark"></i></span>
+          <span id="helpBtn" class="icons" title="Game Rules"><i class="fa-solid fa-question"></i></span>
+          <span id="minimizeBtn" class="icons" title="Minimize Game"><i class="fa-solid fa-window-minimize"></i></span>
+          <span id="closeBtn" class="icons" title="Close Game"><i class="fa-solid fa-xmark"></i></span>
+        </div>
       </div>
-      <div class="multiplier-slot" data-target="lion" data-mult="25">
-        <div class="slot-icon">🦁</div>
-        <div class="slot-mult">25x</div>
-      </div>
-      <div class="multiplier-slot" data-target="watermelon" data-mult="15">
-        <div class="slot-icon">🍉</div>
-        <div class="slot-mult">15x</div>
-      </div>
-      <div class="multiplier-slot" data-target="grapes" data-mult="10">
-        <div class="slot-icon">🍇</div>
-        <div class="slot-mult">10x</div>
-      </div>
-      <div class="multiplier-slot" data-target="mango" data-mult="5">
-        <div class="slot-icon">🥭</div>
-        <div class="slot-mult">5x</div>
-      </div>
-      <div class="multiplier-slot" data-target="apple" data-mult="5">
-        <div class="slot-icon">🍎</div>
-        <div class="slot-mult">5x</div>
-      </div>
-      <div class="multiplier-slot" data-target="orange" data-mult="2">
-        <div class="slot-icon">🍊</div>
-        <div class="slot-mult">2x</div>
-      </div>
-      <div class="multiplier-slot" data-target="banana" data-mult="2">
-        <div class="slot-icon">🍌</div>
-        <div class="slot-mult">2x</div>
-      </div>
-    </div>
 
-    <!-- Interactive Canvas Wheel -->
-    <div class="wheel-stage">
-      <div class="wheel-pointer"></div>
-      <canvas id="GameCanvas" class="wheel-canvas" width="400" height="400"></canvas>
-      <div class="king-hub">
-        <div class="king-hub-emoji">👑</div>
-        <div class="king-hub-text">KING</div>
+      <!-- Sub Header (Trophy & Clock) -->
+      <div class="head2">
+        <div class="trophy-wrap">
+          <img src="assets/images/trophy.png" alt="Rankings" />
+          <span>99+</span>
+        </div>
+        <div class="icons" style="border:none; background:none;">
+          <i class="fa-regular fa-clock" style="font-size:16px;"></i>
+        </div>
       </div>
-    </div>
 
-    <!-- Chip Selection -->
-    <div class="chip-selector">
-      <button class="chip-btn" data-chip="50">50</button>
-      <button class="chip-btn active" data-chip="100">100</button>
-      <button class="chip-btn" data-chip="500">500</button>
-      <button class="chip-btn" data-chip="1000">1K</button>
-      <button class="chip-btn" data-chip="5000">5K</button>
-    </div>
+      <!-- Category Pills -->
+      <div class="head3">
+        <div class="cat-badge">
+          <img src="assets/images/fruits (2).png" alt="Fruits" />
+          <span class="cat-label">Fruit</span>
+        </div>
+        <div class="cat-badge">
+          <img src="assets/images/pizza (2).png" alt="Fast Food" />
+          <span class="cat-label">Pizza</span>
+        </div>
+      </div>
 
-    <!-- Bet Button -->
-    <div class="action-row">
-      <button class="bet-btn" id="betButton">BET 100 COINS</button>
+      <!-- 8 Food/Fruit Betting Pods -->
+      <div id="spot_apple" class="food-spot spot1" data-spot="apple" data-mult="5">
+        <img src="assets/images/app.png" class="food-icon" alt="Apple" />
+        <img src="assets/images/5.png" class="food-mult" alt="5x" />
+        <span class="spot-bet-badge" id="bet_apple">0</span>
+      </div>
+
+      <div id="spot_chicken" class="food-spot spot2" data-spot="chicken" data-mult="5">
+        <img src="assets/images/chik.png" class="food-icon" alt="Chicken" />
+        <img src="assets/images/5.png" class="food-mult" alt="5x" />
+        <span class="spot-bet-badge" id="bet_chicken">0</span>
+      </div>
+
+      <div id="spot_pizza" class="food-spot spot3" data-spot="pizza" data-mult="5">
+        <img src="assets/images/pizzasllice.png" class="food-icon" alt="Pizza" />
+        <img src="assets/images/5.png" class="food-mult" alt="5x" />
+        <span class="spot-bet-badge" id="bet_pizza">0</span>
+      </div>
+
+      <div id="spot_burger" class="food-spot spot4" data-spot="burger" data-mult="5">
+        <img src="assets/images/burger (2).png" class="food-icon" alt="Burger" />
+        <img src="assets/images/5.png" class="food-mult" alt="5x" />
+        <span class="spot-bet-badge" id="bet_burger">0</span>
+      </div>
+
+      <div id="spot_fish" class="food-spot spot5" data-spot="fish" data-mult="10">
+        <img src="assets/images/fish.png" class="food-icon" alt="Fish" />
+        <img src="assets/images/10.png" class="food-mult" alt="10x" />
+        <span class="spot-bet-badge" id="bet_fish">0</span>
+      </div>
+
+      <div id="spot_mango" class="food-spot spot6" data-spot="mango" data-mult="15">
+        <img src="assets/images/mango.png" class="food-icon" alt="Mango" />
+        <img src="assets/images/15.png" class="food-mult" alt="15x" />
+        <span class="spot-bet-badge" id="bet_mango">0</span>
+      </div>
+
+      <div id="spot_strawberry" class="food-spot spot7" data-spot="strawberry" data-mult="25">
+        <img src="assets/images/straw.png" class="food-icon" alt="Strawberry" />
+        <img src="assets/images/25.png" class="food-mult" alt="25x" />
+        <span class="spot-bet-badge" id="bet_strawberry">0</span>
+      </div>
+
+      <div id="spot_orange" class="food-spot spot8" data-spot="orange" data-mult="45">
+        <img src="assets/images/orange.png" class="food-icon" alt="Orange" />
+        <img src="assets/images/45.png" class="food-mult" alt="45x" />
+        <span class="spot-bet-badge" id="bet_orange">0</span>
+      </div>
+
+      <!-- Center Timers -->
+      <div id="countdown">20s</div>
+      <div id="secondCountdown" style="display:none;">10s</div>
+
+      <!-- Glow Light Pointer Ring -->
+      <div id="glowLight" class="glow-light"></div>
+
+      <!-- Instruction & Today's Win Bar -->
+      <div class="win-info-bar">
+        <div class="today-win-badge">TODAY'S WIN <span id="todayWinAmount">0</span></div>
+        <div class="choose-instruction">Choose the amount wager &gt; Choose food</div>
+      </div>
+
+      <!-- Chips Tray -->
+      <div class="chips-container" id="chipsContainer">
+        <div class="chip-item active" data-amount="100"><img src="assets/images/100.png" alt="100" /></div>
+        <div class="chip-item" data-amount="1000"><img src="assets/images/1k.png" alt="1k" /></div>
+        <div class="chip-item" data-amount="5000"><img src="assets/images/5k.png" alt="5k" /></div>
+        <div class="chip-item" data-amount="10000"><img src="assets/images/10k.png" alt="10k" /></div>
+        <div class="chip-item" data-amount="50000"><img src="assets/images/50k.png" alt="50k" /></div>
+        <div class="chip-item" data-amount="100000"><img src="assets/images/100k.png" alt="100k" /></div>
+        <div class="chip-item" data-amount="500000"><img src="assets/images/500k.png" alt="500k" /></div>
+        <div class="chip-item" data-amount="1000000"><img src="assets/images/1M.png" alt="1M" /></div>
+        <div class="chip-item" data-amount="5000000"><img src="assets/images/5M.png" alt="5M" /></div>
+      </div>
+
+      <!-- Result History Section -->
+      <div class="result-section">
+        <div class="result-tag">Result</div>
+        <div class="fruitlist" id="fruitList">
+          <img src="assets/images/mango.png" class="history-fruit" alt="History" />
+          <img src="assets/images/app.png" class="history-fruit" alt="History" />
+          <img src="assets/images/orange.png" class="history-fruit" alt="History" />
+          <img src="assets/images/straw.png" class="history-fruit" alt="History" />
+          <img src="assets/images/fish.png" class="history-fruit" alt="History" />
+          <img src="assets/images/burger (2).png" class="history-fruit" alt="History" />
+          <img src="assets/images/app.png" class="history-fruit" alt="History" />
+        </div>
+      </div>
+
+      <!-- Winning Settlement Modal -->
+      <div id="popupModal" class="popup-overlay">
+        <div class="popup-box">
+          <div class="popup-crowns">
+            <div class="popup-crown">
+              <img src="assets/images/crown2.png" class="crown-icon" alt="2nd" />
+              <span>Player 2</span>
+              <span style="color:#FFD700;">🪙 1000k</span>
+            </div>
+            <div class="popup-crown" style="transform:scale(1.15);">
+              <img src="assets/images/crown1.png" class="crown-icon" alt="1st" />
+              <span style="font-weight:900; color:#FFD700;">Player 1</span>
+              <span style="color:#FFD700;">🪙 1500k</span>
+            </div>
+            <div class="popup-crown">
+              <img src="assets/images/crown 1.png" class="crown-icon" alt="3rd" />
+              <span>Player 3</span>
+              <span style="color:#FFD700;">🪙 850k</span>
+            </div>
+          </div>
+
+          <div class="winner-display">
+            <img id="popupWinnerImg" src="assets/images/mango.png" alt="Winner" />
+            <div style="display:flex; flex-direction:column; align-items:center;">
+              <span style="font-size:12px; color:#94A3B8; font-weight:700;">WINNER MULTIPLIER</span>
+              <span id="popupWinnerMult" style="font-size:18px; font-weight:900; color:#38BDF8;">15x</span>
+            </div>
+            <span id="popupWinAmount" class="win-amount-text">+0</span>
+          </div>
+        </div>
+      </div>
+
+      <!-- Toast Notification -->
+      <div id="toastMsg" class="toast-msg">Not enough coins! Please recharge. 💰</div>
     </div>
   </div>
 
   <script>
     (function() {
-      // 1. Session Ticket & Query Extraction
-      const urlParams = new URLSearchParams(window.location.search);
-      const ticket = urlParams.get('ticket') || window.__YARO_TICKET__ || '';
-      const sessionId = urlParams.get('sessionId') || window.__YARO_SESSION_ID__ || '';
-      const roomId = urlParams.get('roomId') || '';
+      // 1. State Variables
+      var currentBalance = 0;
+      var selectedChip = 100;
+      var activeBets = {}; // spotId -> confirmed amount
+      var pendingBets = {}; // spotId -> pending amount
+      var roundNumber = 1;
+      var isSpinning = false;
+      var isMuted = true;
+      var todayWins = 0;
 
-      let playerCoins = 50000;
-      let selectedChip = 100;
-      let selectedTarget = 'crown';
-      let selectedMultiplier = 50;
-      let isSpinning = false;
-      let currentRotation = 0;
+      // Spots metadata & coordinates (Clockwise around wheel)
+      var spotsList = [
+        { id: 'apple', img: 'assets/images/app.png', mult: 5, top: '12.8%', left: '50.0%' },
+        { id: 'chicken', img: 'assets/images/chik.png', mult: 5, top: '18.2%', left: '27.5%' },
+        { id: 'pizza', img: 'assets/images/pizzasllice.png', mult: 5, top: '31.0%', left: '19.0%' },
+        { id: 'burger', img: 'assets/images/burger (2).png', mult: 5, top: '43.8%', left: '27.0%' },
+        { id: 'fish', img: 'assets/images/fish.png', mult: 10, top: '49.2%', left: '50.5%' },
+        { id: 'mango', img: 'assets/images/mango.png', mult: 15, top: '43.8%', left: '73.0%' },
+        { id: 'strawberry', img: 'assets/images/straw.png', mult: 25, top: '31.0%', left: '81.0%' },
+        { id: 'orange', img: 'assets/images/orange.png', mult: 45, top: '18.2%', left: '72.5%' }
+      ];
 
-      // 2. Bridge Communication to Native YARO
-      function sendToNative(type, payload) {
+      // Elements
+      var playerCoinsEl = document.getElementById('playerCoins');
+      var countdownEl = document.getElementById('countdown');
+      var secondCountdownEl = document.getElementById('secondCountdown');
+      var glowLight = document.getElementById('glowLight');
+      var popupModal = document.getElementById('popupModal');
+      var popupWinnerImg = document.getElementById('popupWinnerImg');
+      var popupWinnerMult = document.getElementById('popupWinnerMult');
+      var popupWinAmount = document.getElementById('popupWinAmount');
+      var todayWinAmountEl = document.getElementById('todayWinAmount');
+      var toastMsg = document.getElementById('toastMsg');
+      var muteIcon = document.getElementById('muteIcon');
+      var fruitList = document.getElementById('fruitList');
+
+      // 2. Native Bridge Messenger
+      function sendToNative(type, payload, requestId) {
         if (window.ReactNativeWebView && window.ReactNativeWebView.postMessage) {
           window.ReactNativeWebView.postMessage(JSON.stringify({
             version: 1,
             type: type,
-            requestId: 'gk_' + Date.now() + '_' + Math.random().toString(36).substring(2, 6),
-            sessionId: sessionId,
+            requestId: requestId || ('req_gk_' + Date.now() + '_' + Math.random().toString(36).substring(2, 7)),
             payload: payload || {},
             timestamp: Date.now()
           }));
         }
       }
 
-      // 3. Notify Native Container: GAME_READY
-      setTimeout(() => {
-        sendToNative('GAME_READY', {
-          gameId: 'greedy-king',
-          status: 'READY',
-          sessionId: sessionId,
-          ticket: ticket,
-        });
-      }, 350);
-
-      // 4. Draw Wheel Segments
-      const canvas = document.getElementById('GameCanvas');
-      const ctx = canvas.getContext('2d');
-      const segments = [
-        { name: 'CROWN 👑', color: '#F59E0B', mult: 50 },
-        { name: 'ORANGE 🍊', color: '#D97706', mult: 2 },
-        { name: 'LION 🦁', color: '#B45309', mult: 25 },
-        { name: 'BANANA 🍌', color: '#92400E', mult: 2 },
-        { name: 'MELON 🍉', color: '#EF4444', mult: 15 },
-        { name: 'APPLE 🍎', color: '#DC2626', mult: 5 },
-        { name: 'GRAPES 🍇', color: '#7C3AED', mult: 10 },
-        { name: 'MANGO 🥭', color: '#6D28D9', mult: 5 },
-      ];
-
-      function drawWheel() {
-        const numSegments = segments.length;
-        const anglePerSeg = (2 * Math.PI) / numSegments;
-        const radius = canvas.width / 2;
-
-        ctx.clearRect(0, 0, canvas.width, canvas.height);
-
-        for (let i = 0; i < numSegments; i++) {
-          const segAngle = i * anglePerSeg;
-          ctx.beginPath();
-          ctx.moveTo(radius, radius);
-          ctx.arc(radius, radius, radius, segAngle, segAngle + anglePerSeg);
-          ctx.fillStyle = segments[i].color;
-          ctx.fill();
-          ctx.strokeStyle = '#FEF08A';
-          ctx.lineWidth = 2;
-          ctx.stroke();
-
-          // Text
-          ctx.save();
-          ctx.translate(radius, radius);
-          ctx.rotate(segAngle + anglePerSeg / 2);
-          ctx.textAlign = 'right';
-          ctx.fillStyle = '#FFF';
-          ctx.font = 'bold 13px sans-serif';
-          ctx.fillText(segments[i].name + ' ' + segments[i].mult + 'x', radius - 20, 5);
-          ctx.restore();
-        }
+      function showToast(msg) {
+        toastMsg.textContent = msg;
+        toastMsg.style.display = 'block';
+        setTimeout(function() {
+          toastMsg.style.display = 'none';
+        }, 2200);
       }
-      drawWheel();
 
-      // 5. User Interaction: Multipliers
-      document.querySelectorAll('.multiplier-slot').forEach(el => {
-        el.addEventListener('click', () => {
-          if (isSpinning) return;
-          document.querySelectorAll('.multiplier-slot').forEach(s => s.classList.remove('selected'));
-          el.classList.add('selected');
-          selectedTarget = el.dataset.target;
-          selectedMultiplier = Number(el.dataset.mult);
-          updateBetButton();
-        });
-      });
+      function setBalance(bal) {
+        currentBalance = Number(bal) || 0;
+        playerCoinsEl.textContent = currentBalance.toLocaleString();
+      }
 
-      // 6. User Interaction: Chips
-      document.querySelectorAll('.chip-btn').forEach(el => {
-        el.addEventListener('click', () => {
-          if (isSpinning) return;
-          document.querySelectorAll('.chip-btn').forEach(c => c.classList.remove('active'));
+      // 3. Chip Selection Handling
+      var chipItems = document.querySelectorAll('.chip-item');
+      chipItems.forEach(function(el) {
+        el.addEventListener('click', function() {
+          chipItems.forEach(function(c) { c.classList.remove('active'); });
           el.classList.add('active');
-          selectedChip = Number(el.dataset.chip);
-          updateBetButton();
+          selectedChip = Number(el.getAttribute('data-amount')) || 100;
         });
       });
 
-      function updateBetButton() {
-        document.getElementById('betButton').innerText = `BET ${selectedChip.toLocaleString()} ON ${selectedTarget.toUpperCase()} (${selectedMultiplier}x)`;
-      }
-      updateBetButton();
-
-      // 7. Bet Execution (Server-authoritative simulated round)
-      const betBtn = document.getElementById('betButton');
-      const statusRibbon = document.getElementById('statusRibbon');
-
-      betBtn.addEventListener('click', () => {
-        if (isSpinning) return;
-        if (playerCoins < selectedChip) {
-          sendToNative('GAME_ERROR', { message: 'Insufficient coins balance' });
-          return;
-        }
-
-        playerCoins -= selectedChip;
-        document.getElementById('playerCoins').innerText = playerCoins.toLocaleString();
-
-        // Notify Native
-        sendToNative('PLAYER_ACTION', {
-          action: 'PLACE_BET',
-          betAmount: selectedChip,
-          target: selectedTarget,
-          multiplier: selectedMultiplier,
-        });
-
-        // Trigger Spin
-        isSpinning = true;
-        betBtn.disabled = true;
-        statusRibbon.innerText = 'WHEEL SPINNING...';
-
-        const extraRotations = 5 + Math.floor(Math.random() * 3);
-        const winningIndex = Math.floor(Math.random() * segments.length);
-        const segAngle = 360 / segments.length;
-        const targetAngle = extraRotations * 360 + (segments.length - 1 - winningIndex) * segAngle + (segAngle / 2);
-
-        currentRotation += targetAngle;
-        canvas.style.transform = `rotate(${currentRotation}deg)`;
-
-        setTimeout(() => {
-          isSpinning = false;
-          betBtn.disabled = false;
-          const winner = segments[winningIndex];
-          const isWin = (selectedTarget === 'crown' && winner.name.includes('CROWN')) ||
-                        (selectedTarget === 'lion' && winner.name.includes('LION')) ||
-                        (selectedTarget === 'watermelon' && winner.name.includes('MELON')) ||
-                        (selectedTarget === 'grapes' && winner.name.includes('GRAPES')) ||
-                        (selectedTarget === 'mango' && winner.name.includes('MANGO')) ||
-                        (selectedTarget === 'apple' && winner.name.includes('APPLE')) ||
-                        (selectedTarget === 'orange' && winner.name.includes('ORANGE')) ||
-                        (selectedTarget === 'banana' && winner.name.includes('BANANA'));
-
-          if (isWin) {
-            const wonAmount = selectedChip * winner.mult;
-            playerCoins += wonAmount;
-            document.getElementById('playerCoins').innerText = playerCoins.toLocaleString();
-            statusRibbon.innerText = `🎉 WON ${wonAmount.toLocaleString()} COINS (${winner.name})!`;
-            sendToNative('GAME_FINISHED', {
-              won: true,
-              amount: wonAmount,
-              multiplier: winner.mult,
-              winner: winner.name,
-            });
-          } else {
-            statusRibbon.innerText = `RESULT: ${winner.name} • PLACE NEXT BET`;
-            sendToNative('GAME_FINISHED', {
-              won: false,
-              amount: 0,
-              winner: winner.name,
-            });
+      // 4. Spot Betting Click Handler
+      var spotElements = document.querySelectorAll('.food-spot');
+      spotElements.forEach(function(spotEl) {
+        spotEl.addEventListener('click', function() {
+          if (isSpinning) {
+            showToast("Bets closed for this round! ⏳");
+            return;
           }
 
-          // Request native wallet sync
-          sendToNative('WALLET_REFRESH_REQUEST', {});
-        }, 4600);
+          var spotId = spotEl.getAttribute('data-spot');
+          var amount = selectedChip;
+
+          // Immediate Client Balance Pre-check
+          if (currentBalance < amount) {
+            showToast("Not enough coins! Please recharge. 💰");
+            return;
+          }
+
+          // Mark spot as PROCESSING
+          spotEl.classList.add('processing');
+          var reqId = 'req_bet_' + Date.now() + '_' + spotId;
+
+          // Request authoritative debit from YARO Native Backend
+          sendToNative('BET_REQUEST', {
+            spotId: spotId,
+            amount: amount,
+            roundNumber: roundNumber,
+            reqId: reqId
+          }, reqId);
+        });
       });
 
-      // 8. Native Bridge Receivers
-      window.adaptCocosViewport = function(w, h, isHalf) {
-        window.dispatchEvent(new Event('resize'));
+      // 5. Action Buttons (Minimize, Close, Mute, Recharge, Rules)
+      document.getElementById('closeBtn').addEventListener('click', function() {
+        sendToNative('GAME_EXIT');
+      });
+
+      document.getElementById('minimizeBtn').addEventListener('click', function() {
+        sendToNative('GAME_MINIMIZED');
+      });
+
+      document.getElementById('muteBtn').addEventListener('click', function() {
+        isMuted = !isMuted;
+        muteIcon.className = isMuted ? 'fa-solid fa-volume-xmark' : 'fa-solid fa-volume-high';
+        sendToNative('MUTE_TOGGLED', { isMuted: isMuted });
+      });
+
+      document.getElementById('plus').addEventListener('click', function() {
+        sendToNative('RECHARGE_REQUEST');
+      });
+
+      document.getElementById('helpBtn').addEventListener('click', function() {
+        showToast("Select a chip & tap fruit pods to place bets! 5x - 45x payouts.");
+      });
+
+      // 6. Round Loop Engine (Betting 20s -> Spinning 10s -> Result 4s)
+      var glowInterval = null;
+      var glowIndex = 0;
+
+      function startRound() {
+        isSpinning = false;
+        activeBets = {};
+        pendingBets = {};
+        spotElements.forEach(function(s) {
+          s.classList.remove('processing');
+          var badge = s.querySelector('.spot-bet-badge');
+          if (badge) { badge.style.display = 'none'; badge.textContent = '0'; }
+        });
+
+        popupModal.style.display = 'none';
+        glowLight.style.display = 'none';
+        secondCountdownEl.style.display = 'none';
+
+        var bettingTimer = 20;
+        countdownEl.textContent = bettingTimer + 's';
+        countdownEl.style.display = 'block';
+
+        var bInterval = setInterval(function() {
+          bettingTimer--;
+          countdownEl.textContent = bettingTimer + 's';
+          if (bettingTimer <= 0) {
+            clearInterval(bInterval);
+            countdownEl.style.display = 'none';
+            startSpinPhase();
+          }
+        }, 1000);
+      }
+
+      function startSpinPhase() {
+        isSpinning = true;
+        secondCountdownEl.style.display = 'block';
+        var spinTimer = 10;
+        secondCountdownEl.textContent = spinTimer + 's';
+
+        // Start glow wheel animation
+        glowLight.style.display = 'block';
+        glowIndex = 0;
+        var spinSpeed = 120;
+
+        function runGlowStep() {
+          if (!isSpinning) return;
+          var spot = spotsList[glowIndex];
+          glowLight.style.top = spot.top;
+          glowLight.style.left = spot.left;
+          glowIndex = (glowIndex + 1) % spotsList.length;
+        }
+
+        glowInterval = setInterval(runGlowStep, spinSpeed);
+
+        var sInterval = setInterval(function() {
+          spinTimer--;
+          secondCountdownEl.textContent = spinTimer + 's';
+
+          // Decelerate as timer approaches 0
+          if (spinTimer === 3) {
+            clearInterval(glowInterval);
+            glowInterval = setInterval(runGlowStep, 260);
+          } else if (spinTimer === 1) {
+            clearInterval(glowInterval);
+            glowInterval = setInterval(runGlowStep, 450);
+          }
+
+          if (spinTimer <= 0) {
+            clearInterval(sInterval);
+            clearInterval(glowInterval);
+            settleRound();
+          }
+        }, 1000);
+      }
+
+      function settleRound() {
+        isSpinning = false;
+        secondCountdownEl.textContent = 'Result!';
+
+        // Pick winning spot (Deterministic or random)
+        var winnerIdx = Math.floor(Math.random() * spotsList.length);
+        var winningSpot = spotsList[winnerIdx];
+
+        glowLight.style.top = winningSpot.top;
+        glowLight.style.left = winningSpot.left;
+
+        // Calculate payout for player
+        var playerBetOnWinner = activeBets[winningSpot.id] || 0;
+        var payoutAmount = playerBetOnWinner * winningSpot.mult;
+
+        // If player won, request Authoritative Wallet Credit from Native Backend
+        if (payoutAmount > 0) {
+          var payoutReqId = 'req_payout_' + Date.now() + '_' + winningSpot.id;
+          sendToNative('WIN_PAYOUT', {
+            spotId: winningSpot.id,
+            multiplier: winningSpot.mult,
+            winAmount: payoutAmount,
+            betAmount: playerBetOnWinner,
+            roundNumber: roundNumber,
+            reqId: payoutReqId
+          }, payoutReqId);
+        }
+
+        // Show Result in Popup Modal
+        setTimeout(function() {
+          popupWinnerImg.src = winningSpot.img;
+          popupWinnerMult.textContent = winningSpot.mult + 'x';
+          popupWinAmount.textContent = payoutAmount > 0 ? ('+' + payoutAmount.toLocaleString()) : '0';
+          popupModal.style.display = 'flex';
+
+          // Prepend to Result History
+          var newHist = document.createElement('img');
+          newHist.src = winningSpot.img;
+          newHist.className = 'history-fruit';
+          fruitList.insertBefore(newHist, fruitList.firstChild);
+          if (fruitList.children.length > 7) {
+            fruitList.removeChild(fruitList.lastChild);
+          }
+
+          // Restart next round after 4s
+          setTimeout(function() {
+            roundNumber++;
+            startRound();
+          }, 4000);
+        }, 600);
+      }
+
+      // 7. Receive Native Messages from React Native Bridge
+      window.__YARO_COCOS_RECEIVER__ = function(serialized) {
+        try {
+          var msg = typeof serialized === 'string' ? JSON.parse(serialized) : serialized;
+          if (!msg || !msg.payload) return;
+
+          var action = msg.payload.action;
+          if (action === 'BET_CONFIRMED') {
+            var spotId = msg.payload.spotId;
+            var amount = Number(msg.payload.amount) || 0;
+            var balanceAfter = msg.payload.balanceAfter;
+
+            // Remove processing animation
+            var spotEl = document.getElementById('spot_' + spotId);
+            if (spotEl) {
+              spotEl.classList.remove('processing');
+              var badge = spotEl.querySelector('.spot-bet-badge');
+              if (badge) {
+                activeBets[spotId] = (activeBets[spotId] || 0) + amount;
+                badge.textContent = activeBets[spotId].toLocaleString();
+                badge.style.display = 'block';
+              }
+            }
+
+            if (typeof balanceAfter === 'number') {
+              setBalance(balanceAfter);
+            }
+          } else if (action === 'BET_REJECTED') {
+            var spotId = msg.payload.spotId;
+            var spotEl = document.getElementById('spot_' + spotId);
+            if (spotEl) {
+              spotEl.classList.remove('processing');
+            }
+            showToast(msg.payload.error || "Bet rejected: Not enough coins!");
+          } else if (action === 'PAYOUT_CONFIRMED') {
+            var balanceAfter = msg.payload.balanceAfter;
+            var won = Number(msg.payload.winAmount) || 0;
+            if (typeof balanceAfter === 'number') {
+              setBalance(balanceAfter);
+            }
+            todayWins += won;
+            todayWinAmountEl.textContent = todayWins.toLocaleString();
+          } else if (action === 'UPDATE_SETTINGS') {
+            if (typeof msg.payload.balance === 'number') {
+              setBalance(msg.payload.balance);
+            }
+          }
+        } catch (e) {
+          console.warn('[GreedyKing] Message parse error:', e);
+        }
       };
 
-      window.setGameMuted = function(muted) {
-        document.querySelectorAll('audio, video').forEach(a => { a.muted = muted; });
-      };
+      // 8. Auto-start on load
+      window.addEventListener('load', function() {
+        sendToNative('GAME_READY');
+        startRound();
+      });
     })();
   </script>
 </body>
