@@ -5,6 +5,23 @@ import { Types } from 'mongoose';
 
 export const DEFAULT_COCOS_GAMES = [
   {
+    gameId: 'greedy-king',
+    title: 'Greedy King',
+    subtitle: 'King Fruit Wheel & Royal 50x Multiplier',
+    description: 'Cocos Creator HTML5 Greedy King with instant royal coin rewards & multiplayer live wheel!',
+    category: 'Wheel',
+    icon: 'crown',
+    gameUrl: 'https://games.yaroapp.in/greedy-king/',
+    minBet: 50,
+    maxBet: 50000,
+    multipliers: [2, 5, 10, 15, 20, 25, 30, 50],
+    isActive: true,
+    isMultiplayer: true,
+    maxPlayers: 100,
+    tag: 'HOT',
+    gradient: ['#F59E0B', '#EF4444', '#7C3AED'],
+  },
+  {
     gameId: 'food-game',
     title: 'Food Game (Fruit Wheel)',
     subtitle: 'Fruit & Food Multipliers up to 50x',
@@ -131,9 +148,12 @@ export class GameService {
    */
   public static async seedGamesIfEmpty(): Promise<void> {
     try {
-      const count = await Game.countDocuments();
-      if (count === 0) {
-        await Game.insertMany(DEFAULT_COCOS_GAMES);
+      for (const game of DEFAULT_COCOS_GAMES) {
+        await Game.findOneAndUpdate(
+          { gameId: game.gameId },
+          { $set: game },
+          { upsert: true, new: true }
+        );
       }
     } catch {
       // Ignore seed error

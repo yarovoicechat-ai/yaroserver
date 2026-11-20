@@ -1,0 +1,471 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width,initial-scale=1,maximum-scale=1,user-scalable=no,viewport-fit=cover">
+  <title>YARO Greedy King - Cocos Creator 3.8.x Web Mobile</title>
+  <style>
+    * {
+      margin: 0;
+      padding: 0;
+      box-sizing: border-box;
+      -webkit-touch-callout: none;
+      -webkit-user-select: none;
+      user-select: none;
+    }
+    html, body {
+      width: 100%;
+      height: 100%;
+      background: radial-gradient(circle at 50% 25%, #2a1506 0%, #0d0602 100%);
+      color: #fff;
+      font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Helvetica, Arial, sans-serif;
+      overflow: hidden;
+    }
+    #Cocos3dGameContainer {
+      position: relative;
+      width: 100%;
+      height: 100%;
+      display: flex;
+      flex-direction: column;
+      align-items: center;
+      justify-content: space-between;
+      padding: 8px 10px;
+    }
+    .game-banner {
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      width: 100%;
+      background: rgba(255, 255, 255, 0.08);
+      padding: 6px 12px;
+      border-radius: 12px;
+      border: 1px solid rgba(254, 240, 138, 0.25);
+    }
+    .engine-pill {
+      display: inline-flex;
+      align-items: center;
+      gap: 4px;
+      font-size: 10px;
+      font-weight: 800;
+      color: #FDE047;
+      background: rgba(245, 158, 11, 0.2);
+      padding: 2px 8px;
+      border-radius: 8px;
+      letter-spacing: 0.5px;
+    }
+    .coins-badge {
+      font-size: 13px;
+      font-weight: 900;
+      color: #FFD700;
+      display: flex;
+      align-items: center;
+      gap: 4px;
+      text-shadow: 0 0 8px rgba(255, 215, 0, 0.5);
+    }
+    .wheel-stage {
+      position: relative;
+      width: 100%;
+      max-width: 320px;
+      aspect-ratio: 1;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      margin: auto;
+    }
+    .wheel-canvas {
+      width: 90%;
+      height: 90%;
+      border-radius: 50%;
+      box-shadow: 0 0 25px rgba(245, 158, 11, 0.5), inset 0 0 20px rgba(0,0,0,0.8);
+      transition: transform 4.5s cubic-bezier(0.15, 0.9, 0.2, 1);
+      border: 4px solid #F59E0B;
+    }
+    .wheel-pointer {
+      position: absolute;
+      top: 0;
+      left: 50%;
+      transform: translateX(-50%);
+      width: 0;
+      height: 0;
+      border-left: 12px solid transparent;
+      border-right: 12px solid transparent;
+      border-top: 24px solid #EF4444;
+      z-index: 10;
+      filter: drop-shadow(0 2px 4px rgba(0,0,0,0.6));
+    }
+    .king-hub {
+      position: absolute;
+      width: 72px;
+      height: 72px;
+      border-radius: 50%;
+      background: radial-gradient(circle, #F59E0B 0%, #78350F 100%);
+      border: 3px solid #FEF08A;
+      display: flex;
+      flex-direction: column;
+      align-items: center;
+      justify-content: center;
+      box-shadow: 0 0 15px rgba(254, 240, 138, 0.8);
+      z-index: 5;
+    }
+    .king-hub-emoji {
+      font-size: 24px;
+    }
+    .king-hub-text {
+      font-size: 8px;
+      font-weight: 900;
+      color: #FFF;
+      letter-spacing: 0.5px;
+    }
+    .status-ribbon {
+      background: rgba(0, 0, 0, 0.5);
+      border: 1px solid rgba(245, 158, 11, 0.3);
+      padding: 4px 16px;
+      border-radius: 12px;
+      font-size: 12px;
+      font-weight: 800;
+      color: #FDE047;
+      text-align: center;
+      margin-bottom: 6px;
+    }
+    .chip-selector {
+      display: flex;
+      justify-content: center;
+      gap: 8px;
+      width: 100%;
+      padding: 4px 0;
+    }
+    .chip-btn {
+      padding: 6px 12px;
+      border-radius: 16px;
+      background: rgba(255, 255, 255, 0.08);
+      border: 1.5px solid rgba(255, 255, 255, 0.2);
+      color: #fff;
+      font-weight: 800;
+      font-size: 11px;
+      cursor: pointer;
+      transition: all 0.2s;
+    }
+    .chip-btn.active {
+      background: linear-gradient(135deg, #F59E0B 0%, #D97706 100%);
+      border-color: #FEF08A;
+      color: #000;
+      transform: scale(1.08);
+      box-shadow: 0 0 12px rgba(245, 158, 11, 0.6);
+    }
+    .action-row {
+      display: flex;
+      gap: 10px;
+      width: 100%;
+      max-width: 340px;
+    }
+    .bet-btn {
+      flex: 1;
+      padding: 10px;
+      border-radius: 14px;
+      border: none;
+      background: linear-gradient(135deg, #F59E0B 0%, #EF4444 100%);
+      color: #FFF;
+      font-weight: 900;
+      font-size: 14px;
+      letter-spacing: 0.5px;
+      box-shadow: 0 4px 12px rgba(245, 158, 11, 0.4);
+      cursor: pointer;
+    }
+    .bet-btn:disabled {
+      opacity: 0.5;
+      cursor: not-allowed;
+    }
+    .multipliers-grid {
+      display: grid;
+      grid-template-columns: repeat(4, 1fr);
+      gap: 6px;
+      width: 100%;
+      max-width: 340px;
+      margin-bottom: 6px;
+    }
+    .multiplier-slot {
+      background: rgba(255, 255, 255, 0.05);
+      border: 1px solid rgba(255, 255, 255, 0.1);
+      border-radius: 8px;
+      padding: 4px;
+      text-align: center;
+      cursor: pointer;
+      transition: all 0.15s;
+    }
+    .multiplier-slot.selected {
+      border-color: #F59E0B;
+      background: rgba(245, 158, 11, 0.25);
+    }
+    .slot-icon { font-size: 16px; }
+    .slot-mult { font-size: 9px; font-weight: 800; color: #FDE047; }
+  </style>
+</head>
+<body>
+  <div id="Cocos3dGameContainer">
+    <!-- Header -->
+    <div class="game-banner">
+      <div class="engine-pill">👑 GREEDY KING 3.8.x</div>
+      <div class="coins-badge">🪙 <span id="playerCoins">50,000</span></div>
+    </div>
+
+    <!-- Status -->
+    <div class="status-ribbon" id="statusRibbon">PLACE YOUR BET • 15s</div>
+
+    <!-- Multiplier Selection Grid -->
+    <div class="multipliers-grid" id="slotsGrid">
+      <div class="multiplier-slot selected" data-target="crown" data-mult="50">
+        <div class="slot-icon">👑</div>
+        <div class="slot-mult">50x</div>
+      </div>
+      <div class="multiplier-slot" data-target="lion" data-mult="25">
+        <div class="slot-icon">🦁</div>
+        <div class="slot-mult">25x</div>
+      </div>
+      <div class="multiplier-slot" data-target="watermelon" data-mult="15">
+        <div class="slot-icon">🍉</div>
+        <div class="slot-mult">15x</div>
+      </div>
+      <div class="multiplier-slot" data-target="grapes" data-mult="10">
+        <div class="slot-icon">🍇</div>
+        <div class="slot-mult">10x</div>
+      </div>
+      <div class="multiplier-slot" data-target="mango" data-mult="5">
+        <div class="slot-icon">🥭</div>
+        <div class="slot-mult">5x</div>
+      </div>
+      <div class="multiplier-slot" data-target="apple" data-mult="5">
+        <div class="slot-icon">🍎</div>
+        <div class="slot-mult">5x</div>
+      </div>
+      <div class="multiplier-slot" data-target="orange" data-mult="2">
+        <div class="slot-icon">🍊</div>
+        <div class="slot-mult">2x</div>
+      </div>
+      <div class="multiplier-slot" data-target="banana" data-mult="2">
+        <div class="slot-icon">🍌</div>
+        <div class="slot-mult">2x</div>
+      </div>
+    </div>
+
+    <!-- Interactive Canvas Wheel -->
+    <div class="wheel-stage">
+      <div class="wheel-pointer"></div>
+      <canvas id="GameCanvas" class="wheel-canvas" width="400" height="400"></canvas>
+      <div class="king-hub">
+        <div class="king-hub-emoji">👑</div>
+        <div class="king-hub-text">KING</div>
+      </div>
+    </div>
+
+    <!-- Chip Selection -->
+    <div class="chip-selector">
+      <button class="chip-btn" data-chip="50">50</button>
+      <button class="chip-btn active" data-chip="100">100</button>
+      <button class="chip-btn" data-chip="500">500</button>
+      <button class="chip-btn" data-chip="1000">1K</button>
+      <button class="chip-btn" data-chip="5000">5K</button>
+    </div>
+
+    <!-- Bet Button -->
+    <div class="action-row">
+      <button class="bet-btn" id="betButton">BET 100 COINS</button>
+    </div>
+  </div>
+
+  <script>
+    (function() {
+      // 1. Session Ticket & Query Extraction
+      const urlParams = new URLSearchParams(window.location.search);
+      const ticket = urlParams.get('ticket') || window.__YARO_TICKET__ || '';
+      const sessionId = urlParams.get('sessionId') || window.__YARO_SESSION_ID__ || '';
+      const roomId = urlParams.get('roomId') || '';
+
+      let playerCoins = 50000;
+      let selectedChip = 100;
+      let selectedTarget = 'crown';
+      let selectedMultiplier = 50;
+      let isSpinning = false;
+      let currentRotation = 0;
+
+      // 2. Bridge Communication to Native YARO
+      function sendToNative(type, payload) {
+        if (window.ReactNativeWebView && window.ReactNativeWebView.postMessage) {
+          window.ReactNativeWebView.postMessage(JSON.stringify({
+            version: 1,
+            type: type,
+            requestId: 'gk_' + Date.now() + '_' + Math.random().toString(36).substring(2, 6),
+            sessionId: sessionId,
+            payload: payload || {},
+            timestamp: Date.now()
+          }));
+        }
+      }
+
+      // 3. Notify Native Container: GAME_READY
+      setTimeout(() => {
+        sendToNative('GAME_READY', {
+          gameId: 'greedy-king',
+          status: 'READY',
+          sessionId: sessionId,
+          ticket: ticket,
+        });
+      }, 350);
+
+      // 4. Draw Wheel Segments
+      const canvas = document.getElementById('GameCanvas');
+      const ctx = canvas.getContext('2d');
+      const segments = [
+        { name: 'CROWN 👑', color: '#F59E0B', mult: 50 },
+        { name: 'ORANGE 🍊', color: '#D97706', mult: 2 },
+        { name: 'LION 🦁', color: '#B45309', mult: 25 },
+        { name: 'BANANA 🍌', color: '#92400E', mult: 2 },
+        { name: 'MELON 🍉', color: '#EF4444', mult: 15 },
+        { name: 'APPLE 🍎', color: '#DC2626', mult: 5 },
+        { name: 'GRAPES 🍇', color: '#7C3AED', mult: 10 },
+        { name: 'MANGO 🥭', color: '#6D28D9', mult: 5 },
+      ];
+
+      function drawWheel() {
+        const numSegments = segments.length;
+        const anglePerSeg = (2 * Math.PI) / numSegments;
+        const radius = canvas.width / 2;
+
+        ctx.clearRect(0, 0, canvas.width, canvas.height);
+
+        for (let i = 0; i < numSegments; i++) {
+          const segAngle = i * anglePerSeg;
+          ctx.beginPath();
+          ctx.moveTo(radius, radius);
+          ctx.arc(radius, radius, radius, segAngle, segAngle + anglePerSeg);
+          ctx.fillStyle = segments[i].color;
+          ctx.fill();
+          ctx.strokeStyle = '#FEF08A';
+          ctx.lineWidth = 2;
+          ctx.stroke();
+
+          // Text
+          ctx.save();
+          ctx.translate(radius, radius);
+          ctx.rotate(segAngle + anglePerSeg / 2);
+          ctx.textAlign = 'right';
+          ctx.fillStyle = '#FFF';
+          ctx.font = 'bold 13px sans-serif';
+          ctx.fillText(segments[i].name + ' ' + segments[i].mult + 'x', radius - 20, 5);
+          ctx.restore();
+        }
+      }
+      drawWheel();
+
+      // 5. User Interaction: Multipliers
+      document.querySelectorAll('.multiplier-slot').forEach(el => {
+        el.addEventListener('click', () => {
+          if (isSpinning) return;
+          document.querySelectorAll('.multiplier-slot').forEach(s => s.classList.remove('selected'));
+          el.classList.add('selected');
+          selectedTarget = el.dataset.target;
+          selectedMultiplier = Number(el.dataset.mult);
+          updateBetButton();
+        });
+      });
+
+      // 6. User Interaction: Chips
+      document.querySelectorAll('.chip-btn').forEach(el => {
+        el.addEventListener('click', () => {
+          if (isSpinning) return;
+          document.querySelectorAll('.chip-btn').forEach(c => c.classList.remove('active'));
+          el.classList.add('active');
+          selectedChip = Number(el.dataset.chip);
+          updateBetButton();
+        });
+      });
+
+      function updateBetButton() {
+        document.getElementById('betButton').innerText = `BET ${selectedChip.toLocaleString()} ON ${selectedTarget.toUpperCase()} (${selectedMultiplier}x)`;
+      }
+      updateBetButton();
+
+      // 7. Bet Execution (Server-authoritative simulated round)
+      const betBtn = document.getElementById('betButton');
+      const statusRibbon = document.getElementById('statusRibbon');
+
+      betBtn.addEventListener('click', () => {
+        if (isSpinning) return;
+        if (playerCoins < selectedChip) {
+          sendToNative('GAME_ERROR', { message: 'Insufficient coins balance' });
+          return;
+        }
+
+        playerCoins -= selectedChip;
+        document.getElementById('playerCoins').innerText = playerCoins.toLocaleString();
+
+        // Notify Native
+        sendToNative('PLAYER_ACTION', {
+          action: 'PLACE_BET',
+          betAmount: selectedChip,
+          target: selectedTarget,
+          multiplier: selectedMultiplier,
+        });
+
+        // Trigger Spin
+        isSpinning = true;
+        betBtn.disabled = true;
+        statusRibbon.innerText = 'WHEEL SPINNING...';
+
+        const extraRotations = 5 + Math.floor(Math.random() * 3);
+        const winningIndex = Math.floor(Math.random() * segments.length);
+        const segAngle = 360 / segments.length;
+        const targetAngle = extraRotations * 360 + (segments.length - 1 - winningIndex) * segAngle + (segAngle / 2);
+
+        currentRotation += targetAngle;
+        canvas.style.transform = `rotate(${currentRotation}deg)`;
+
+        setTimeout(() => {
+          isSpinning = false;
+          betBtn.disabled = false;
+          const winner = segments[winningIndex];
+          const isWin = (selectedTarget === 'crown' && winner.name.includes('CROWN')) ||
+                        (selectedTarget === 'lion' && winner.name.includes('LION')) ||
+                        (selectedTarget === 'watermelon' && winner.name.includes('MELON')) ||
+                        (selectedTarget === 'grapes' && winner.name.includes('GRAPES')) ||
+                        (selectedTarget === 'mango' && winner.name.includes('MANGO')) ||
+                        (selectedTarget === 'apple' && winner.name.includes('APPLE')) ||
+                        (selectedTarget === 'orange' && winner.name.includes('ORANGE')) ||
+                        (selectedTarget === 'banana' && winner.name.includes('BANANA'));
+
+          if (isWin) {
+            const wonAmount = selectedChip * winner.mult;
+            playerCoins += wonAmount;
+            document.getElementById('playerCoins').innerText = playerCoins.toLocaleString();
+            statusRibbon.innerText = `🎉 WON ${wonAmount.toLocaleString()} COINS (${winner.name})!`;
+            sendToNative('GAME_FINISHED', {
+              won: true,
+              amount: wonAmount,
+              multiplier: winner.mult,
+              winner: winner.name,
+            });
+          } else {
+            statusRibbon.innerText = `RESULT: ${winner.name} • PLACE NEXT BET`;
+            sendToNative('GAME_FINISHED', {
+              won: false,
+              amount: 0,
+              winner: winner.name,
+            });
+          }
+
+          // Request native wallet sync
+          sendToNative('WALLET_REFRESH_REQUEST', {});
+        }, 4600);
+      });
+
+      // 8. Native Bridge Receivers
+      window.adaptCocosViewport = function(w, h, isHalf) {
+        window.dispatchEvent(new Event('resize'));
+      };
+
+      window.setGameMuted = function(muted) {
+        document.querySelectorAll('audio, video').forEach(a => { a.muted = muted; });
+      };
+    })();
+  </script>
+</body>
+</html>
