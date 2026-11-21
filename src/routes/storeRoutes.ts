@@ -25,8 +25,10 @@ import {
   adminRemoveUserAssets,
 } from '../controllers/storeController';
 import { AuthRequest, requireRoles, verifyToken } from '../middlewares/authorize.middleware';
+import assetQuotaRoutes from './assetQuotaRoutes';
 
 const router = Router();
+router.use('/asset-quota', assetQuotaRoutes);
 const storeManagers = requireRoles('owner', 'superAdmin', 'admin', 'operator');
 
 // The public store never receives employee-only items. A management panel may

@@ -38,8 +38,12 @@ import {
 import { listAdmins, getAdmin, toggleAdminBlock, deleteAdmin, resetAdminPassword, getRecruitedMembers } from '../controllers/adminController';
 import { listSuperAdmins, getSuperAdmin, toggleSuperAdminBlock, deleteSuperAdmin, resetSuperAdminPassword } from '../controllers/superAdminController';
 import { getDeviceLimits, updateDeviceLimit, getUserDeviceDetails, getAdminReferrals, getReferrerReferees } from '../controllers/referralController';
+import assetQuotaRoutes from './assetQuotaRoutes';
 
 const router = express.Router();
+
+// Asset Quota & Operator Allocation Routes
+router.use('/asset-quota', assetQuotaRoutes);
 
 // Device Limits & User Device Identifier Lookup Routes
 router.get('/users/device-info/:identifier', verifyToken, getUserDeviceDetails);
