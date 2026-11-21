@@ -371,4 +371,101 @@ export const dismissAccountReview = async (req: AuthRequest, res: Response) => {
   }
 };
 
+/**
+ * DELETE /api/moderation/violations/:id
+ * Permanent deletion of a chat violation record (Owner or authorized moderator)
+ */
+export const deleteChatViolation = async (req: AuthRequest, res: Response) => {
+  try {
+    const isOwner = req.user?.role === 'owner';
+    const hasPerm = isOwner || await PermissionEngine.hasModerationPermission(req.user, "delete");
+    if (!hasPerm) {
+      return sendResponse(res, 403, false, "Access Denied: Only Platform Owner or authorized moderators can delete violation records");
+    }
+
+    const { id } = req.params;
+    const violation = await ChatViolation.findById(id);
+    if (!violation) {
+      return sendResponse(res, 404, false, "Chat violation record not found");
+    }
+
+    const senderId = violation.sender;
+    await ChatViolation.findByIdAndDelete(id);
+
+    // If sender exists, check remaining active violations
+    if (senderId) {
+      const remainingCount = await ChatViolation.countDocuments({
+        sender: senderId,
+        status: { $in: ["PENDING", "ACTION_TAKEN"] }
+      });
+      if (remainingCount === 0) {
+        // If no more pending/action_taken violations, lift mute if it was active
+        const sender = await User.findById(senderId);
+        if (sender && sender.chatMuteUntil) {
+          sender.chatMuteUntil = undefined;
+          sender.chatMuteReason = "";
+          sender.lastEscalationAction = "UNMUTED_VIOLATION_DELETED";
+          await sender.save();
+        }
+      }
+    }
+
+    return sendResponse(res, 200, true, "Chat violation permanently deleted", { id });
+  } catch (error: any) {
+    await Logger("deleteChatViolation", error);
+    return sendResponse(res, 500, false, error.message || "Failed to delete chat violation");
+  }
+};
+
+/**
+ * DELETE /api/moderation/users/:userId/restrictions
+ * Owner endpoint to completely delete/clear chat restrictions and violation records for a user
+ */
+export const clearUserRestrictions = async (req: AuthRequest, res: Response) => {
+  try {
+    const isOwner = req.user?.role === 'owner';
+    if (!isOwner) {
+      return sendResponse(res, 403, false, "Access Denied: Only Platform Owner can permanently clear user chat restrictions and delete records");
+    }
+
+    const { userId } = req.params;
+    const { deleteViolations = 'true' } = req.query;
+
+    const user = await User.findById(userId);
+    if (!user) {
+      return sendResponse(res, 404, false, "User not found");
+    }
+
+    // Completely clear all chat restrictions and risk counters
+    user.chatMuteUntil = undefined;
+    user.chatMuteReason = "";
+    user.chatMuteViolationCount = 0;
+    user.lastEscalationAction = "RESTRICTION_DELETED_BY_OWNER";
+    user.accountReviewRequired = false;
+    user.accountReviewReason = "";
+    user.moderationRiskScore = 0;
+    user.moderationRiskLevel = "LOW";
+    user.moderationLastViolationAt = undefined;
+    await user.save();
+
+    let deletedCount = 0;
+    if (deleteViolations === 'true' || deleteViolations === true) {
+      const deleteResult = await ChatViolation.deleteMany({ sender: user._id });
+      deletedCount = deleteResult.deletedCount || 0;
+    }
+
+    return sendResponse(res, 200, true, "User chat restrictions cleared and violation history deleted successfully", {
+      userId: user._id,
+      name: user.name,
+      deletedViolationsCount: deletedCount,
+      chatMuteUntil: null,
+      moderationRiskLevel: user.moderationRiskLevel,
+    });
+  } catch (error: any) {
+    await Logger("clearUserRestrictions", error);
+    return sendResponse(res, 500, false, error.message || "Failed to clear user restrictions");
+  }
+};
+
+
 

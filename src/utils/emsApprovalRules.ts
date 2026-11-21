@@ -37,7 +37,7 @@ export interface WorkflowDefinition {
  */
 export const ROLE_APPROVAL_CONFIG: Record<string, WorkflowDefinition> = {
   countryManager: { targetRole: 'countryManager', steps: ['Stage 1: Operator Review', 'Stage 2: Owner Final Approval'], stepRoles: ['operator', 'owner'], directApprovers: ['owner', 'operator'] },
-  stateManager: { targetRole: 'stateManager', steps: ['Stage 1: Operator Review', 'Stage 2: Owner Final Approval'], stepRoles: ['operator', 'owner'], directApprovers: ['owner', 'operator'] },
+  stateManager: { targetRole: 'stateManager', steps: ['Stage 1: Country Manager Review', 'Stage 2: Operator Review', 'Stage 3: Owner Final Approval'], stepRoles: ['countryManager', 'operator', 'owner'], directApprovers: ['owner', 'operator', 'countryManager'] },
   host: {
     targetRole: 'host',
     steps: [
@@ -188,12 +188,16 @@ export const isActorInRequestBranch = (actor: { id: string | any; role: string }
   }
 
   const branchFields = [
+    data.countryManagerId,
+    data.stateManagerId,
     data.operatorId,
     data.superAdminId,
     data.adminId,
     data.bdLeaderId,
     data.bdId,
     data.agencyId,
+    requestData.countryManagerId,
+    requestData.stateManagerId,
     requestData.operatorId,
     requestData.superAdminId,
     requestData.adminId,
