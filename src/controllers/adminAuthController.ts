@@ -9,9 +9,9 @@ import { verifySecureHash, generateSecureHash } from '../utils/passwordHelper';
 import { generateToken, generateUniqueId } from '../utils/generator';
 import { AuthRequest } from '../middlewares/authorize.middleware';
 import { RechargeHistory } from '../models/RechargeHistory';
-import { RechargeType } from '../constants/user';
+import { AuthType, Gender, RechargeType, UserRole } from '../constants/user';
 import { HierarchyScopeService } from '../utils/hierarchyScope';
-import { getAccountRoleScope, PANEL_ACCOUNT_ROLES } from '../utils/accountScope';
+import { getAccountRoleScope, PANEL_ACCOUNT_ROLES, APP_ACCOUNT_ROLES } from '../utils/accountScope';
 import { generateApplicantPassword } from '../utils/applicantPassword';
 
 // Admin login — Email + Password only. No username, no mobile.
@@ -955,3 +955,164 @@ export const overrideEmployeeLinkage = async (req: AuthRequest, res: Response) =
 export const createAgencyAdmin = createEmployee;
 export const getAllAdmins = listEmployees;
 export const toggleBlockAdmin = toggleBlockEmployee;
+
+// ============ Admin Create Fake / Test User (Can Login via Phone & Password in Mobile App) ============
+export const createMockUser = async (req: AuthRequest, res: Response) => {
+    try {
+        const { role: creatorRole, userId: creatorUserId, id: creatorId } = req.user || {};
+
+        if (!['owner', 'operator', 'superAdmin', 'admin', 'super-admin'].includes(creatorRole || '')) {
+            return sendResponse(res, 403, false, 'Access Denied: Only Admin, Super Admin, Operator, or Owner can create test users.');
+        }
+
+        const {
+            name,
+            phoneNumber,
+            password,
+            gender = 'male',
+            diamonds = 1000,
+            coins = 10000,
+            email,
+            customUserId,
+            image,
+            country = { name: 'India', code: 'IN', flag: '🇮🇳' },
+        } = req.body;
+
+        if (!name || !String(name).trim()) {
+            return sendResponse(res, 400, false, 'Name is required.');
+        }
+
+        if (!phoneNumber || !String(phoneNumber).trim()) {
+            return sendResponse(res, 400, false, 'Phone number is required.');
+        }
+
+        if (!password || String(password).trim().length < 4) {
+            return sendResponse(res, 400, false, 'Password must be at least 4 characters long.');
+        }
+
+        const rawPhone = String(phoneNumber).trim();
+        const cleanDigits = rawPhone.replace(/\D/g, '');
+        if (cleanDigits.length < 6) {
+            return sendResponse(res, 400, false, 'Phone number must contain at least 6 digits.');
+        }
+
+        // Standardize phone format: ensure +91 if 10 digits without code, or use rawPhone if already has '+'
+        const normalizedPhone = rawPhone.startsWith('+')
+            ? `+${cleanDigits}`
+            : (cleanDigits.length === 10 ? `+91${cleanDigits}` : `+${cleanDigits}`);
+
+        const last10 = cleanDigits.slice(-10);
+
+        // Check if phone number already exists in APP_ACCOUNT_ROLES
+        const existingUser = await User.findOne({
+            $or: [
+                { phoneNumber: normalizedPhone },
+                { phoneNumber: rawPhone },
+                ...(last10.length >= 7 ? [{ phoneNumber: new RegExp(`${last10}$`) }] : [])
+            ],
+            role: { $in: APP_ACCOUNT_ROLES },
+            isDeleted: false,
+        }).select('userId name phoneNumber').lean();
+
+        if (existingUser) {
+            return sendResponse(
+                res,
+                409,
+                false,
+                `Phone number ${normalizedPhone} is already in use by User ID: ${existingUser.userId} (${existingUser.name}).`
+            );
+        }
+
+        // Check email if provided
+        const normalizedEmail = email ? String(email).trim().toLowerCase() : undefined;
+        if (normalizedEmail) {
+            const existingEmail = await User.findOne({
+                email: normalizedEmail,
+                role: { $in: APP_ACCOUNT_ROLES },
+                isDeleted: false,
+            }).select('userId name').lean();
+            if (existingEmail) {
+                return sendResponse(
+                    res,
+                    409,
+                    false,
+                    `Email ${normalizedEmail} is already in use by User ID: ${existingEmail.userId}.`
+                );
+            }
+        }
+
+        // Determine User ID
+        let assignedUserId: number;
+        if (customUserId) {
+            const reqId = Number(customUserId);
+            if (isNaN(reqId) || reqId <= 0) {
+                return sendResponse(res, 400, false, 'Custom User ID must be a valid positive integer.');
+            }
+            const exists = await User.findOne({ userId: reqId }).select('userId').lean();
+            if (exists) {
+                return sendResponse(res, 409, false, `User ID ${reqId} is already taken. Please choose another.`);
+            }
+            assignedUserId = reqId;
+        } else {
+            assignedUserId = await generateUniqueId();
+        }
+
+        const hashedPassword = await generateSecureHash(String(password).trim());
+        const validGender = ['male', 'female', 'other'].includes(String(gender).toLowerCase())
+            ? (String(gender).toLowerCase() as any)
+            : 'male';
+
+        const defaultAvatar = validGender === 'female'
+            ? 'https://api.yaroapp.in/uploads/avatars/female_default.webp'
+            : 'https://api.yaroapp.in/uploads/avatars/male_default.webp';
+
+        const newUser = new User({
+            userId: assignedUserId,
+            name: String(name).trim(),
+            phoneNumber: normalizedPhone,
+            password: hashedPassword,
+            email: normalizedEmail || `${assignedUserId}@yaro.test`,
+            gender: validGender,
+            role: UserRole.USER,
+            authType: AuthType.PHONE,
+            image: image || defaultAvatar,
+            diamonds: Number(diamonds) >= 0 ? Number(diamonds) : 1000,
+            coins: Number(coins) >= 0 ? Number(coins) : 10000,
+            isActive: true,
+            isBlocked: false,
+            isDeleted: false,
+            phoneVerified: true,
+            emailVerified: true,
+            profileCompleted: true,
+            welcomeRewardClaimed: true,
+            isFake: true,
+            isMockUser: true,
+            country: typeof country === 'string' ? { name: country, code: 'IN', flag: '🇮🇳' } : country,
+            createdBy: creatorId,
+            createdByRole: creatorRole,
+            device: {
+                createdDeviceId: 'ADMIN_MOCK_USER',
+                currentDeviceId: 'ADMIN_MOCK_USER',
+                loggedInDeviceIds: ['ADMIN_MOCK_USER'],
+            },
+        });
+
+        await newUser.save();
+
+        const userObj = newUser.toObject();
+        delete userObj.password;
+
+        return sendResponse(res, 201, true, 'Fake / Test user created successfully. User can now login directly with phone and password.', {
+            ...userObj,
+            loginCredentials: {
+                phoneNumber: normalizedPhone,
+                rawPhoneNumber: rawPhone,
+                userId: assignedUserId,
+                password: String(password).trim(),
+            }
+        });
+    } catch (error: any) {
+        await Logger('createMockUser', error);
+        return sendResponse(res, 500, false, error.message || 'Failed to create fake user');
+    }
+};

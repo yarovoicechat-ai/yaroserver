@@ -28,6 +28,7 @@ import {
 } from "../controllers/userController";
 
 import { verifyToken } from "../middlewares/authorize.middleware";
+import { createMockUser } from "../controllers/adminAuthController";
 // import { upload } from "../utils/multer";
 import { validationUpdateUserLimited } from "../validations/user.validator";
 import { requestValidator } from "../middlewares/validation.middleware";
@@ -72,6 +73,10 @@ router.post("/save-fcm", verifyToken, saveFcmToken as any)
 
 // get all users
 router.get("/", verifyToken, getUsers);
+// create fake / test user (admin only)
+router.post("/create-fake", verifyToken, createMockUser);
+router.post("/create", verifyToken, createMockUser);
+router.post("/", verifyToken, createMockUser);
 
 // get recharge history
 router.get("/recharge-history", verifyToken, getRechargeHistory);

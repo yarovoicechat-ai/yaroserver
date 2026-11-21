@@ -22,6 +22,8 @@ export interface UserInterface extends Document {
   image?: string;
   createdBy?: Types.ObjectId;
   isDeleted?: boolean;
+  isFake?: boolean;
+  isMockUser?: boolean;
   isOnline?: boolean;
   isBlocked?: boolean;
   lastOnline?: Date;

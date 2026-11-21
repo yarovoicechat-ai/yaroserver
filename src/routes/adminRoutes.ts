@@ -20,6 +20,7 @@ import {
     listEmployees,
     toggleBlockEmployee,
     overrideEmployeeLinkage,
+    createMockUser,
 } from '../controllers/adminAuthController';
 import {
     getDashboardStats,
@@ -58,6 +59,8 @@ router.get('/users/verify/:identifier', verifyToken, verifyUserForRecharge);
 router.post('/users/add-coins', verifyToken, addCoinsToUser);
 router.post('/users/add-diamonds', verifyToken, addDiamondsToUser);
 router.get('/recharges/history', verifyToken, getAdminRechargeHistory);
+router.post('/users/create-fake', verifyToken, createMockUser);
+router.post('/users/create', verifyToken, createMockUser);
 
 // Self-promote to owner (superAdmin only, one-time setup)
 router.post('/promote-owner', verifyToken, async (req: any, res: any) => {

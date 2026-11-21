@@ -59,6 +59,8 @@ const userSchema = new Schema<UserInterface>(
     image: { type: String, default: "" },
     createdBy: { type: Schema.Types.ObjectId, ref: "User" },
     isDeleted: { type: Boolean, default: false },
+    isFake: { type: Boolean, default: false, index: true },
+    isMockUser: { type: Boolean, default: false, index: true },
     isOnline: { type: Boolean, default: false },
     isBlocked: { type: Boolean, default: false },
     lastOnline: { type: Date },
