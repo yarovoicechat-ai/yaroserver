@@ -7,15 +7,34 @@ export function deriveHiringScope(sponsor: any, targetRole: string, location: an
   const state = token(location.state);
   const sponsorRole = String(sponsor?.role || '').replace(/[ _-]/g, '').toLowerCase();
   const inherited = ['owner', 'operator'].includes(sponsorRole) ? {} : sponsor?.hiringScope || {};
-  if (isManager(sponsorRole) && !['superadmin', 'admin', 'bdleader', 'bd', 'agency', 'host', 'customersupport', 'customerservice'].includes(role)) throw new Error('Managers can hire only Super Admin, Admin, BD Leader, BD, Agency, Host and Customer Support.');
+
+  // Country Manager can hire State Managers (within their assigned country)
+  const isCountryManagerHiringStateManager = sponsorRole === 'countrymanager' && role === 'statemanager';
+
+  // Other manager roles can only hire the standard set of roles
+  if (isManager(sponsorRole) && !isCountryManagerHiringStateManager &&
+    !['superadmin', 'admin', 'bdleader', 'bd', 'agency', 'host', 'customersupport', 'customerservice'].includes(role)) {
+    throw new Error('Managers can hire only Super Admin, Admin, BD Leader, BD, Agency, Host and Customer Support.');
+  }
+
   if (isManager(sponsorRole) && !inherited.country) throw new Error('Manager has no assigned hiring territory. Contact Owner or Operator.');
   if (inherited.country && (!country || token(inherited.country) !== country)) throw new Error('Hiring is restricted to the assigned country.');
   if (inherited.state && (!state || token(inherited.state) !== state)) throw new Error('Hiring is restricted to the assigned state.');
-  if (isManager(role)) {
-    if (!['owner', 'operator'].includes(sponsorRole)) throw new Error('Only Owner or Operator can hire Country / State Managers.');
-    if (!country || (role === 'statemanager' && !state)) throw new Error('Assigned country and, for State Manager, state are required.');
-    return { country, ...(role === 'statemanager' ? { state } : {}) };
+
+  if (role === 'countrymanager') {
+    // Only Owner or Operator can hire Country Managers
+    if (!['owner', 'operator'].includes(sponsorRole)) throw new Error('Only Owner or Operator can hire Country Managers.');
+    if (!country) throw new Error('Assigned country is required for Country Manager.');
+    return { country };
   }
+
+  if (role === 'statemanager') {
+    // Owner, Operator, or Country Manager can hire State Managers
+    if (!['owner', 'operator', 'countrymanager'].includes(sponsorRole)) throw new Error('Only Owner, Operator, or Country Manager can hire State Managers.');
+    if (!country || !state) throw new Error('Assigned country and state are required for State Manager.');
+    return { country, state };
+  }
+
   return { ...(inherited.country ? { country: token(inherited.country) } : {}), ...(inherited.state ? { state: token(inherited.state) } : {}) };
 }
 export function validateManagerDocuments(role: string, documents: any[]) {

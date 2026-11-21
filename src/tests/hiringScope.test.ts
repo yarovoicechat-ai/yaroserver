@@ -36,6 +36,15 @@ test('manager assignments fail closed without territory or authorized sponsor', 
   assert.throws(() => deriveHiringScope({ role: 'admin' }, 'countryManager', { country: 'India' }), /Only Owner/);
   assert.throws(() => deriveHiringScope({ role: 'stateManager' }, 'host', { country: 'India', state: 'Bihar' }), /no assigned/);
 });
+test('Country Manager can hire State Manager within assigned country', () => {
+  const cm = { role: 'countryManager', hiringScope: { country: 'india' } };
+  const scope = deriveHiringScope(cm, 'state-manager', { country: 'India', state: 'Maharashtra' });
+  assert.deepEqual(scope, { country: 'india', state: 'maharashtra' });
+  // Country Manager cannot hire State Manager in a different country
+  assert.throws(() => deriveHiringScope(cm, 'state-manager', { country: 'Nepal', state: 'Bagmati' }), /country/);
+  // State Manager cannot hire State Manager (only Country Manager or above can)
+  assert.throws(() => deriveHiringScope({ role: 'stateManager', hiringScope: { country: 'india', state: 'bihar' } }, 'state-manager', { country: 'India', state: 'Bihar' }), /Managers can hire only|Country Manager/);
+});
 test('resume and selfie holding ID are both required', () => {
   const resume = { documentType: 'Resume', url: 'https://example.test/resume.pdf' };
   const selfie = { documentType: 'SelfieWithIdCard', url: 'https://example.test/selfie.jpg' };
