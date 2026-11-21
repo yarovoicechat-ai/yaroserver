@@ -1717,54 +1717,98 @@ export const buildFullUserProfileData = async (user: any, requesterId?: any) => 
   if (tags.length === 0) tags.push('Active');
 
   // 8. Showcase: Badges, Vehicles, Frames, Gifts
-  // Badges:
+  // Badges (Real badges owned or equipped):
   const badgesList: any[] = [];
   if (user.svipLevel > 0) {
-    badgesList.push({ id: 'svip', name: 'VIP Legend', icon: 'crown', colors: ['#F59E0B', '#B45309'] });
+    badgesList.push({ id: 'svip', name: `SVIP ${user.svipLevel}`, icon: 'crown', colors: ['#F59E0B', '#B45309'] });
   }
   if (user.isOfficial) {
     badgesList.push({ id: 'official', name: 'Official Moderator', icon: 'shield-check', colors: ['#38BDF8', '#0284C7'] });
   }
   if (isHost) {
-    badgesList.push({ id: 'host', name: 'Top Speaker', icon: 'microphone-variant', colors: ['#8B5CF6', '#6D28D9'] });
+    badgesList.push({ id: 'host', name: 'Voice Host', icon: 'microphone-variant', colors: ['#8B5CF6', '#6D28D9'] });
   }
-  badgesList.push({ id: 'room_star', name: 'Room Star', icon: 'star-four-points', colors: ['#38BDF8', '#0284C7'] });
-  badgesList.push({ id: 'streak', name: '100-Day Streak', icon: 'fire', colors: ['#EF4444', '#B91C1C'], badgeNum: '100' });
-  badgesList.push({ id: 'supporter', name: 'Royal Supporter', icon: 'heart-flash', colors: ['#EC4899', '#BE185D'] });
+  if (user.equippedBadgeAsset) {
+    badgesList.push({
+      id: String(user.equippedBadgeAsset._id || 'equipped_badge'),
+      name: user.equippedBadgeAsset.name || 'Badge',
+      icon: user.equippedBadgeAsset.icon || 'shield-star',
+      imageUrl: user.equippedBadgeAsset.imageUrl || user.equippedBadgeAsset.image,
+      colors: ['#7C3AED', '#A855F7'],
+    });
+  }
+  if (Array.isArray(user.equippedBadges)) {
+    user.equippedBadges.forEach((b: any, bIdx: number) => {
+      if (b && typeof b === 'object' && b.name && !badgesList.some((existing: any) => existing.name === b.name)) {
+        badgesList.push({
+          id: String(b._id || b.id || `badge_${bIdx}`),
+          name: b.name,
+          icon: b.icon || 'medal',
+          imageUrl: b.imageUrl || b.image,
+          colors: ['#7C3AED', '#A855F7'],
+        });
+      }
+    });
+  }
 
-  // Vehicles / Entry Effects (real from EntryEffect collection):
+  // Vehicles / Entry Effects (real effects owned by user):
   let vehiclesList: any[] = [];
   try {
-    const ownedEffects = Array.isArray(user.ownedEntryEffects) && user.ownedEntryEffects.length > 0
-      ? await EntryEffect.find({ _id: { $in: user.ownedEntryEffects }, isActive: true }).select('_id name icon image bannerColors').lean()
-      : await EntryEffect.find({ isActive: true }).sort({ sortOrder: 1, price: -1 }).limit(6).select('_id name icon image bannerColors').lean();
+    if (Array.isArray(user.ownedEntryEffects) && user.ownedEntryEffects.length > 0) {
+      const ownedEffects = await EntryEffect.find({ _id: { $in: user.ownedEntryEffects }, isActive: true })
+        .select('_id name icon image bannerColors')
+        .lean();
 
-    vehiclesList = ownedEffects.map((v: any) => ({
-      id: String(v._id),
-      name: v.name,
-      icon: v.icon || 'car-sports',
-      image: v.image || '',
-      colors: Array.isArray(v.bannerColors) && v.bannerColors.length >= 2 ? v.bannerColors : ['#8B5CF6', '#3B82F6'],
-    }));
+      vehiclesList = ownedEffects.map((v: any) => ({
+        id: String(v._id),
+        name: v.name,
+        icon: v.icon || 'car-sports',
+        image: v.image || '',
+        colors: Array.isArray(v.bannerColors) && v.bannerColors.length >= 2 ? v.bannerColors : ['#8B5CF6', '#3B82F6'],
+      }));
+    }
+    if (user.equippedVehicleAsset && !vehiclesList.some((v: any) => v.name === user.equippedVehicleAsset.name)) {
+      vehiclesList.unshift({
+        id: String(user.equippedVehicleAsset._id || 'equipped_vehicle'),
+        name: user.equippedVehicleAsset.name || 'Vehicle',
+        icon: user.equippedVehicleAsset.icon || 'car-sports',
+        image: user.equippedVehicleAsset.imageUrl || user.equippedVehicleAsset.image || '',
+        colors: ['#F59E0B', '#D97706'],
+        isEquipped: true,
+      });
+    }
   } catch (err: any) {
     console.log('[UserProfile] Vehicles lookup notice:', err.message);
   }
 
-  // Frames (real from StoreItem collection):
+  // Frames (real frames owned by user in inventory):
   let framesList: any[] = [];
   try {
-    const storeFrames = await StoreItem.find({ category: { $in: ['Frames', 'frame', 'Frames'] }, isActive: true })
-      .sort({ sortOrder: 1, price: -1 })
-      .limit(6)
-      .select('_id name icon image previewUrl')
-      .lean();
-
-    framesList = storeFrames.map((f: any) => ({
-      id: String(f._id),
-      name: f.name,
-      image: f.image || f.previewUrl || '',
-      colors: ['#F59E0B', '#D97706'],
-    }));
+    const inventory = Array.isArray(user.storeInventory) ? user.storeInventory : [];
+    inventory.forEach((it: any) => {
+      const cat = String(it.category || '').toLowerCase();
+      if (['avatar_frame', 'frame', 'profile_frame', 'frames'].includes(cat)) {
+        const notExpired = !it.expiresAt || new Date(it.expiresAt) > new Date();
+        if (notExpired) {
+          framesList.push({
+            id: String(it._id || it.itemId || it.name),
+            name: it.name,
+            image: it.imageUrl || it.animationUrl || '',
+            colors: ['#F59E0B', '#D97706'],
+            isEquipped: it.name === user.equippedFrame || it.imageUrl === user.equippedFrame,
+          });
+        }
+      }
+    });
+    if (user.equippedFrameAsset && !framesList.some((f: any) => f.name === user.equippedFrameAsset.name)) {
+      framesList.unshift({
+        id: String(user.equippedFrameAsset._id || 'equipped_frame'),
+        name: user.equippedFrameAsset.name || 'Frame',
+        image: user.equippedFrameAsset.imageUrl || user.equippedFrameAsset.image || '',
+        colors: ['#F59E0B', '#D97706'],
+        isEquipped: true,
+      });
+    }
   } catch (err: any) {
     console.log('[UserProfile] Frames lookup notice:', err.message);
   }
