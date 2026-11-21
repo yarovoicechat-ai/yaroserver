@@ -676,6 +676,95 @@ export const registerVoiceRoomHandlers = (io: Server, socket: AuthenticatedSocke
         }
       }
 
+      // Auto-vacate and cleanup previous room when user switches rooms or joins another room
+      const oldRoomId = (socket as any).voiceRoomId;
+      if (oldRoomId && oldRoomId !== roomId) {
+        try {
+          await socket.leave(`voice_room_channel:${oldRoomId}`);
+          await socket.leave(`room:${oldRoomId}`);
+          if ((socket as any).voiceRawRoomId && (socket as any).voiceRawRoomId !== roomId) {
+            await socket.leave(`voice_room_channel:${(socket as any).voiceRawRoomId}`);
+            await socket.leave(`room:${(socket as any).voiceRawRoomId}`);
+          }
+          await withRoomSeatLock(oldRoomId, async () => {
+            const oldState = await getVoiceRoomState(oldRoomId);
+            if (oldState && Array.isArray(oldState.seats)) {
+              let vacated = false;
+              oldState.seats = oldState.seats.map((s) => {
+                if (s.user && String(s.user.userId) === String(userData.userId)) {
+                  vacated = true;
+                  return { ...s, user: null, isMuted: true };
+                }
+                return s;
+              });
+              if (oldState.onlineUsers && oldState.onlineUsers[userData.userId]) {
+                delete oldState.onlineUsers[userData.userId];
+              }
+              if (vacated) {
+                await saveVoiceRoomState(oldState);
+                io.to(`voice_room_channel:${oldRoomId}`).emit('voice_room:seat_updated', {
+                  roomId: oldRoomId,
+                  seats: oldState.seats,
+                  targetUserId: userData.userId,
+                  action: 'vacated',
+                });
+                io.to(`voice_room_channel:${oldRoomId}`).emit('voice_room:user_left', {
+                  roomId: oldRoomId,
+                  userId: userData.userId,
+                  user: userData,
+                  onlineCount: Object.keys(oldState.onlineUsers || {}).length,
+                });
+              }
+            }
+          });
+        } catch (cleanErr) {
+          console.warn('[VoiceRoom] Error cleaning up old room on room switch:', cleanErr);
+        }
+      }
+
+      // Cross-room seat presence cleanup via Redis tracking:
+      // If user is currently seated in ANY other room, auto-vacate that seat so they never get stuck!
+      try {
+        const seatedRoomKey = `user_seated_room:${userData.userId}`;
+        const previousSeatedRoom = await redis.get(seatedRoomKey);
+        if (previousSeatedRoom && previousSeatedRoom !== roomId) {
+          await withRoomSeatLock(previousSeatedRoom, async () => {
+            const staleState = await getVoiceRoomState(previousSeatedRoom);
+            if (staleState && Array.isArray(staleState.seats)) {
+              let didVacate = false;
+              staleState.seats = staleState.seats.map((s) => {
+                if (s.user && String(s.user.userId) === String(userData.userId)) {
+                  didVacate = true;
+                  return { ...s, user: null, isMuted: true };
+                }
+                return s;
+              });
+              if (staleState.onlineUsers && staleState.onlineUsers[userData.userId]) {
+                delete staleState.onlineUsers[userData.userId];
+              }
+              if (didVacate) {
+                await saveVoiceRoomState(staleState);
+                io.to(`voice_room_channel:${previousSeatedRoom}`).emit('voice_room:seat_updated', {
+                  roomId: previousSeatedRoom,
+                  seats: staleState.seats,
+                  targetUserId: userData.userId,
+                  action: 'vacated',
+                });
+                io.to(`voice_room_channel:${previousSeatedRoom}`).emit('voice_room:user_left', {
+                  roomId: previousSeatedRoom,
+                  userId: userData.userId,
+                  user: userData,
+                  onlineCount: Object.keys(staleState.onlineUsers || {}).length,
+                });
+              }
+            }
+          });
+          await redis.del(seatedRoomKey);
+        }
+      } catch (redisCleanErr) {
+        console.warn('[VoiceRoom] Stale seated room cleanup notice:', redisCleanErr);
+      }
+
       (socket as any).voiceRoomId = roomId;
       (socket as any).voiceRawRoomId = rawRoomId;
       (socket as any).voiceUser = userData;
@@ -999,6 +1088,9 @@ export const registerVoiceRoomHandlers = (io: Server, socket: AuthenticatedSocke
       state.seats = allocation.state.seats;
 
       await saveVoiceRoomState(state);
+      if (userData?.userId) {
+        await redis.set(`user_seated_room:${userData.userId}`, roomId, "EX", 86400);
+      }
 
       const updatePayload = {
         roomId,
@@ -1048,6 +1140,9 @@ export const registerVoiceRoomHandlers = (io: Server, socket: AuthenticatedSocke
 
       if (vacatedIndex >= 0) {
         await saveVoiceRoomState(state);
+        if (targetUserId) {
+          await redis.del(`user_seated_room:${targetUserId}`);
+        }
 
         const leaveSeatPayload = {
           roomId,
@@ -1914,6 +2009,9 @@ export const registerVoiceRoomHandlers = (io: Server, socket: AuthenticatedSocke
       }
 
       await saveVoiceRoomState(state);
+      if (vacatedIndices.length > 0 && targetUserId) {
+        await redis.del(`user_seated_room:${targetUserId}`);
+      }
 
       // Broadcast vacated seats to everyone in the room
       vacatedIndices.forEach((freedIdx) => {
