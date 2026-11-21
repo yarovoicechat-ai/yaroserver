@@ -262,7 +262,7 @@ const getCanonicalRoomUser = async (socketUser: any, fallback: any = {}) => {
   const dbUser: any = query
     ? await User.findOne(query)
         .select(
-          "userId name image avatar gender level wealthLevel wealthExp charmLevel charmExp country age equippedCustomId customDisplayId uniqueId storeInventory equippedVehicle equippedVehicleAsset equippedFrame equippedFrameAsset frameId equippedAvatarFrame equippedEntry equippedEntryAsset equippedEntryEffect equippedEntryTag equippedEntrance equippedEntranceAsset equippedTassel equippedTasselAsset equippedBadge equippedBadges equippedChatBubble equippedChatBubbleAsset equippedVipId equippedSvipId equippedVipExpiresAt equippedSvipExpiresAt isGlobalRoomManager officialPowers",
+          "userId name image avatar gender level wealthLevel wealthExp charmLevel charmExp country age role isSvip svipLevel equippedTag equippedTagAsset equippedCustomId customDisplayId uniqueId storeInventory equippedVehicle equippedVehicleAsset equippedFrame equippedFrameAsset frameId equippedAvatarFrame equippedEntry equippedEntryAsset equippedEntryEffect equippedEntryTag equippedEntrance equippedEntranceAsset equippedTassel equippedTasselAsset equippedBadge equippedBadges equippedChatBubble equippedChatBubbleAsset equippedVipId equippedSvipId equippedVipExpiresAt equippedSvipExpiresAt isGlobalRoomManager officialPowers",
         )
         .lean()
     : null;
@@ -314,6 +314,11 @@ const getCanonicalRoomUser = async (socketUser: any, fallback: any = {}) => {
     equippedChatBubbleAsset: source?.equippedChatBubbleAsset || null,
     equippedVipId: source?.equippedVipId || null,
     equippedSvipId: source?.equippedSvipId || null,
+    isSvip: Boolean(source?.isSvip || source?.equippedSvipId || vipExperience?.isSvip || fallback?.isSvip),
+    svipLevel: source?.svipLevel || fallback?.svipLevel || (source?.isSvip ? 1 : null),
+    equippedTag: source?.equippedTag || fallback?.equippedTag || null,
+    equippedTagAsset: source?.equippedTagAsset || fallback?.equippedTagAsset || null,
+    role: source?.role || fallback?.role || null,
     isGlobalRoomManager: Boolean(source?.isGlobalRoomManager || source?.officialPowers?.isGlobalRoomManager),
     officialPowers: source?.officialPowers || null,
   };
