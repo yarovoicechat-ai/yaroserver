@@ -378,7 +378,7 @@ export const dismissAccountReview = async (req: AuthRequest, res: Response) => {
 export const deleteChatViolation = async (req: AuthRequest, res: Response) => {
   try {
     const isOwner = req.user?.role === 'owner';
-    const hasPerm = isOwner || await PermissionEngine.hasModerationPermission(req.user, "delete");
+    const hasPerm = isOwner || await PermissionEngine.hasModerationPermission(req.user, "action");
     if (!hasPerm) {
       return sendResponse(res, 403, false, "Access Denied: Only Platform Owner or authorized moderators can delete violation records");
     }
@@ -449,7 +449,7 @@ export const clearUserRestrictions = async (req: AuthRequest, res: Response) => 
     await user.save();
 
     let deletedCount = 0;
-    if (deleteViolations === 'true' || deleteViolations === true) {
+    if (String(deleteViolations) === 'true') {
       const deleteResult = await ChatViolation.deleteMany({ sender: user._id });
       deletedCount = deleteResult.deletedCount || 0;
     }

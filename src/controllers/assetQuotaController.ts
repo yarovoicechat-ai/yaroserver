@@ -7,7 +7,7 @@ import { User } from '../models/user.model';
 import { AuditLog } from '../models/auditLog.model';
 import sendResponse from '../utils/reponse';
 import { Logger } from '../utils/logger';
-import { createNotification } from '../utils/notificationHelper';
+import { createNotification } from './notificationController';
 
 export interface SingleAllocationInput {
   assetQuery: string;
@@ -41,7 +41,12 @@ async function resolveStoreAsset(assetQuery: string): Promise<any> {
  */
 export const allocateAssetQuota = async (req: AuthRequest, res: Response) => {
   try {
-    const isOwner = req.user?.role === 'owner';
+    const adminUser = req.user;
+    if (!adminUser) {
+      return sendResponse(res, 401, false, 'Authentication required');
+    }
+
+    const isOwner = adminUser.role === 'owner';
     if (!isOwner) {
       return sendResponse(res, 403, false, 'Access Denied: Only Platform Owner can allocate asset quotas to Operators');
     }
@@ -123,7 +128,7 @@ export const allocateAssetQuota = async (req: AuthRequest, res: Response) => {
           imageUrl: asset.imageUrl || asset.icon || '',
           animationUrl: asset.animationUrl || '',
           packages: [],
-          allocatedBy: new mongoose.Types.ObjectId(req.user.id),
+          allocatedBy: new mongoose.Types.ObjectId(adminUser.id),
           allocatedByRole: 'owner',
           notes,
         });
@@ -163,7 +168,7 @@ export const allocateAssetQuota = async (req: AuthRequest, res: Response) => {
 
     // 3. Audit Log
     await AuditLog.create({
-      adminId: req.user.id,
+      adminId: adminUser.id,
       action: 'ALLOCATE_ASSET_QUOTA',
       target: String(operator._id),
       details: `Owner allocated ${savedQuotas.length} asset types to Operator "${operator.name}": ${summaryList.join('; ')}`,
@@ -207,11 +212,16 @@ export const allocateAssetQuota = async (req: AuthRequest, res: Response) => {
  */
 export const getAssetQuotas = async (req: AuthRequest, res: Response) => {
   try {
-    const isOwner = req.user?.role === 'owner';
+    const adminUser = req.user;
+    if (!adminUser) {
+      return sendResponse(res, 401, false, 'Authentication required');
+    }
+
+    const isOwner = adminUser.role === 'owner';
     const filter: any = {};
 
     if (!isOwner) {
-      filter.operatorId = req.user?.id;
+      filter.operatorId = adminUser.id;
     } else if (req.query.operatorId) {
       if (mongoose.Types.ObjectId.isValid(String(req.query.operatorId))) {
         filter.operatorId = req.query.operatorId;
@@ -240,11 +250,16 @@ export const getAssetQuotas = async (req: AuthRequest, res: Response) => {
  */
 export const getOperatorAvailableStock = async (req: AuthRequest, res: Response) => {
   try {
-    const isOwner = req.user?.role === 'owner';
+    const adminUser = req.user;
+    if (!adminUser) {
+      return sendResponse(res, 401, false, 'Authentication required');
+    }
+
+    const isOwner = adminUser.role === 'owner';
     const filter: any = {};
 
     if (!isOwner) {
-      filter.operatorId = req.user?.id;
+      filter.operatorId = adminUser.id;
       filter['packages.remainingQuantity'] = { $gt: 0 };
     }
 
@@ -275,8 +290,12 @@ export const getOperatorAvailableStock = async (req: AuthRequest, res: Response)
 export const grantAssetWithQuota = async (req: AuthRequest, res: Response) => {
   try {
     const currentUser = req.user;
-    const isOwner = currentUser?.role === 'owner';
-    const isOperator = ['operator', 'superAdmin', 'super-admin'].includes(currentUser?.role || '');
+    if (!currentUser) {
+      return sendResponse(res, 401, false, 'Authentication required');
+    }
+
+    const isOwner = currentUser.role === 'owner';
+    const isOperator = ['operator', 'superAdmin', 'super-admin'].includes(currentUser.role || '');
 
     if (!isOwner && !isOperator) {
       return sendResponse(res, 403, false, 'Access Denied: Only Owner or Operator can grant assets');
@@ -407,7 +426,7 @@ export const grantAssetWithQuota = async (req: AuthRequest, res: Response) => {
         animationUrl: asset.animationUrl || '',
         metadata: asset.metadata || {},
         source: 'admin_grant',
-        grantKey: `quota-grant:${Date.now()}:${currentUser?.id || 'operator'}`,
+        grantKey: `quota-grant:${Date.now()}:${currentUser.id || 'operator'}`,
         uniqueId: asset.uniqueId || '',
         message: message || '',
         grantedBy: new mongoose.Types.ObjectId(currentUser.id),
@@ -542,7 +561,12 @@ export const grantAssetWithQuota = async (req: AuthRequest, res: Response) => {
  */
 export const deleteAssetQuota = async (req: AuthRequest, res: Response) => {
   try {
-    const isOwner = req.user?.role === 'owner';
+    const adminUser = req.user;
+    if (!adminUser) {
+      return sendResponse(res, 401, false, 'Authentication required');
+    }
+
+    const isOwner = adminUser.role === 'owner';
     if (!isOwner) {
       return sendResponse(res, 403, false, 'Access Denied: Only Platform Owner can remove quotas');
     }
