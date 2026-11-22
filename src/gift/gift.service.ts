@@ -367,12 +367,19 @@ export class GiftService {
   }
 
   /**
-   * Get user's current Diamond balance.
+   * Get user's current Coins balance (authoritative spending currency from diamonds).
+   */
+  static async getUserCoinsBalance(userId: string | Types.ObjectId): Promise<number> {
+    const user = await User.findById(userId).select('diamonds').lean();
+    if (!user) return 0;
+    return Math.max(0, Number(user.diamonds ?? 0));
+  }
+
+  /**
+   * Backward-compatibility alias for older gift endpoints.
    */
   static async getUserDiamondsBalance(userId: string | Types.ObjectId): Promise<number> {
-    const user = await User.findById(userId).select('diamonds coins').lean();
-    if (!user) return 0;
-    return Math.max(0, Number(user.diamonds || 0));
+    return this.getUserCoinsBalance(userId);
   }
 
   /**
@@ -501,20 +508,22 @@ export class GiftService {
 
     const pkMeta = roomId ? await capturePKGift(String(roomId), sender, receivers) : {};
 
-    // 7. Check Balance & Deduct Atomically in DIAMONDS
-    const currentDiamonds = Number(sender.diamonds || 0);
+    // 7. Check Balance & Deduct Atomically in COINS (stored in diamonds)
+    const currentCoins = Number(sender.diamonds ?? 0);
 
-    if (currentDiamonds < totalDiamonds) {
+    if (currentCoins < totalDiamonds) {
       const err: any = new Error(
-        `Insufficient Diamonds. Required: ${totalDiamonds} 💎, Available: ${currentDiamonds} 💎`
+        `Insufficient Coins. Required: ${totalDiamonds} 🪙, Available: ${currentCoins} 🪙`
       );
-      err.code = 'INSUFFICIENT_DIAMONDS';
+      err.code = 'INSUFFICIENT_COINS';
+      err.requiredCoins = totalDiamonds;
       err.requiredDiamonds = totalDiamonds;
-      err.availableDiamonds = currentDiamonds;
+      err.availableCoins = currentCoins;
+      err.availableDiamonds = currentCoins;
       throw err;
     }
 
-    // Perform atomic deduction on diamonds
+    // Perform atomic deduction on sender's spending coins (diamonds in DB)
     const updatedSender = await User.findOneAndUpdate(
       { _id: sender._id, diamonds: { $gte: totalDiamonds } },
       { $inc: { diamonds: -totalDiamonds } },
@@ -522,8 +531,10 @@ export class GiftService {
     );
 
     if (!updatedSender) {
-      const err: any = new Error('Insufficient Diamonds (concurrency lock)');
-      err.code = 'INSUFFICIENT_DIAMONDS';
+      const err: any = new Error('Insufficient Coins (concurrency lock)');
+      err.code = 'INSUFFICIENT_COINS';
+      err.requiredCoins = totalDiamonds;
+      err.requiredDiamonds = totalDiamonds;
       throw err;
     }
 
@@ -532,7 +543,7 @@ export class GiftService {
     const totalHostEarnings = perReceiverEarning * receivers.length;
     const platformCommission = Math.max(0, totalDiamonds - totalHostEarnings);
 
-    const receiverBalances: Array<{ userId: string; diamonds: number; coins?: number }> = [];
+    const receiverBalances: Array<{ userId: string; diamonds: number; coins?: number; beans?: number }> = [];
     for (const rec of receivers) {
       if (perReceiverEarning > 0) {
         const updatedRec = await User.findByIdAndUpdate(
@@ -542,13 +553,16 @@ export class GiftService {
         ).select('_id coins diamonds').lean();
         receiverBalances.push({
           userId: String(rec._id),
-          diamonds: Number((updatedRec as any)?.diamonds || 0),
-          coins: Number((updatedRec as any)?.coins || 0),
+          coins: Number((updatedRec as any)?.diamonds ?? 0),
+          beans: Number((updatedRec as any)?.coins ?? 0),
+          diamonds: Number((updatedRec as any)?.diamonds ?? 0),
         });
       } else {
         receiverBalances.push({
           userId: String(rec._id),
-          diamonds: Number(rec.diamonds || 0),
+          coins: Number(rec.diamonds ?? 0),
+          beans: Number(rec.coins ?? 0),
+          diamonds: Number(rec.diamonds ?? 0),
         });
       }
     }
@@ -567,8 +581,9 @@ export class GiftService {
         quantity: qty,
         unitPrice,
         totalDiamonds,
+        totalCoins: totalDiamonds,
         totalPrice: totalDiamonds,
-        currency: 'DIAMONDS',
+        currency: 'COINS',
         type: 'GIFT_SEND',
         status: 'SUCCESS',
         hostEarning: totalHostEarnings,
@@ -581,7 +596,7 @@ export class GiftService {
           giftIcon: gift.icon,
           animationType: gift.animationType,
           receiverCount: receivers.length,
-          currency: 'DIAMONDS',
+          currency: 'COINS',
           earningCurrency: 'BEAN',
         },
       });
@@ -701,12 +716,14 @@ export class GiftService {
         rarity: gift.rarity,
         duration: gift.duration,
         price: unitPrice,
-        currency: 'DIAMONDS',
+        currency: 'COINS',
       },
       quantity: qty,
+      totalCoins: totalDiamonds,
       totalDiamonds,
       comboCount: Number(comboCount) || 1,
-      senderBalance: updatedSender.diamonds,
+      senderBalance: Number(updatedSender.diamonds || 0),
+      senderCoins: Number(updatedSender.diamonds || 0),
       receiverBalances,
       timestamp: Date.now(),
     };

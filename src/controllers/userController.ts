@@ -31,7 +31,7 @@ import { verifyFirebasePhoneToken } from "../utils/firebasePhoneVerification";
 import { UserInterface } from "../interfaces/user.interface";
 import { getAllHostsService, invalidateHostCache } from "../services/user.service";
 import { getIO, getUserRoom } from "../sockets";
-import { Gender, TransactionType } from "../constants/user";
+import { Gender, TransactionType, RechargeType } from "../constants/user";
 import HelpRequest from "../models/help.model";
 import DeletionRequest from "../models/deletionRequest.model";
 import { deleteImageFromCloudinary } from "../utils/cloudinary";
@@ -1002,6 +1002,9 @@ export const getAdminHostUsers = async (req: AuthRequest, res: Response) => {
 
       return {
         ...host,
+        coins: host.diamonds ?? 0,
+        beans: host.coins ?? 0,
+        diamonds: host.diamonds ?? 0,
         agencyName,
         callCoinsReceived,
         giftCoinsReceived,
@@ -1420,47 +1423,106 @@ export const exchangeCoinsToDiamonds = async (req: AuthRequest, res: Response) =
 
 
     const { userId } = req.user || {};
-    const { coins } = req.body;
+    const rawAmount = req.body.beans ?? req.body.coins;
 
     if (!userId) return sendResponse(res, 401, false, "Unauthorized");
 
-    const coinsNum = Number(coins);
+    const coinsNum = Number(rawAmount);
     if (isNaN(coinsNum) || coinsNum <= 0) {
-      return sendResponse(res, 400, false, "Invalid coins amount");
+      return sendResponse(res, 400, false, "Invalid beans amount");
     }
 
-    let diamondYield = EXCHANGE_PACKAGES[coinsNum];
+    let coinYield = EXCHANGE_PACKAGES[coinsNum];
     const dbPlan = await BeansPlan.findOne({ beans: coinsNum, isActive: true });
     if (dbPlan) {
-      diamondYield = dbPlan.diamonds + (dbPlan.bonusDiamonds || 0);
+      coinYield = (dbPlan.diamonds || (dbPlan as any).coins || 0) + (dbPlan.bonusDiamonds || 0);
     }
-    if (!diamondYield && coinsNum >= 200) {
-      diamondYield = Math.floor(coinsNum / 2); // 200 Beans = 100 Coins (2:1 standard)
+    if (!coinYield && coinsNum >= 200) {
+      coinYield = Math.floor(coinsNum / 2); // 200 Beans = 100 Coins (2:1 standard)
     }
-    if (!diamondYield) {
+    if (!coinYield) {
       return sendResponse(res, 400, false, "Invalid exchange package");
     }
 
-    const updatedUser = await User.findOneAndUpdate(
-      { userId, isDeleted: false, coins: { $gte: coinsNum } },
-      {
-        $inc: {
-          coins: -coinsNum,
-          diamonds: diamondYield
-        }
-      },
-      { new: true }
-    );
-
-    if (!updatedUser) {
-      const exists = await User.exists({ userId, isDeleted: false });
-      return sendResponse(res, exists ? 400 : 404, false, exists ? "Insufficient coins balance" : "User not found");
+    const userDoc = await User.findOne({ userId, isDeleted: false }).lean();
+    if (!userDoc) {
+      return sendResponse(res, 404, false, "User not found");
     }
 
-    return sendResponse(res, 200, true, "Exchange successful", {
-      coins: updatedUser.coins,
-      diamonds: updatedUser.diamonds
-    });
+    const availableBeans = Number((userDoc as any).beans ?? userDoc.coins ?? 0);
+    if (availableBeans < coinsNum) {
+      return sendResponse(res, 400, false, "Insufficient Beans balance");
+    }
+
+    // Idempotency / Duplicate transaction check
+    const refKey = req.body.idempotencyKey || req.body.referenceId;
+    const txRef = String(refKey || `EXC-${userId}-${Date.now()}`);
+
+    const session = await mongoose.startSession().catch(() => null);
+    if (session) {
+      session.startTransaction();
+    }
+
+    try {
+      if (refKey) {
+        const existingTx = await RechargeHistory.findOne({ transactionId: String(refKey) }).session(session || null);
+        if (existingTx) {
+          if (session) await session.abortTransaction();
+          return sendResponse(res, 200, true, "Exchange already processed", {
+            beans: Number((userDoc as any).beans ?? userDoc.coins ?? 0),
+            coins: Number(userDoc.diamonds || 0),
+            diamonds: Number(userDoc.diamonds || 0),
+            referenceId: refKey,
+          });
+        }
+      }
+
+      const updateFilter: any = { userId, isDeleted: false, coins: { $gte: coinsNum } };
+      const updateInc: any = {
+        coins: -coinsNum, // Debiting Creator Beans (authoritative DB field: coins)
+        diamonds: coinYield, // Crediting Spending Coins (authoritative DB field: diamonds)
+      };
+
+      const updatedUser = await User.findOneAndUpdate(updateFilter, { $inc: updateInc }, { new: true, session: session || undefined });
+
+      if (!updatedUser) {
+        if (session) await session.abortTransaction();
+        return sendResponse(res, 400, false, "Insufficient Beans balance");
+      }
+
+      // Record immutable ledger entry for conversion
+      await RechargeHistory.create([{
+        userId: updatedUser.userId,
+        type: RechargeType.OFFLINE,
+        coins: coinYield,
+        diamonds: coinYield,
+        amount: 0,
+        transactionId: txRef,
+        status: 'COMPLETED',
+        settlementStatus: 'SETTLED',
+        date: new Date(),
+      }], { session: session || undefined });
+
+      if (session) {
+        await session.commitTransaction();
+      }
+
+      return sendResponse(res, 200, true, "Exchange successful", {
+        beans: Number((updatedUser as any).beans ?? updatedUser.coins ?? 0),
+        coins: Number(updatedUser.diamonds || 0),
+        diamonds: Number(updatedUser.diamonds || 0),
+        referenceId: txRef,
+      });
+    } catch (txError: any) {
+      if (session) {
+        await session.abortTransaction().catch(() => {});
+      }
+      throw txError;
+    } finally {
+      if (session) {
+        session.endSession();
+      }
+    }
   } catch (error: any) {
     console.error("âŒ Exchange coins backend error:", error);
     return sendResponse(res, 500, false, error.message);
@@ -1588,7 +1650,17 @@ export const requestDeletion = async (req: AuthRequest, res: Response) => {
   }
 };
 
-export const buildFullUserProfileData = async (user: any, requesterId?: any) => {
+export const buildFullUserProfileData = async (userDocOrLean: any, requesterId?: any) => {
+  const user = typeof userDocOrLean?.toObject === 'function'
+    ? userDocOrLean.toObject({ virtuals: true })
+    : { ...userDocOrLean };
+
+  const spendingCoins = Number(userDocOrLean?.diamonds ?? user?.diamonds ?? 0);
+  const creatorBeans = Number(user?.beans ?? userDocOrLean?.coins ?? user?.coins ?? 0);
+  user.coins = spendingCoins;
+  user.beans = creatorBeans;
+  user.diamonds = spendingCoins;
+
   const userMongoId = user._id;
 
   // 1. Identity & Custom ID
@@ -1970,8 +2042,8 @@ export const buildFullUserProfileData = async (user: any, requesterId?: any) => 
     roleBadgeText: resolvedRoleBadge,
     family: familyData,
     cpPartner: cpData,
-    showFamily: Boolean(isFamilyGloballyEnabled && familyData),
-    showCp: Boolean(isCpGloballyEnabled && cpData),
+    showFamily: Boolean(isFamilyGloballyEnabled && (familyData || (requesterId && String(requesterId) === String(userMongoId)))),
+    showCp: Boolean(isCpGloballyEnabled && (cpData || (requesterId && String(requesterId) === String(userMongoId)))),
     isFamilyGloballyEnabled,
     isCpGloballyEnabled,
     tags,
@@ -1991,9 +2063,10 @@ export const buildFullUserProfileData = async (user: any, requesterId?: any) => 
     isHost,
     callRate: (user as any).callRate || 20,
     videoCallRate: (user as any).videoCallRate || 35,
-    coins: user.coins ?? 0,
-    beans: user.beans ?? user.beanBalance ?? user.coins ?? 0,
-    beanBalance: user.beanBalance ?? user.beans ?? user.coins ?? 0,
+    coins: spendingCoins,
+    beans: creatorBeans,
+    beanBalance: creatorBeans,
+    diamonds: spendingCoins,
   };
 };
 

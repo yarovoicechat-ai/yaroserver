@@ -16,9 +16,8 @@ import {
 } from '../configs/monetization';
 
 /**
- * Atomically deducts specified diamond/coin amount from user balance.
+ * Atomically deducts specified coin amount from user spending balance (diamonds in DB).
  * Uses atomic MongoDB condition to guarantee balance >= amount and prevent negative balance.
- * Handles diamond-only wallets (coins = 0) cleanly without requiring non-zero coins.
  */
 export async function deductUserWalletAtomic(
     userId: Types.ObjectId | string,
@@ -27,51 +26,20 @@ export async function deductUserWalletAtomic(
 ): Promise<{ success: boolean; coinsDeduct: number; diamondsDeduct: number }> {
     if (amount <= 0) return { success: true, coinsDeduct: 0, diamondsDeduct: 0 };
 
-    const query = User.findById(userId);
-    if (session) query.session(session);
-    const user = await query.lean();
-
-    if (!user) return { success: false, coinsDeduct: 0, diamondsDeduct: 0 };
-
-    const availableCoins = Math.max(0, Number((user as any).coins || 0));
-    const availableDiamonds = Math.max(0, Number((user as any).diamonds || 0));
-
-    if (availableCoins + availableDiamonds < amount) {
-        return { success: false, coinsDeduct: 0, diamondsDeduct: 0 };
-    }
-
-    const coinsDeduct = Math.min(availableCoins, amount);
-    const remaining = amount - coinsDeduct;
-    const diamondsDeduct = Math.min(availableDiamonds, remaining);
-
-    const updateFilter: any = { _id: userId };
-    const updateInc: any = {};
-
-    if (coinsDeduct > 0) {
-        updateFilter.coins = { $gte: coinsDeduct };
-        updateInc.coins = -coinsDeduct;
-    }
-
-    if (diamondsDeduct > 0) {
-        updateFilter.diamonds = { $gte: diamondsDeduct };
-        updateInc.diamonds = -diamondsDeduct;
-    }
-
-    let updatedUser: any = null;
-    if (session) {
-        updatedUser = await User.findOneAndUpdate(updateFilter, { $inc: updateInc }, { session, new: true });
-    } else {
-        updatedUser = await User.findOneAndUpdate(updateFilter, { $inc: updateInc }, { new: true });
-    }
+    const updatedUser = await User.findOneAndUpdate(
+        { _id: userId, diamonds: { $gte: amount } },
+        { $inc: { diamonds: -amount } },
+        { new: true, ...(session ? { session } : {}) }
+    );
 
     if (!updatedUser) {
         return { success: false, coinsDeduct: 0, diamondsDeduct: 0 };
     }
 
-    return { success: true, coinsDeduct, diamondsDeduct };
+    return { success: true, coinsDeduct: amount, diamondsDeduct: amount };
 }
 
-/** Atomically deduct call credit from user wallet (coins and diamonds kept in sync). */
+/** Atomically deduct call credit from user wallet (coins is spending currency, stored in diamonds). */
 export async function deductUserDiamondsAtomic(
     userId: Types.ObjectId | string,
     amount: number,
@@ -80,7 +48,7 @@ export async function deductUserDiamondsAtomic(
     if (amount <= 0) return true;
     return Boolean(await User.findOneAndUpdate(
         { _id: userId, diamonds: { $gte: amount } },
-        { $inc: { diamonds: -amount, coins: -amount } },
+        { $inc: { diamonds: -amount } },
         { new: true, ...(session ? { session } : {}) }
     ));
 }
@@ -177,9 +145,10 @@ export class BillingService {
                         if (io && typeof io.to === 'function') {
                             const endPayload = {
                                 transactionId: String(transactionId),
-                                reason: 'INSUFFICIENT_DIAMONDS',
-                                errorCode: 'INSUFFICIENT_DIAMONDS',
-                                message: 'Call ended due to insufficient diamonds.',
+                                reason: 'INSUFFICIENT_COINS',
+                                legacyReason: 'INSUFFICIENT_DIAMONDS',
+                                errorCode: 'INSUFFICIENT_COINS',
+                                message: 'Call ended due to insufficient coins.',
                                 duration: endResult.data?.duration || elapsedSec,
                             };
                             const txRef = await CoinsTransaction.findById(transactionId).select('userId hostId').lean() as any;
@@ -251,9 +220,10 @@ export class BillingService {
                         ];
                         const balPayload = {
                             userId: String(transaction.userId),
-                            coins: Number(liveCaller.coins || 0),
+                            coins: Number(liveCaller.diamonds || 0),
+                            beans: Number(liveCaller.beans ?? liveCaller.coins ?? 0),
                             diamonds: Number(liveCaller.diamonds || 0),
-                            totalBalance: Number(liveCaller.coins || 0) + Number(liveCaller.diamonds || 0),
+                            totalBalance: Number(liveCaller.diamonds || 0),
                         };
                         callerRooms.forEach(room => io.to(room).emit('balanceUpdated', balPayload));
                     }
@@ -423,7 +393,7 @@ export class BillingService {
 
             console.log(`[BILLING] HOST EARNING: TransactionID ${transactionId} | HostID ${transaction.hostId} | Coins: ${hostEarning} | DurationSec: ${durationSec}`);
 
-            // Host earns coins exactly once (idempotent check)
+            // Host earns creator beans (stored in coins) exactly once (idempotent check)
             if (!pinnedEconomy && hostEarning > 0 && !startMeta?.hostEarningsCredited) {
                 await User.findByIdAndUpdate(
                     transaction.hostId,

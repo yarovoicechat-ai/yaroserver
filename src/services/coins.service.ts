@@ -21,34 +21,24 @@ async function updateBalance(
 
   switch (operation.toLowerCase() as BalanceOperation) {
     case 'add':
-      targetField = 'coins';
-      updateObject = { $inc: { coins: amount } };
-      break;
-
-    case 'earn':
       targetField = 'diamonds';
       updateObject = { $inc: { diamonds: amount } };
       break;
 
-    case 'deduct': {
-      const userToDeduct = await User.findById(userId).session(session || null);
-      const totalAvail = Number(userToDeduct?.coins || 0) + Number(userToDeduct?.diamonds || 0);
-      if (!userToDeduct || totalAvail < amount) {
-        throw new Error(`Insufficient balance. Available: ${totalAvail}, Required: ${amount}`);
-      }
-      let remainingDeduct = amount;
-      let coinsDeduct = Math.min(userToDeduct.coins || 0, remainingDeduct);
-      remainingDeduct -= coinsDeduct;
-      let diamondsDeduct = Math.min(userToDeduct.diamonds || 0, remainingDeduct);
+    case 'earn':
+      targetField = 'coins';
+      updateObject = { $inc: { coins: amount } };
+      break;
 
-      const updatedUser = await User.findByIdAndUpdate(
-        userId,
-        { $inc: { coins: -coinsDeduct, diamonds: -diamondsDeduct } },
+    case 'deduct': {
+      const updatedUser = await User.findOneAndUpdate(
+        { _id: userId, diamonds: { $gte: amount } },
+        { $inc: { diamonds: -amount } },
         { new: true, runValidators: true, session }
       ).exec();
 
       if (!updatedUser) {
-        throw new Error(`User with ID ${userId} update failed.`);
+        throw new Error(`Insufficient Coins balance for user with ID ${userId}.`);
       }
       try {
         const { getIO, getUserRoom } = require('../sockets');
@@ -56,9 +46,10 @@ async function updateBalance(
         if (io) {
           io.to(getUserRoom(String(updatedUser._id))).emit('balanceUpdated', {
             userId: String(updatedUser._id),
-            coins: Number(updatedUser.coins || 0),
+            coins: Number(updatedUser.diamonds || 0),
+            beans: Number(updatedUser.beans ?? updatedUser.coins ?? 0),
             diamonds: Number(updatedUser.diamonds || 0),
-            totalBalance: Number(updatedUser.coins || 0) + Number(updatedUser.diamonds || 0),
+            totalBalance: Number(updatedUser.diamonds || 0),
           });
         }
       } catch (e) {}
@@ -85,9 +76,10 @@ async function updateBalance(
     if (io) {
       io.to(getUserRoom(String(updatedUser._id))).emit('balanceUpdated', {
         userId: String(updatedUser._id),
-        coins: Number(updatedUser.coins || 0),
+        coins: Number(updatedUser.diamonds || 0),
+        beans: Number(updatedUser.beans ?? updatedUser.coins ?? 0),
         diamonds: Number(updatedUser.diamonds || 0),
-        totalBalance: Number(updatedUser.coins || 0) + Number(updatedUser.diamonds || 0),
+        totalBalance: Number(updatedUser.diamonds || 0),
       });
     }
   } catch (e) {}
