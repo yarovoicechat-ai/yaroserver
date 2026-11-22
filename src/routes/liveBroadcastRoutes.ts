@@ -263,14 +263,6 @@ router.post(
     const isPrivate = Boolean(req.body.isPrivate);
     const pin = String(req.body.pin || "").trim();
     if (isPrivate) {
-      const hostUser = await User.findById(req.user!.id).select('canPrivateLive role').lean();
-      const isAllowed = hostUser?.canPrivateLive === true || ['owner', 'superAdmin', 'admin'].includes(String(hostUser?.role));
-      if (!isAllowed) {
-        return res.status(403).json({
-          success: false,
-          message: "Private live is not enabled for your account. Please contact admin to activate this feature.",
-        });
-      }
       if (!pin || pin.length !== 4 || !/^\d{4}$/.test(pin)) {
         return res.status(400).json({
           success: false,
@@ -386,7 +378,7 @@ router.param("id", (req, res, next, id) => {
 router.post(
   "/rooms/:id/join",
   wrap(async (req: any, res: any) => {
-    const room = await LiveBroadcast.findOne({
+    let room = await LiveBroadcast.findOne({
       _id: req.params.id,
       ...active(),
     })
@@ -394,6 +386,16 @@ router.post(
       .populate("guests.user", "name image avatar gender userId level")
       .populate("pk.rivalHost", "name image avatar gender userId level")
       .populate("topContributors.user", "name image avatar gender userId level");
+    if (!room) {
+      room = await LiveBroadcast.findOne({
+        _id: req.params.id,
+        status: "live",
+      })
+        .populate("host", "name image avatar gender userId level equippedSvipId")
+        .populate("guests.user", "name image avatar gender userId level")
+        .populate("pk.rivalHost", "name image avatar gender userId level")
+        .populate("topContributors.user", "name image avatar gender userId level");
+    }
     if (!room)
       return res
         .status(404)
@@ -424,7 +426,10 @@ router.post(
 router.post(
   "/rooms/:id/verify-pin",
   wrap(async (req: any, res: any) => {
-    const room = await LiveBroadcast.findOne({ _id: req.params.id, ...active() });
+    let room = await LiveBroadcast.findOne({ _id: req.params.id, ...active() });
+    if (!room) {
+      room = await LiveBroadcast.findOne({ _id: req.params.id, status: "live" });
+    }
     if (!room) return res.status(404).json({ success: false, message: "Live has ended." });
     if (!room.isPrivate) return res.json({ success: true, valid: true });
     const hostIdStr = String((room.host as any)?._id || room.host);
@@ -441,17 +446,14 @@ router.post(
 router.post(
   "/rooms/:id/lock",
   wrap(async (req: any, res: any) => {
-    const room = await LiveBroadcast.findOne({ _id: req.params.id, ...active() });
+    let room = await LiveBroadcast.findOne({ _id: req.params.id, ...active() });
+    if (!room) {
+      room = await LiveBroadcast.findOne({ _id: req.params.id, status: "live" });
+    }
     if (!room) return res.status(404).json({ success: false, message: "Live room not found." });
     const hostIdStr = String((room.host as any)?._id || room.host);
     if (hostIdStr !== String(req.user?.id)) {
       return res.status(403).json({ success: false, message: "Only the host can lock or unlock this room." });
-    }
-
-    const hostUser = await User.findById(req.user!.id).select('canPrivateLive role').lean();
-    const isAllowed = hostUser?.canPrivateLive === true || ['owner', 'superAdmin', 'admin'].includes(String(hostUser?.role));
-    if (!isAllowed) {
-      return res.status(403).json({ success: false, message: "Private live is not enabled for your account. Please contact admin." });
     }
 
     const shouldLock = Boolean(req.body.isLocked);

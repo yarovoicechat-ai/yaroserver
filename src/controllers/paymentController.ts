@@ -388,7 +388,7 @@ export const verifyGooglePurchase = async (req: AuthRequest, res: Response) => {
       return res.status(200).json({
         success: false,
         status: "PENDING",
-        message: "Payment is pending. Diamonds will be added after Google confirms payment.",
+        message: "Payment is pending. Coins will be added after Google confirms payment.",
       });
     }
 
@@ -440,12 +440,14 @@ export const verifyGooglePurchase = async (req: AuthRequest, res: Response) => {
           success: true,
           status: "ALREADY_PROCESSED",
           diamondsAdded: 0,
+          coinsAdded: 0,
           balance: userRecord?.diamonds || 0,
+          coins: userRecord?.diamonds || 0,
           message: "Purchase was already processed",
         });
       }
 
-      // Credit purchased Coins only (diamonds); coins stores earned Beans.
+      // Credit purchased spending Coins (stored in diamonds)
       const updatedUser = await User.findOneAndUpdate(
         { userId },
         { $inc: { diamonds: productConfig.diamonds } },
@@ -630,7 +632,7 @@ export const handleGooglePlayRTDN = async (req: any, res: Response) => {
                     );
                     if (!claimed) return;
                     const credited = await User.findOneAndUpdate({ userId: claimed.userId },
-                      { $inc: { diamonds: claimed.diamonds || 0 } }, { session, new: true });
+                      { $inc: { diamonds: claimed.diamonds || claimed.coins || 0 } }, { session, new: true });
                     if (!credited) throw new Error('Purchase owner not found');
                   });
                 } finally { await session.endSession(); }
@@ -680,7 +682,7 @@ const reverseGooglePurchase = async (purchaseToken: string, rawGoogleData: any) 
         return;
       }
       const user = await User.findOneAndUpdate({ userId: tx.userId },
-        { $inc: { diamonds: -(tx.diamonds || 0) } }, { session, new: true });
+        { $inc: { diamonds: -(tx.diamonds || tx.coins || 0) } }, { session, new: true });
       if (!user) throw new Error('Refund owner not found');
     });
   } finally { await session.endSession(); }

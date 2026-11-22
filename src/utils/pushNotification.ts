@@ -110,19 +110,14 @@ export const sendPushNotification = async (
         title: payload.title,
         body: payload.body,
       },
-      // Chat notifications are rendered locally by Notifee so messages from
-      // the same conversation can be grouped and expose Reply/Mark read.
-      // Other notification types can still use Firebase's system rendering.
-      ...(['message', 'missed_call'].includes(payload.data?.type || '') ? {} : {
-        notification: {
-          title: payload.title,
-          body: payload.body,
-        },
-      }),
+      notification: {
+        title: payload.title,
+        body: payload.body,
+      },
       android: {
         priority: "high",
         notification: {
-          channelId: 'activity_notifications_v1',
+          channelId: payload.data?.type === 'message' ? 'chat_messages_v2' : 'activity_notifications_v1',
           sound: 'default',
           ...(payload.data?.notificationId ? { tag: payload.data.notificationId } : {}),
         },

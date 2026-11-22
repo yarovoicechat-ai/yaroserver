@@ -8,8 +8,8 @@ export const getAppConfig = async (_req: Request, res: Response) => {
     if (!config) {
       config = await SystemConfig.create({
         key: 'global_config',
-        isFamilyEnabled: false,
-        isCpEnabled: false,
+        isFamilyEnabled: true,
+        isCpEnabled: true,
         isInviteEarnEnabled: false,
       });
     }
@@ -23,8 +23,8 @@ export const getPublicAppConfig = async (_req: Request, res: Response) => {
   try {
     const config = await SystemConfig.findOne({ key: 'global_config' }).lean();
     return sendResponse(res, 200, true, 'App configuration retrieved', {
-      isFamilyEnabled: config?.isFamilyEnabled ?? false,
-      isCpEnabled: config?.isCpEnabled ?? false,
+      isFamilyEnabled: config?.isFamilyEnabled ?? true,
+      isCpEnabled: config?.isCpEnabled ?? true,
       isInviteEarnEnabled: config?.isInviteEarnEnabled ?? false,
       maintenanceMode: config?.maintenanceMode ?? false,
       storeCategories: config?.storeCategories || [],

@@ -19,6 +19,7 @@ export interface UserInterface extends Document {
   authType?: AuthType;
   coins?: number;
   diamonds?: number;
+  beans?: number;
   image?: string;
   createdBy?: Types.ObjectId;
   isDeleted?: boolean;

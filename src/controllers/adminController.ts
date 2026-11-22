@@ -122,6 +122,9 @@ export const listAdmins = async (req: AuthRequest, res: Response) => {
 
         return {
           ...admin,
+          coins: (admin as any).diamonds ?? 0,
+          beans: (admin as any).coins ?? 0,
+          diamonds: (admin as any).diamonds ?? 0,
           activeAgenciesCount,
           newAgenciesCount,
           activeHostsCount,
@@ -405,9 +408,21 @@ export const getRecruitedMembers = async (req: Request, res: Response) => {
       User.countDocuments({ ...statsStage, isBlocked: true }),
     ]);
 
+    const mappedMembers = members.map((m: any) => ({
+      ...m,
+      coins: m.diamonds ?? 0,
+      beans: m.coins ?? 0,
+      diamonds: m.diamonds ?? 0,
+    }));
+
     return sendResponse(res, 200, true, 'Recruited members fetched successfully', {
-      parent: parentUser,
-      members,
+      parent: parentUser ? {
+        ...parentUser,
+        coins: (parentUser as any).diamonds ?? 0,
+        beans: (parentUser as any).coins ?? 0,
+        diamonds: (parentUser as any).diamonds ?? 0,
+      } : null,
+      members: mappedMembers,
       total,
       page: pageNum,
       limit: limitNum,

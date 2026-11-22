@@ -151,7 +151,7 @@ export class GameService {
       for (const game of DEFAULT_COCOS_GAMES) {
         await Game.findOneAndUpdate(
           { gameId: game.gameId },
-          { $set: game },
+          { $setOnInsert: game },
           { upsert: true, new: true }
         );
       }

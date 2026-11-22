@@ -190,8 +190,14 @@ export const getConversations = async (
         }
     }));
 
-    // Filter out nulls
-    return filteredConversations.filter(c => c !== null);
+    // Filter out nulls and sort descending by newest message or update
+    const result = filteredConversations.filter(c => c !== null);
+    result.sort((a: any, b: any) => {
+        const timeA = new Date(a.lastMessage?.createdAt || a.updatedAt || 0).getTime();
+        const timeB = new Date(b.lastMessage?.createdAt || b.updatedAt || 0).getTime();
+        return timeB - timeA;
+    });
+    return result;
 }
 
 // Mark messages seen

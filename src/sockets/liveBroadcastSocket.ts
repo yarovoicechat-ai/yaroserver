@@ -502,20 +502,33 @@ export const registerLiveBroadcastHandlers = (io: Server, socket: AuthenticatedS
   });
 
   // 10. PK Battle: Host invites rival
-  socket.on("live:pk_invite", async ({ roomId, targetRoomId }: { roomId: string; targetRoomId: string }) => {
+  socket.on("live:pk_invite", async ({ roomId, targetRoomId, durationSeconds, pkType }: { roomId: string; targetRoomId: string; durationSeconds?: number; pkType?: string }) => {
     try {
       if (!roomId || !targetRoomId) return;
       const currentRoom: any = await LiveBroadcast.findById(roomId).populate("host", "name avatar image userId");
-      const targetRoom: any = await LiveBroadcast.findById(targetRoomId).populate("host", "name avatar image userId");
+      let targetRoom: any = null;
+      if (Types.ObjectId.isValid(targetRoomId)) {
+        targetRoom = await LiveBroadcast.findById(targetRoomId).populate("host", "name avatar image userId");
+      }
+      if (!targetRoom && /^\d+$/.test(String(targetRoomId).trim())) {
+        const { User } = await import('../models/user.model');
+        const userDoc = await User.findOne({ userId: Number(targetRoomId) }).select('_id');
+        if (userDoc) {
+          targetRoom = await LiveBroadcast.findOne({ host: userDoc._id, status: 'live' }).populate("host", "name avatar image userId");
+        }
+      }
 
       if (!targetRoom || targetRoom.status !== "live") {
         socket.emit("live:error", { message: "Selected room is not live." });
         return;
       }
 
+      const validDuration = [300, 900, 1800].includes(Number(durationSeconds)) ? Number(durationSeconds) : 300;
       const rivalHostRoom = `user:${targetRoom.host?._id || targetRoom.host}`;
       io.to(rivalHostRoom).emit("live:pk_invitation_received", {
         fromRoomId: roomId,
+        durationSeconds: validDuration,
+        pkType: pkType === 'user' ? 'user' : 'room',
         fromHost: {
           id: userIdStr,
           name: currentRoom?.host?.name || "Host",
@@ -530,7 +543,7 @@ export const registerLiveBroadcastHandlers = (io: Server, socket: AuthenticatedS
   });
 
   // 11. PK Battle: Accept Challenge and Start PK
-  socket.on("live:pk_accept", async ({ roomId, inviterRoomId }: { roomId: string; inviterRoomId: string }) => {
+  socket.on("live:pk_accept", async ({ roomId, inviterRoomId, durationSeconds }: { roomId: string; inviterRoomId: string; durationSeconds?: number }) => {
     try {
       if (!roomId || !inviterRoomId) return;
       const room1: any = await LiveBroadcast.findById(roomId).populate("host", "name avatar image userId");
@@ -538,7 +551,7 @@ export const registerLiveBroadcastHandlers = (io: Server, socket: AuthenticatedS
 
       if (!room1 || !room2) return;
 
-      const duration = 300; // 5 minutes
+      const duration = [300, 900, 1800].includes(Number(durationSeconds)) ? Number(durationSeconds) : (Number(room2.pk?.durationSeconds) || 300);
       const now = new Date();
       const endTime = new Date(now.getTime() + duration * 1000);
 
@@ -555,6 +568,8 @@ export const registerLiveBroadcastHandlers = (io: Server, socket: AuthenticatedS
             "pk.endTime": endTime,
             "pk.leftScore": 0,
             "pk.rightScore": 0,
+            "pk.leftContributors": [],
+            "pk.rightContributors": [],
           },
         }
       );
@@ -572,6 +587,8 @@ export const registerLiveBroadcastHandlers = (io: Server, socket: AuthenticatedS
             "pk.endTime": endTime,
             "pk.leftScore": 0,
             "pk.rightScore": 0,
+            "pk.leftContributors": [],
+            "pk.rightContributors": [],
           },
         }
       );

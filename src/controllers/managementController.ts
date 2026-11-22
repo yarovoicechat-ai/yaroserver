@@ -828,7 +828,7 @@ export const getVipSubscribers = async (req: Request, res: Response, next: NextF
     try {
         // Fetch users holding high levels or VIP features (in this case users with level >= 10 as VIPs)
         const subscribers = await User.find({ level: { $gte: 10 }, isDeleted: false })
-            .select('name email userId coins level image createdAt')
+            .select('name email userId coins diamonds level image createdAt')
             .sort({ level: -1 });
 
         return sendResponse(res, 200, true, 'VIP subscribers fetched successfully', subscribers);

@@ -76,7 +76,7 @@ export class InternalWalletService {
     currency: 'COINS';
   }> {
     const user = await this.resolveUser(identifier);
-    const coins = Number(user.diamonds || 0);
+    const coins = Number(user.diamonds ?? 0);
 
     return {
       userId: String(user._id),
@@ -130,9 +130,9 @@ export class InternalWalletService {
     const user = await this.resolveUser(identifier);
 
     // 4. Atomic balance decrement with balance check
-    // MongoDB single-document update is atomic: { diamonds: { $gte: amount } } guarantees no negative balance.
+    // MongoDB single-document update is atomic: { coins: { $gte: amount } } guarantees no negative balance.
     let updatedUser: UserInterface | null = null;
-    let balanceBefore = Number(user.diamonds || 0);
+    let balanceBefore = Number(user.diamonds ?? 0);
 
     if (balanceBefore < amount) {
       throw new Error(`INSUFFICIENT_COINS: Current balance is ${balanceBefore}, required is ${amount}`);
@@ -165,7 +165,7 @@ export class InternalWalletService {
       if (!freshUser || freshUser.isDeleted || freshUser.isBlocked) {
         throw new Error('USER_UNAVAILABLE: User account is inactive or blocked');
       }
-      balanceBefore = Number(freshUser.diamonds || 0);
+      balanceBefore = Number(freshUser.diamonds ?? 0);
       if (balanceBefore < amount) {
         throw new Error(`INSUFFICIENT_COINS: Current balance is ${balanceBefore}, required is ${amount}`);
       }
@@ -175,7 +175,7 @@ export class InternalWalletService {
       throw new Error(`INSUFFICIENT_COINS: Current balance is ${balanceBefore}, required is ${amount}`);
     }
 
-    const balanceAfter = Number(updatedUser.diamonds || 0);
+    const balanceAfter = Number(updatedUser.diamonds ?? 0);
     const transactionId = uuidv4();
 
     // 5. Save Authoritative Internal Ledger Record
@@ -255,7 +255,8 @@ export class InternalWalletService {
       if (io) {
         io.to(getUserRoom(String(user._id))).emit('balanceUpdated', {
           userId: String(user._id),
-          coins: Number(updatedUser.coins || 0),
+          coins: Number(updatedUser.diamonds || 0),
+          beans: Number(updatedUser.beans ?? updatedUser.coins ?? 0),
           diamonds: Number(updatedUser.diamonds || 0),
           totalBalance: Number(updatedUser.diamonds || 0),
         });
@@ -321,7 +322,7 @@ export class InternalWalletService {
 
     // 3. Resolve user
     const user = await this.resolveUser(identifier);
-    const balanceBefore = Number(user.diamonds || 0);
+    const balanceBefore = Number(user.diamonds ?? 0);
 
     // 4. Atomic balance increment
     const updatedUser = await User.findOneAndUpdate(
@@ -340,7 +341,7 @@ export class InternalWalletService {
       throw new Error('USER_UNAVAILABLE: User account is inactive or blocked');
     }
 
-    const balanceAfter = Number(updatedUser.diamonds || 0);
+    const balanceAfter = Number(updatedUser.diamonds ?? 0);
     const transactionId = uuidv4();
 
     // 5. Save Authoritative Internal Ledger Record
@@ -420,7 +421,8 @@ export class InternalWalletService {
       if (io) {
         io.to(getUserRoom(String(user._id))).emit('balanceUpdated', {
           userId: String(user._id),
-          coins: Number(updatedUser.coins || 0),
+          coins: Number(updatedUser.diamonds || 0),
+          beans: Number(updatedUser.beans ?? updatedUser.coins ?? 0),
           diamonds: Number(updatedUser.diamonds || 0),
           totalBalance: Number(updatedUser.diamonds || 0),
         });

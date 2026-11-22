@@ -483,7 +483,8 @@ export const getHosts = async (req: AuthRequest, res: Response) => {
                 ...host,
                 level: user?.level || 1,
                 gender: user?.gender || 'female',
-                coins: user?.coins || 0,
+                coins: user?.diamonds || 0,
+                beans: user?.coins || 0,
                 diamonds: user?.diamonds || 0,
                 createdAt: user?.createdAt || host.createdAt,
             };

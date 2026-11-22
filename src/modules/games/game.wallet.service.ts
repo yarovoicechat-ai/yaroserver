@@ -41,14 +41,17 @@ export class GameWalletService {
   /**
    * Get user wallet balance safely from DB
    */
-  public static async getUserBalance(userId: string | Types.ObjectId): Promise<{ diamonds: number; coins: number }> {
-    const user = await User.findById(userId).select('diamonds coins').lean();
+  public static async getUserBalance(userId: string | Types.ObjectId): Promise<{ diamonds: number; coins: number; beans: number }> {
+    const user = await User.findById(userId).select('diamonds coins beans').lean();
     if (!user) {
       throw new Error('User not found');
     }
+    const coins = Number(user.diamonds ?? 0);
+    const beans = Number((user as any).beans ?? user.coins ?? 0);
     return {
-      diamonds: Number(user.diamonds || 0),
-      coins: Number(user.coins || 0),
+      coins,
+      diamonds: coins,
+      beans,
     };
   }
 
@@ -86,13 +89,13 @@ export class GameWalletService {
         throw new Error('User not found');
       }
 
-      const balanceBefore = Number(user.diamonds || 0);
+      const balanceBefore = Number(user.diamonds ?? 0);
       if (balanceBefore < amount) {
         await session.abortTransaction();
-        throw new Error(`INSUFFICIENT_DIAMONDS: Current balance is ${balanceBefore}, required is ${amount}`);
+        throw new Error(`INSUFFICIENT_COINS: Current balance is ${balanceBefore}, required is ${amount}`);
       }
 
-      // 3. Atomically decrement user's diamonds
+      // 3. Atomically decrement user's spending balance (diamonds)
       const updatedUser = await User.findOneAndUpdate(
         { _id: user._id, diamonds: { $gte: amount } },
         {
@@ -106,10 +109,10 @@ export class GameWalletService {
 
       if (!updatedUser) {
         await session.abortTransaction();
-        throw new Error('INSUFFICIENT_DIAMONDS: Balance insufficient or concurrently modified');
+        throw new Error('INSUFFICIENT_COINS: Balance insufficient or concurrently modified');
       }
 
-      const balanceAfter = Number(updatedUser.diamonds || 0);
+      const balanceAfter = Number(updatedUser.diamonds ?? 0);
       const transactionId = uuidv4();
 
       // 4. Create GameTransaction record
@@ -200,9 +203,9 @@ export class GameWalletService {
         throw new Error('User not found');
       }
 
-      const balanceBefore = Number(user.diamonds || 0);
+      const balanceBefore = Number(user.diamonds ?? 0);
 
-      // 2. Atomically increment user's diamonds
+      // 2. Atomically increment user's spending balance (diamonds)
       const updatedUser = await User.findByIdAndUpdate(
         user._id,
         {
@@ -216,7 +219,7 @@ export class GameWalletService {
         throw new Error('Failed to credit winnings to user account');
       }
 
-      const balanceAfter = Number(updatedUser.diamonds || 0);
+      const balanceAfter = Number(updatedUser.diamonds ?? 0);
       const transactionId = uuidv4();
 
       // 3. Record GameTransaction
@@ -307,14 +310,14 @@ export class GameWalletService {
         throw new Error('User not found');
       }
 
-      const balanceBefore = Number(user.diamonds || 0);
+      const balanceBefore = Number(user.diamonds ?? 0);
       const updatedUser = await User.findByIdAndUpdate(
         user._id,
         { $inc: { diamonds: amount } },
         { session, new: true }
       );
 
-      const balanceAfter = Number(updatedUser?.diamonds || balanceBefore + amount);
+      const balanceAfter = Number(updatedUser?.diamonds ?? balanceBefore + amount);
       const transactionId = uuidv4();
 
       const gameTx = new GameTransaction({

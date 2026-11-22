@@ -48,7 +48,7 @@ export const approveStockRequest = async (req: AuthRequest, res: Response) => {
         const openingBalance = sellerDoc.diamonds || 0;
         const closingBalance = openingBalance + numDiamonds;
 
-        // 1. Credit Seller Stock Inventory
+        // 1. Credit Seller Stock Inventory (spending coins in diamonds)
         const updatedSeller = await User.findByIdAndUpdate(
             sellerDoc._id,
             { $inc: { diamonds: numDiamonds } },
@@ -117,7 +117,7 @@ export const approveStockRequest = async (req: AuthRequest, res: Response) => {
             ipAddress: req.ip || '127.0.0.1'
         });
 
-        return sendResponse(res, 200, true, `Successfully approved stock request and credited 💎 ${numDiamonds.toLocaleString()} to Seller ${sellerDoc.name}`, {
+        return sendResponse(res, 200, true, `Successfully approved stock request and credited ${numDiamonds.toLocaleString()} Coins to Seller ${sellerDoc.name}`, {
             stockRequest: stockReq,
             sellerNewStockBalance: closingBalance
         });
@@ -344,12 +344,12 @@ export const adminCreditSellerDiamonds = async (req: AuthRequest, res: Response)
         // 1. Atomically Credit Seller Stock Inventory
         const updatedSeller = await User.findByIdAndUpdate(
             sellerDoc._id,
-            { $inc: { diamonds: numDiamonds } },
+            { $inc: { coins: numDiamonds, diamonds: numDiamonds } },
             { new: true }
         );
 
         if (!updatedSeller) {
-            return sendResponse(res, 500, false, "Failed to update seller diamond stock");
+            return sendResponse(res, 500, false, "Failed to update seller coin stock");
         }
 
         const txId = `STX_ADM_${Date.now()}${Math.floor(100 + Math.random() * 900)}`;
@@ -406,13 +406,14 @@ export const adminCreditSellerDiamonds = async (req: AuthRequest, res: Response)
             ipAddress: req.ip || '127.0.0.1'
         });
 
-        return sendResponse(res, 200, true, `Successfully credited 💎 ${numDiamonds.toLocaleString()} to Seller ${sellerDoc.name}`, {
+        return sendResponse(res, 200, true, `Successfully credited ${numDiamonds.toLocaleString()} Coins to Seller ${sellerDoc.name}`, {
             seller: {
                 userId: sellerDoc.userId,
                 name: sellerDoc.name,
                 newStockBalance: closingBalance
             },
             currentDiamonds: closingBalance,
+            currentCoins: closingBalance,
             transactionId: txId
         });
 

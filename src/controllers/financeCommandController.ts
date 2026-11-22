@@ -153,29 +153,23 @@ export const adjustWalletBalance = async (req: AuthRequest, res: Response) => {
             return sendResponse(res, 400, false, 'A descriptive reason (minimum 5 characters) is mandatory for financial adjustments');
         }
 
-        // 2. Parse Delta Supporting Both Unified and Legacy Schemas
+        // 2. Parse Delta with strict currency separation (Coins = spending in diamonds; Beans = creator in coins/beans)
         let coinChange = 0;
-        let diamondChange = 0;
+        let beanChange = 0;
 
-        if (req.body.coinDelta !== undefined || req.body.diamondDelta !== undefined) {
-            coinChange = Number(req.body.coinDelta) || 0;
-            diamondChange = Number(req.body.diamondDelta) || 0;
-        } else if (req.body.amount !== undefined) {
-            const val = Math.abs(Number(req.body.amount));
-            if (isNaN(val) || val <= 0) {
-                return sendResponse(res, 400, false, 'Amount must be a positive number');
-            }
+        const requestedCurrency = String(req.body.currency || '').toLowerCase();
+
+        if (req.body.beanDelta !== undefined || requestedCurrency === 'beans') {
+            const val = Number(req.body.beanDelta !== undefined ? req.body.beanDelta : (req.body.amount ?? req.body.delta ?? 0));
             const isCredit = String(req.body.type || 'CREDIT').toUpperCase() === 'CREDIT';
-            const delta = isCredit ? val : -val;
-            const cur = String(req.body.currency || 'coins').toLowerCase();
-            if (cur === 'diamonds') {
-                diamondChange = delta;
-            } else {
-                coinChange = delta;
-            }
+            beanChange = req.body.beanDelta !== undefined ? val : (isCredit ? Math.abs(val) : -Math.abs(val));
+        } else if (req.body.coinDelta !== undefined || req.body.diamondDelta !== undefined || requestedCurrency === 'coins' || requestedCurrency === 'diamonds' || req.body.amount !== undefined) {
+            const val = Number(req.body.coinDelta ?? req.body.diamondDelta ?? req.body.amount ?? 0);
+            const isCredit = String(req.body.type || 'CREDIT').toUpperCase() === 'CREDIT';
+            coinChange = (req.body.coinDelta !== undefined || req.body.diamondDelta !== undefined) ? val : (isCredit ? Math.abs(val) : -Math.abs(val));
         }
 
-        if (coinChange === 0 && diamondChange === 0) {
+        if (coinChange === 0 && beanChange === 0) {
             return sendResponse(res, 400, false, 'Adjustment amount must be non-zero');
         }
 
@@ -203,31 +197,31 @@ export const adjustWalletBalance = async (req: AuthRequest, res: Response) => {
             return sendResponse(res, 404, false, 'Target user account not found');
         }
 
-        const beforeCoins = user.coins || 0;
-        const beforeDiamonds = user.diamonds || 0;
+        const beforeCoins = user.diamonds || 0;
+        const beforeBeans = (user as any).beans ?? user.coins ?? 0;
 
         // 5. Construct Atomic Mutation Query with Negative Balance Safeguard
         const updateQuery: any = { _id: user._id };
         const updateOps: any = { $inc: {} };
 
-        if (coinChange < 0) {
-            updateQuery.coins = { $gte: Math.abs(coinChange) };
-        }
         if (coinChange !== 0) {
-            updateOps.$inc.coins = coinChange;
+            if (coinChange < 0) {
+                updateQuery.diamonds = { $gte: Math.abs(coinChange) };
+            }
+            updateOps.$inc.diamonds = coinChange;
         }
 
-        if (diamondChange < 0) {
-            updateQuery.diamonds = { $gte: Math.abs(diamondChange) };
-        }
-        if (diamondChange !== 0) {
-            updateOps.$inc.diamonds = diamondChange;
+        if (beanChange !== 0) {
+            if (beanChange < 0) {
+                updateQuery.coins = { $gte: Math.abs(beanChange) };
+            }
+            updateOps.$inc.coins = beanChange;
         }
 
         // Atomic Execution: Never lost updates, never negative balance under concurrency
         const updatedUser = await User.findOneAndUpdate(updateQuery, updateOps, { new: true });
         if (!updatedUser) {
-            return sendResponse(res, 400, false, `Insufficient balance for debit. Current balance: ${beforeCoins} coins, ${beforeDiamonds} diamonds. Transaction rejected to prevent negative float.`);
+            return sendResponse(res, 400, false, `Insufficient balance for debit. Current balance: ${beforeCoins} coins, ${beforeBeans} beans. Transaction rejected to prevent negative float.`);
         }
 
         // 6. Record Ledger Entry
@@ -235,7 +229,7 @@ export const adjustWalletBalance = async (req: AuthRequest, res: Response) => {
             userId: updatedUser.userId,
             type: RechargeType.OFFLINE,
             coins: coinChange,
-            diamonds: diamondChange,
+            diamonds: coinChange,
             amount: 0,
             date: new Date(),
             sellerId: req.user?.userId || 0,
@@ -249,23 +243,26 @@ export const adjustWalletBalance = async (req: AuthRequest, res: Response) => {
                 adminId: req.user.id,
                 action: 'WALLET_ADJUSTMENT',
                 target: `User #${updatedUser.userId}`,
-                details: `[${refId}] Adjusted wallet for ${updatedUser.name || 'User'} (#${updatedUser.userId}): Coins ${beforeCoins} -> ${updatedUser.coins} (${coinChange >= 0 ? '+' : ''}${coinChange}), Diamonds ${beforeDiamonds} -> ${updatedUser.diamonds} (${diamondChange >= 0 ? '+' : ''}${diamondChange}). Reason: ${String(reason).trim()}`,
+                details: `[${refId}] Adjusted wallet for ${updatedUser.name || 'User'} (#${updatedUser.userId}): Coins (Spending) ${beforeCoins} -> ${updatedUser.diamonds} (${coinChange >= 0 ? '+' : ''}${coinChange}), Beans (Creator) ${beforeBeans} -> ${updatedUser.coins} (${beanChange >= 0 ? '+' : ''}${beanChange}). Reason: ${String(reason).trim()}`,
                 ipAddress: req.ip || '127.0.0.1',
                 userAgent: req.headers['user-agent'],
-                oldValue: { coins: beforeCoins, diamonds: beforeDiamonds },
-                newValue: { coins: updatedUser.coins, diamonds: updatedUser.diamonds },
+                oldValue: { coins: beforeCoins, beans: beforeBeans, diamonds: beforeCoins },
+                newValue: { coins: updatedUser.diamonds, beans: updatedUser.coins, diamonds: updatedUser.diamonds },
                 reason: String(reason).trim()
             });
         }
 
         return sendResponse(res, 200, true, 'Wallet balance adjusted successfully', {
             userId: updatedUser.userId,
-            coins: updatedUser.coins,
+            coins: updatedUser.diamonds,
+            beans: updatedUser.coins,
             diamonds: updatedUser.diamonds,
             beforeCoins,
-            beforeDiamonds,
+            beforeBeans,
+            beforeDiamonds: beforeCoins,
             coinDelta: coinChange,
-            diamondDelta: diamondChange,
+            beanDelta: beanChange,
+            diamondDelta: coinChange,
             auditId: auditLogDoc?._id,
             referenceId: refId
         });

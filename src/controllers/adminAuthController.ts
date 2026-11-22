@@ -396,7 +396,7 @@ export const addCoinsToUser = async (req: AuthRequest, res: Response) => {
             return sendResponse(res, 404, false, "User not found");
         }
 
-        user.coins = (user.coins || 0) + amountToAdd;
+        user.diamonds = (user.diamonds || 0) + amountToAdd;
         await user.save();
 
         // Create recharge history
@@ -404,13 +404,16 @@ export const addCoinsToUser = async (req: AuthRequest, res: Response) => {
             userId: user.userId,
             type: RechargeType.OFFLINE,
             coins: amountToAdd,
-            diamonds: 0,
+            diamonds: amountToAdd,
             date: new Date(),
             sellerId: req.user?.userId
         });
 
         return sendResponse(res, 200, true, "Coins added successfully", {
-            currentCoins: user.coins,
+            coins: user.diamonds,
+            diamonds: user.diamonds,
+            beans: (user as any).beans ?? user.coins ?? 0,
+            currentCoins: user.diamonds,
             currentDiamonds: user.diamonds
         });
 
@@ -423,20 +426,21 @@ export const addCoinsToUser = async (req: AuthRequest, res: Response) => {
 // admin add diamonds in user account
 export const addDiamondsToUser = async (req: AuthRequest, res: Response) => {
     try {
-        const { userId, diamonds } = req.body;
+        const { userId, diamonds, coins } = req.body;
         const { role } = req.user || {};
 
         if (!['owner', 'superAdmin', 'admin'].includes(role || '')) {
             return sendResponse(res, 403, false, "Access Denied");
         }
 
-        if (!userId || !diamonds) {
-            return sendResponse(res, 400, false, "Diamonds and UserId are required");
+        const effectiveAmount = diamonds ?? coins;
+        if (!userId || !effectiveAmount) {
+            return sendResponse(res, 400, false, "Coins and UserId are required");
         }
 
-        const amountToAdd = Number(diamonds);
+        const amountToAdd = Number(effectiveAmount);
         if (isNaN(amountToAdd) || amountToAdd <= 0) {
-            return sendResponse(res, 400, false, "Invalid diamonds amount");
+            return sendResponse(res, 400, false, "Invalid coins amount");
         }
 
         const user = await User.findOne({ userId });
@@ -452,14 +456,17 @@ export const addDiamondsToUser = async (req: AuthRequest, res: Response) => {
         await RechargeHistory.create({
             userId: user.userId,
             type: RechargeType.OFFLINE,
-            coins: 0,
+            coins: amountToAdd,
             diamonds: amountToAdd,
             date: new Date(),
             sellerId: req.user?.userId
         });
 
-        return sendResponse(res, 200, true, "Diamonds added successfully", {
-            currentCoins: user.coins,
+        return sendResponse(res, 200, true, "Coins added successfully", {
+            coins: user.diamonds,
+            diamonds: user.diamonds,
+            beans: (user as any).beans ?? user.coins ?? 0,
+            currentCoins: user.diamonds,
             currentDiamonds: user.diamonds
         });
 
@@ -509,7 +516,8 @@ export const verifyUserForRecharge = async (req: AuthRequest, res: Response) => 
                 userName: user.userName ? (user.userName.startsWith('@') ? user.userName : `@${user.userName}`) : `@user${user.userId}`,
                 meethiId: user.meethiId || String(user.userId),
                 image: user.image || "",
-                coins: user.coins || 0,
+                coins: user.diamonds || 0,
+                beans: user.coins || 0,
                 diamonds: user.diamonds || 0,
                 role: user.role,
                 isBlocked: user.isBlocked

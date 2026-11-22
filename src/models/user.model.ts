@@ -54,8 +54,11 @@ const userSchema = new Schema<UserInterface>(
     password: { type: String, select: false },
     role: { type: String, enum: Object.values(UserRole), default: UserRole.USER },
     authType: { type: String, enum: Object.values(AuthType), default: AuthType.PHONE },
-    coins: { type: Number, default: 0 },
-    diamonds: { type: Number, default: 5 },
+    // In MongoDB database storage:
+    // diamonds: Sole authoritative storage for Spending Currency (COINS)
+    // coins: Sole authoritative storage for Creator Earnings (BEANS)
+    coins: { type: Number, default: 0, min: 0 },
+    diamonds: { type: Number, default: 5, min: 0 },
     image: { type: String, default: "" },
     createdBy: { type: Schema.Types.ObjectId, ref: "User" },
     isDeleted: { type: Boolean, default: false },
@@ -261,10 +264,41 @@ const userSchema = new Schema<UserInterface>(
   },
   {
     timestamps: true,
-    toJSON: { virtuals: true },
-    toObject: { virtuals: true },
+    toJSON: {
+      virtuals: true,
+      transform: (doc: any, ret: any) => {
+        // Authoritative mapping for API consumers:
+        // coins = spending currency (doc.diamonds)
+        // beans = creator earnings (doc.coins)
+        // diamonds = spending currency (doc.diamonds) for backward compatibility
+        const spending = typeof doc.diamonds === 'number' ? doc.diamonds : (typeof ret.diamonds === 'number' ? ret.diamonds : 0);
+        const earnings = typeof doc.coins === 'number' ? doc.coins : (typeof ret.coins === 'number' ? ret.coins : 0);
+        ret.coins = spending;
+        ret.beans = earnings;
+        ret.diamonds = spending;
+        delete ret.password;
+        return ret;
+      },
+    },
+    toObject: {
+      virtuals: true,
+      transform: (doc: any, ret: any) => {
+        const spending = typeof doc.diamonds === 'number' ? doc.diamonds : (typeof ret.diamonds === 'number' ? ret.diamonds : 0);
+        const earnings = typeof doc.coins === 'number' ? doc.coins : (typeof ret.coins === 'number' ? ret.coins : 0);
+        ret.coins = spending;
+        ret.beans = earnings;
+        ret.diamonds = spending;
+        delete ret.password;
+        return ret;
+      },
+    },
   }
 );
+
+// Virtual getter: user.beans resolves dynamically to authoritative creator earnings storage (user.coins)
+userSchema.virtual('beans').get(function (this: any) {
+  return typeof this.coins === 'number' ? this.coins : 0;
+});
 
 // Indexes for Global Search Engine, RBAC Filters & Referral Network Engine
 userSchema.index({ role: 1 });

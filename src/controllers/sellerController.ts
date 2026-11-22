@@ -97,8 +97,9 @@ export const verifyUserForSeller = async (req: AuthRequest, res: Response) => {
                 userName: user.userName || `@user_${user.userId}`,
                 meethiId: user.meethiId || `MC${user.userId}`,
                 image: user.image || '',
+                coins: user.diamonds || 0,
+                beans: user.coins || 0,
                 diamonds: user.diamonds || 0,
-                coins: user.coins || 0,
                 role: user.role,
                 status: user.status || 'Active'
             }
@@ -232,7 +233,7 @@ export const rechargeUserBySeller = async (req: AuthRequest, res: Response) => {
             const sellerClosingBalance = updatedSeller.diamonds || 0;
             const sellerOpeningBalance = sellerClosingBalance + numDiamonds;
 
-            // 2. Atomic credit target user
+            // 2. Atomic credit target user (spending balance in diamonds)
             const updatedUser = await User.findByIdAndUpdate(
                 targetUser._id,
                 { $inc: { diamonds: numDiamonds } },
@@ -329,6 +330,7 @@ export const rechargeUserBySeller = async (req: AuthRequest, res: Response) => {
                 userId: targetUser.userId,
                 userName: targetUser.name,
                 meethiId: targetUser.meethiId,
+                coins: numDiamonds,
                 diamonds: numDiamonds,
                 customerAmount,
                 sellerCost,
@@ -341,7 +343,7 @@ export const rechargeUserBySeller = async (req: AuthRequest, res: Response) => {
         // Award 2 Diamonds to referrer if referee is recharging via seller
         void evaluateReferralRechargeReward(targetUser._id, customerAmount);
 
-        return sendResponse(res, 200, true, `Successfully credited 💎 ${numDiamonds.toLocaleString()} to ${targetUser.name}`, {
+        return sendResponse(res, 200, true, `Successfully credited ${numDiamonds.toLocaleString()} Coins to ${targetUser.name}`, {
             receipt: result
         });
 
@@ -349,7 +351,7 @@ export const rechargeUserBySeller = async (req: AuthRequest, res: Response) => {
         console.error("Seller Recharge Error:", error);
         const errMsg = error?.message || "Recharge transaction failed";
         if (errMsg.includes("INSUFFICIENT_STOCK")) {
-            return sendResponse(res, 400, false, "Insufficient diamond stock in seller wallet", undefined, undefined, "INSUFFICIENT_STOCK");
+            return sendResponse(res, 400, false, "Insufficient Coin stock in seller wallet", undefined, undefined, "INSUFFICIENT_STOCK");
         }
         return sendResponse(res, 500, false, errMsg);
     }

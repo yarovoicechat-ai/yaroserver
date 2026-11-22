@@ -3,7 +3,10 @@ import { getAppConfig, getPublicAppConfig, updateAppConfig } from '../controller
 import { verifyToken, requireRoles } from '../middlewares/authorize.middleware';
 
 const router = Router();
-const adminManagers = requireRoles('owner', 'superAdmin', 'admin', 'operator', 'bdLeader', 'bd', 'agency');
+const adminManagers = requireRoles(
+  'owner', 'superAdmin', 'admin', 'operator', 'bdLeader', 'bd', 'agency',
+  'countryManager', 'stateManager', 'management', 'manager', 'root'
+);
 
 // Public query for App and Admin
 router.get('/', (req, res, next) => {

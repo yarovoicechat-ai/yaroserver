@@ -12,12 +12,21 @@ export class RoomPKError extends Error {
 
 async function resolveRoom(value: unknown): Promise<any> {
   const raw = String(value || '').trim(), canonical = normalizePKRoomId(raw);
-  if (!raw || raw.length > 128) throw new RoomPKError('Enter a valid room ID');
-  const room = await Room.findOne({ $or: [
+  if (!raw || raw.length > 128) throw new RoomPKError('Enter a valid User ID or Room ID');
+  let room = await Room.findOne({ $or: [
     { channelName: { $in: [raw, canonical] } }, { uniqueId: raw }, { customDisplayId: raw },
     ...(Types.ObjectId.isValid(raw) ? [{ _id: raw }] : []),
   ] }).populate('ownerId', 'userId name image avatar').lean();
-  if (!room || room.isBanned || !room.isActive) throw new RoomPKError('This room is not available for PK', 404);
+
+  if (!room && /^\d+$/.test(raw)) {
+    const { User } = await import('../models/user.model');
+    const userDoc = await User.findOne({ userId: Number(raw) }).select('_id').lean();
+    if (userDoc) {
+      room = await Room.findOne({ ownerId: userDoc._id }).populate('ownerId', 'userId name image avatar').lean();
+    }
+  }
+
+  if (!room || room.isBanned || !room.isActive) throw new RoomPKError('This user or room is not available for PK', 404);
   return room;
 }
 
@@ -29,7 +38,8 @@ function requireOwner(room: any, user: any) {
 function roomSummary(room: any) {
   return { id: normalizePKRoomId(room.channelName), title: room.title,
     coverImage: room.coverImage || room.ownerId?.image || room.ownerId?.avatar || '',
-    ownerId: ownerId(room), hostName: room.ownerId?.name || 'Host' };
+    ownerId: ownerId(room), hostName: room.ownerId?.name || 'Host',
+    userId: room.ownerId?.userId ? String(room.ownerId.userId) : String(room.channelName || '').replace(/^room_/, '') };
 }
 async function liveState(room: any) {
   const { getVoiceRoomState } = await import('../sockets/voiceRoomSocket');
@@ -47,9 +57,12 @@ async function requireLiveHost(room: any) {
 export function pkSnapshot(match: any, now = Date.now()) {
   if (!match) return null;
   return { id: String(match._id), roomIds: match.roomIds, rooms: match.rooms, status: match.status,
-    scores: match.scores, durationSeconds: 300, inviteExpiresAt: match.inviteExpiresAt,
+    scores: match.scores, durationSeconds: match.durationSeconds || 300, inviteExpiresAt: match.inviteExpiresAt,
     startedAt: match.startedAt, endsAt: match.endsAt, winnerRoomId: match.winnerRoomId,
     loserRoomId: match.loserRoomId, draw: match.draw, finishedAt: match.finishedAt,
+    pkType: match.pkType || 'room',
+    leftContributors: match.leftContributors || [],
+    rightContributors: match.rightContributors || [],
     updatedAt: match.updatedAt, serverNow: now };
 }
 
@@ -80,10 +93,33 @@ export async function refreshPK(id: string, now = Date.now()): Promise<any> {
       ]);
       const scores = [0, 0];
       for (const total of totals) if ([0, 1].includes(total._id)) scores[total._id] = total.total;
+
+      // Aggregate top 3 sending contributors for both sides (only avatar, no names)
+      const contributorAgg = await GiftTransaction.aggregate([
+        { $match: { 'meta.pkId': id, status: { $in: ['SUCCESS', 'COMPLETED'] },
+          createdAt: { $gte: new Date(match.startedAt), $lt: new Date(match.endsAt) } } },
+        { $group: { _id: { side: '$meta.pkSide', senderId: '$senderId' }, total: { $sum: '$totalDiamonds' } } },
+        { $sort: { total: -1 } },
+        { $lookup: { from: 'users', localField: '_id.senderId', foreignField: '_id', as: 'sender' } },
+        { $unwind: { path: '$sender', preserveNullAndEmptyArrays: true } },
+        { $project: { side: '$_id.side', avatar: { $ifNull: ['$sender.image', '$sender.avatar'] } } }
+      ]);
+      const leftContributors: any[] = [];
+      const rightContributors: any[] = [];
+      for (const item of contributorAgg) {
+        if (item.side === 0 && leftContributors.length < 3) {
+          leftContributors.push({ seat: leftContributors.length + 1, avatar: item.avatar || '' });
+        } else if (item.side === 1 && rightContributors.length < 3) {
+          rightContributors.push({ seat: rightContributors.length + 1, avatar: item.avatar || '' });
+        }
+      }
+
       const finished = now >= new Date(match.endsAt).getTime() + ROOM_PK_SETTLE_MS;
-      const changed = scores.some((score, side) => score !== match.scores[side]);
+      const changed = scores.some((score, side) => score !== match.scores[side]) ||
+        leftContributors.length !== (match.leftContributors?.length || 0) ||
+        rightContributors.length !== (match.rightContributors?.length || 0);
       if (changed || finished) {
-        const update = { scores, ...(finished ? { status: 'finished', isOpen: false,
+        const update = { scores, leftContributors, rightContributors, ...(finished ? { status: 'finished', isOpen: false,
           finishedAt: new Date(now), ...roomPKResult(match.roomIds, scores) } : {}) };
         match = await RoomPK.findOneAndUpdate({ _id: id, status: 'active', isOpen: true },
           { $set: update }, { new: true }).lean();
@@ -105,7 +141,7 @@ async function releaseExpiredRooms(roomIds: string[]) {
   }
 }
 
-export async function invitePK(roomId: string, targetRoomId: string, user: any) {
+export async function invitePK(roomId: string, targetRoomId: string, user: any, durationSeconds = 300, pkType = 'room') {
   const [own, opponent] = await Promise.all([resolveRoom(roomId), resolveRoom(targetRoomId)]);
   requireOwner(own, user);
   const ids = [normalizePKRoomId(own.channelName), normalizePKRoomId(opponent.channelName)];
@@ -113,9 +149,13 @@ export async function invitePK(roomId: string, targetRoomId: string, user: any) 
   await Promise.all([requireLiveHost(own), requireLiveHost(opponent)]);
   await releaseExpiredRooms(ids);
   await RoomPK.init();
+  const validDuration = [300, 900, 1800].includes(Number(durationSeconds)) ? Number(durationSeconds) : 300;
+  const validPkType = pkType === 'user' ? 'user' : 'room';
   try {
     const match = await RoomPK.create({ roomIds: ids, busyRoomIds: ids,
       rooms: [roomSummary(own), roomSummary(opponent)], invitedBy: actorId(user),
+      durationSeconds: validDuration,
+      pkType: validPkType,
       inviteExpiresAt: new Date(Date.now() + ROOM_PK_INVITE_MS) });
     await publish(match);
     return pkSnapshot(match);
@@ -142,7 +182,8 @@ export async function respondPK(id: string, roomId: string, decision: string, us
       await Promise.all([requireLiveHost(own), requireLiveHost(opponent)]);
       const now = Date.now();
       if (new Date(match.inviteExpiresAt).getTime() <= now) throw new RoomPKError('PK invitation expired', 409);
-      update = { status: 'active', startedAt: new Date(now), endsAt: new Date(now + ROOM_PK_DURATION_MS), scores: [0, 0] };
+      const durationMs = (Number(match.durationSeconds) || 300) * 1000;
+      update = { status: 'active', startedAt: new Date(now), endsAt: new Date(now + durationMs), scores: [0, 0] };
     } else update = { status: decision === 'cancel' ? 'cancelled' : 'declined', isOpen: false, finishedAt: new Date() };
     const changed = await RoomPK.findOneAndUpdate({ _id: id, status: 'invited', isOpen: true }, { $set: update }, { new: true }).lean();
     if (!changed) throw new RoomPKError('PK invitation already handled', 409);
