@@ -98,7 +98,8 @@ router.get('/rooms/:id/support', verifyToken, getRoomSupport);
 router.post('/rooms/:id/support/toggle-auto-send', verifyToken, toggleAutoSendSupport);
 
 // YouTube Watch Together Endpoints
-router.get('/youtube/search', verifyToken, searchYouTubeController);
+router.get('/youtube/search', searchYouTubeController);
+router.get('/search', searchYouTubeController);
 router.get('/rooms/:id/watch', verifyToken, getWatchSessionController);
 router.post('/rooms/:id/watch/select', verifyToken, selectVideoController);
 router.post('/rooms/:id/watch/playback', verifyToken, updatePlaybackController);

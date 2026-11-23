@@ -39,6 +39,7 @@ import internalWalletRoutes from "./modules/internalWallet/internalWallet.routes
 import { GiftService } from "./gift/gift.service";
 import { VipService } from "./services/vip.service";
 import { assertAgoraSecurityConfig } from "./services/agora/agoraSecurity";
+import { searchYouTubeController } from "./controllers/roomWatchController";
 
 const app: Application = express();
 
@@ -240,6 +241,13 @@ app.use("/api/voice-room", voiceClubRoutes);
 app.use("/api/v1/voice-room", voiceClubRoutes);
 app.use("/api/rooms", voiceClubRoutes);
 app.use("/api/v1/rooms", voiceClubRoutes);
+
+// Direct YouTube Watch Together search routes (without nested prefixes)
+app.get("/api/youtube/search", searchYouTubeController);
+app.get("/api/v1/youtube/search", searchYouTubeController);
+app.get("/api/voice-club/youtube/search", searchYouTubeController);
+app.get("/api/v1/voice-club/youtube/search", searchYouTubeController);
+
 app.use("/api/youtube", voiceClubRoutes);
 app.use("/api/v1/youtube", voiceClubRoutes);
 app.use("/api/seller", sellerRoutes);
