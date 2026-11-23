@@ -18,6 +18,7 @@ import { ChatQueueService } from "../services/chatQueue.service";
 import { Types } from "mongoose";
 import { User } from "../models/user.model";
 import Conversation from "../models/conversation.model";
+import Message from "../models/chat.model";
 import { updateBalance } from "../services/coins.service";
 import { getCachedSettings } from "./settingsController";
 import {
@@ -305,9 +306,14 @@ export const markMessagesSeenController = async (req: AuthRequest, res: Response
   }
 };
 
-// Delete seen messages
+// Delete seen messages (Owner only)
 export const deleteSeenMessagesController = async (req: AuthRequest, res: Response) => {
   try {
+    const requesterRole = String(req.user?.role || '').toLowerCase();
+    if (requesterRole !== 'owner') {
+      return sendResponse(res, 403, false, "Permission Denied: Only Owner panel has permission to delete chats and messages.");
+    }
+
     const { id } = req.user || {};
     const { conversationId } = req.body;
 
@@ -323,6 +329,54 @@ export const deleteSeenMessagesController = async (req: AuthRequest, res: Respon
     return sendResponse(res, 200, true, "Seen messages deleted");
   } catch (error: any) {
     await Logger("deleteSeenMessagesController", error);
+    return sendResponse(res, 500, false, error.message);
+  }
+};
+
+// 👑 Owner Only: Delete single message
+export const deleteMessageController = async (req: AuthRequest, res: Response) => {
+  try {
+    const requesterRole = String(req.user?.role || '').toLowerCase();
+    if (requesterRole !== 'owner') {
+      return sendResponse(res, 403, false, "Permission Denied: Only Owner panel has permission to delete messages.");
+    }
+
+    const { id } = req.params;
+    if (!id) {
+      return sendResponse(res, 400, false, "Message ID is required");
+    }
+
+    const deleted = await Message.findByIdAndDelete(id);
+    if (!deleted) {
+      return sendResponse(res, 404, false, "Message not found");
+    }
+
+    return sendResponse(res, 200, true, "Message deleted by Owner");
+  } catch (error: any) {
+    await Logger("deleteMessageController", error);
+    return sendResponse(res, 500, false, error.message);
+  }
+};
+
+// 👑 Owner Only: Delete conversation and all its messages
+export const deleteConversationController = async (req: AuthRequest, res: Response) => {
+  try {
+    const requesterRole = String(req.user?.role || '').toLowerCase();
+    if (requesterRole !== 'owner') {
+      return sendResponse(res, 403, false, "Permission Denied: Only Owner panel has permission to delete chats.");
+    }
+
+    const { id } = req.params;
+    if (!id) {
+      return sendResponse(res, 400, false, "Conversation ID is required");
+    }
+
+    await Message.deleteMany({ conversationId: id });
+    await Conversation.findByIdAndDelete(id);
+
+    return sendResponse(res, 200, true, "Conversation and all messages deleted by Owner");
+  } catch (error: any) {
+    await Logger("deleteConversationController", error);
     return sendResponse(res, 500, false, error.message);
   }
 };

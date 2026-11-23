@@ -35,7 +35,17 @@ import {
     resolveReport,
     dismissReport,
 } from '../controllers/reportsController';
-import { listAdmins, getAdmin, toggleAdminBlock, deleteAdmin, resetAdminPassword, getRecruitedMembers } from '../controllers/adminController';
+import {
+  listAdmins,
+  getAdmin,
+  toggleAdminBlock,
+  deleteAdmin,
+  resetAdminPassword,
+  getRecruitedMembers,
+  updateCustomUserIdByOwner,
+  deleteMessageByOwner,
+  deleteConversationByOwner,
+} from '../controllers/adminController';
 import { listSuperAdmins, getSuperAdmin, toggleSuperAdminBlock, deleteSuperAdmin, resetSuperAdminPassword } from '../controllers/superAdminController';
 import { getDeviceLimits, updateDeviceLimit, getUserDeviceDetails, getAdminReferrals, getReferrerReferees } from '../controllers/referralController';
 import assetQuotaRoutes from './assetQuotaRoutes';
@@ -449,6 +459,16 @@ router.post('/users/:id/restore', verifyToken, async (req: any, res: any) => {
         return res.status(500).json({ success: false, message: e.message });
     }
 });
+
+// ============ 👑 Owner-Exclusive User ID & Custom ID Management ============
+// STRICT REQUIREMENT: Only the Owner panel can edit or assign custom User IDs!
+router.patch('/users/:id/custom-id', verifyToken, requireRoles('owner'), updateCustomUserIdByOwner);
+router.post('/users/:id/custom-id', verifyToken, requireRoles('owner'), updateCustomUserIdByOwner);
+
+// ============ 👑 Owner-Exclusive Chat & Message Deletion ============
+// STRICT REQUIREMENT: From chat and message panel, only Owner can delete messages/chats!
+router.delete('/chats/messages/:id', verifyToken, requireRoles('owner'), deleteMessageByOwner);
+router.delete('/chats/conversations/:id', verifyToken, requireRoles('owner'), deleteConversationByOwner);
 
 // ============ Transfer Management Endpoints ============
 router.post('/users/:id/transfer', verifyToken, async (req: any, res: any) => {

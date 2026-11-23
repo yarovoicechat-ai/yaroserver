@@ -38,6 +38,7 @@ import { deleteImageFromCloudinary } from "../utils/cloudinary";
 import { getAccessibleUserFilter } from "./formsController";
 import { generateSecureHash } from "../utils/passwordHelper";
 import { PANEL_ACCOUNT_ROLES } from "../utils/accountScope";
+import { checkIdTaken } from './uniqueIdRequest.controller';
 import Host from "../models/host.model";
 import { validateAvatarSecurity } from "../utils/avatarSecurity";
 import { getNamePolicy, validateNameAgainstPolicy } from "../services/namePolicy.service";
@@ -477,6 +478,50 @@ export const updateUser = async (req: AuthRequest, res: Response) => {
 
     // Initialize with the specific interface for type safety
     const updatedFields: Partial<UserInterface> = {};
+
+    // 👑 STRICT RESTRICTION: Only Platform Owner panel can edit or assign custom User IDs!
+    const customIdAttempt = req.body.customDisplayId || req.body.customUserId || req.body.newUserId || req.body.equippedCustomId;
+    if (customIdAttempt !== undefined && String(customIdAttempt).trim() !== '') {
+      if (requesterRole !== 'owner') {
+        return sendResponse(res, 403, false, 'Permission Denied: Only Platform Owner panel can create or edit custom User IDs.');
+      }
+      const cleanCustomId = String(customIdAttempt).trim();
+      const { isTaken, existingUser } = await checkIdTaken(cleanCustomId, String(userToUpdate._id));
+      if (isTaken && existingUser && String(existingUser.id) !== String(userToUpdate._id)) {
+        return sendResponse(res, 409, false, `ID "${cleanCustomId}" is already taken by user "${existingUser.name}" (ID: ${existingUser.userId})`);
+      }
+      updatedFields.customDisplayId = cleanCustomId;
+      updatedFields.equippedCustomId = cleanCustomId;
+      updatedFields.uniqueId = cleanCustomId;
+      updatedFields.displayId = cleanCustomId;
+      updatedFields.meethiId = cleanCustomId;
+
+      const numVal = Number(cleanCustomId);
+      if (!isNaN(numVal) && Number.isInteger(numVal) && numVal > 0) {
+        const existingNum = await User.findOne({ userId: numVal, _id: { $ne: userToUpdate._id } });
+        if (!existingNum) {
+          updatedFields.userId = numVal;
+        }
+      }
+
+      await IdentityEntitlement.findOneAndUpdate(
+        { userObjectId: userToUpdate._id, type: 'unique_id' },
+        {
+          $set: {
+            userId: userToUpdate.userId,
+            userObjectId: userToUpdate._id,
+            type: 'unique_id',
+            config: { displayId: cleanCustomId, badgeName: 'Owner Custom VIP ID', badgeIconUrl: '' },
+            status: 'active',
+            grantSource: 'owner_custom_id',
+            grantReason: 'Custom ID assigned by Owner Panel',
+            startsAt: new Date(),
+            expiresAt: new Date(Date.now() + 365 * 24 * 60 * 60 * 1000 * 50),
+          },
+        },
+        { upsert: true, new: true }
+      );
+    }
 
     // 📞 Check for duplicate phoneNumber
     if (phoneNumber && phoneNumber !== userToUpdate.phoneNumber) {

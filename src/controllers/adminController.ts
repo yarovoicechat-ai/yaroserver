@@ -12,6 +12,10 @@ import { HierarchyScopeService } from '../utils/hierarchyScope';
 import { config } from "../configs/envConfig";
 import { AuthType, Gender, UserRole } from "../constants/user";
 import { Logger } from "../utils/logger";
+import { IdentityEntitlement } from '../models/identityEntitlement.model';
+import Message from '../models/chat.model';
+import Conversation from '../models/conversation.model';
+import { checkIdTaken } from './uniqueIdRequest.controller';
 
 // initialize super admin (seeding logic called on startup)
 export const initializeSuperAdmin = async (): Promise<void> => {
@@ -439,5 +443,166 @@ export const getRecruitedMembers = async (req: Request, res: Response) => {
     });
   } catch (error: any) {
     return sendResponse(res, 500, false, error.message || 'Error fetching recruited members');
+  }
+};
+
+/**
+ * 👑 Owner Only: Update or create a custom User ID for any user.
+ * Strictly restricted to Platform Owner (role === 'owner').
+ */
+export const updateCustomUserIdByOwner = async (req: AuthRequest, res: Response) => {
+  try {
+    const actorRole = String(req.user?.role || '').toLowerCase();
+    if (actorRole !== 'owner') {
+      return sendResponse(res, 403, false, 'Permission Denied: Only Platform Owner panel can edit or assign custom User IDs.');
+    }
+
+    const { id } = req.params;
+    const { customId, updateNumericUserId = false } = req.body;
+    const cleanId = String(customId || '').trim();
+
+    if (!cleanId) {
+      return sendResponse(res, 400, false, 'Custom ID cannot be empty');
+    }
+
+    // Find target user by _id, numeric userId, meethiId, or uniqueId
+    let userDoc: any = null;
+    if (mongoose.Types.ObjectId.isValid(String(id))) {
+      userDoc = await User.findById(id);
+    }
+    if (!userDoc && !isNaN(Number(id))) {
+      userDoc = await User.findOne({ userId: Number(id) });
+    }
+    if (!userDoc) {
+      userDoc = await User.findOne({
+        $or: [{ customDisplayId: id }, { meethiId: id }, { uniqueId: id }]
+      });
+    }
+
+    if (!userDoc) {
+      return sendResponse(res, 404, false, 'Target user not found');
+    }
+
+    // Check if ID is already taken by anyone else
+    const { isTaken, existingUser } = await checkIdTaken(cleanId, String(userDoc._id));
+    if (isTaken && existingUser && String(existingUser.id) !== String(userDoc._id)) {
+      return sendResponse(res, 409, false, `ID "${cleanId}" is already taken by user "${existingUser.name}" (ID: ${existingUser.userId})`);
+    }
+
+    // Set custom ID fields
+    userDoc.customDisplayId = cleanId;
+    userDoc.equippedCustomId = cleanId;
+    userDoc.uniqueId = cleanId;
+    userDoc.displayId = cleanId;
+    userDoc.meethiId = cleanId;
+
+    const numVal = Number(cleanId);
+    if (updateNumericUserId && !isNaN(numVal) && Number.isInteger(numVal) && numVal > 0) {
+      const existingWithNum = await User.findOne({ userId: numVal, _id: { $ne: userDoc._id } });
+      if (existingWithNum) {
+        return sendResponse(res, 409, false, `Numeric User ID ${numVal} is already in use by another account.`);
+      }
+      userDoc.userId = numVal;
+    }
+
+    await userDoc.save();
+
+    // Register in IdentityEntitlement for global resolution across voice rooms, rankings, search
+    await IdentityEntitlement.findOneAndUpdate(
+      {
+        userObjectId: userDoc._id,
+        type: 'unique_id',
+      },
+      {
+        $set: {
+          userId: userDoc.userId,
+          userObjectId: userDoc._id,
+          type: 'unique_id',
+          config: {
+            displayId: cleanId,
+            badgeName: 'Owner Custom VIP ID',
+            badgeIconUrl: '',
+          },
+          status: 'active',
+          grantSource: 'owner_custom_id',
+          grantReason: `Custom ID assigned by Owner (${req.user?.name || req.user?.userId || 'Owner'})`,
+          startsAt: new Date(),
+          expiresAt: new Date(Date.now() + 365 * 24 * 60 * 60 * 1000 * 50),
+        },
+      },
+      { upsert: true, new: true }
+    );
+
+    // Audit log
+    await AuditLog.create({
+      action: 'UPDATE_CUSTOM_USER_ID',
+      performedBy: (req.user as any)?.id || (req.user as any)?._id || (req.user as any)?.userId,
+      targetUser: userDoc._id,
+      details: {
+        newCustomId: cleanId,
+        previousCustomId: userDoc.customDisplayId,
+        targetUserId: userDoc.userId,
+      },
+      timestamp: new Date(),
+    }).catch(() => {});
+
+    return sendResponse(res, 200, true, `User ID successfully updated to "${cleanId}" by Owner.`, {
+      userId: userDoc.userId,
+      customDisplayId: userDoc.customDisplayId,
+      equippedCustomId: userDoc.equippedCustomId,
+      meethiId: userDoc.meethiId,
+    });
+  } catch (error: any) {
+    return sendResponse(res, 500, false, error.message || 'Error updating custom user ID');
+  }
+};
+
+/**
+ * 👑 Owner Only: Delete a message by messageId.
+ */
+export const deleteMessageByOwner = async (req: AuthRequest, res: Response) => {
+  try {
+    const actorRole = String(req.user?.role || '').toLowerCase();
+    if (actorRole !== 'owner') {
+      return sendResponse(res, 403, false, 'Permission Denied: Only Owner panel has permission to delete messages.');
+    }
+
+    const { id } = req.params;
+    if (!id) {
+      return sendResponse(res, 400, false, 'Message ID is required');
+    }
+
+    const message = await Message.findByIdAndDelete(id);
+    if (!message) {
+      return sendResponse(res, 404, false, 'Message not found');
+    }
+
+    return sendResponse(res, 200, true, 'Message successfully deleted by Owner');
+  } catch (error: any) {
+    return sendResponse(res, 500, false, error.message || 'Error deleting message');
+  }
+};
+
+/**
+ * 👑 Owner Only: Delete an entire conversation/chat and all its messages.
+ */
+export const deleteConversationByOwner = async (req: AuthRequest, res: Response) => {
+  try {
+    const actorRole = String(req.user?.role || '').toLowerCase();
+    if (actorRole !== 'owner') {
+      return sendResponse(res, 403, false, 'Permission Denied: Only Owner panel has permission to delete chats.');
+    }
+
+    const { id } = req.params;
+    if (!id) {
+      return sendResponse(res, 400, false, 'Conversation ID is required');
+    }
+
+    await Message.deleteMany({ conversationId: id });
+    await Conversation.findByIdAndDelete(id);
+
+    return sendResponse(res, 200, true, 'Chat conversation and all messages deleted successfully by Owner');
+  } catch (error: any) {
+    return sendResponse(res, 500, false, error.message || 'Error deleting conversation');
   }
 };
