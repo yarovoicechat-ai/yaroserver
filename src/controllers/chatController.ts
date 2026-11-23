@@ -166,9 +166,14 @@ export const sendMessageController = async (req: AuthRequest, res: Response) => 
     });
 
     const receiverRoom = getUserRoom(receiverId);
+    const enrichedMessage = {
+      ...mockMessage,
+      createdAt: mockMessage.createdAt || new Date(),
+      updatedAt: mockMessage.updatedAt || mockMessage.createdAt || new Date(),
+    };
     getIO().to(receiverRoom).emit("newMessageNotification", {
       conversationId,
-      message: mockMessage,
+      message: enrichedMessage,
     });
 
     User.findById(receiverId).select('fcmToken').lean().then(async receiver => {
@@ -220,13 +225,31 @@ export const getMessagesController = async (req: AuthRequest, res: Response) => 
       return sendResponse(res, 403, false, "Conversation not found or access denied");
     }
 
-    const messages = await getMessages(
-      String(conversationId),
-      Number(limit),
-      Number(skip)
-    );
+    const [messages, convDoc] = await Promise.all([
+      getMessages(String(conversationId), Number(limit), Number(skip)),
+      Conversation.findById(conversationId)
+        .populate("participants", "name image _id userId lastOnline")
+        .lean(),
+    ]);
 
-    return sendResponse(res, 200, true, "Messages fetched successfully", { messages });
+    let otherParticipant: any = null;
+    if (convDoc && Array.isArray((convDoc as any).participants)) {
+      const other = (convDoc as any).participants.find(
+        (p: any) => p && String(p._id) !== requesterId
+      );
+      if (other) {
+        const isOnline = await redis.sismember("online_users", String(other._id));
+        otherParticipant = {
+          ...other,
+          isOnline: Boolean(isOnline),
+        };
+      }
+    }
+
+    return sendResponse(res, 200, true, "Messages fetched successfully", {
+      messages,
+      otherParticipant,
+    });
   } catch (error: any) {
     await Logger("getMessagesController", error);
     return sendResponse(res, 500, false, error.message);
