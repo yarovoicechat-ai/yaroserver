@@ -142,20 +142,89 @@ async function releaseExpiredRooms(roomIds: string[]) {
 }
 
 export async function invitePK(roomId: string, targetRoomId: string, user: any, durationSeconds = 300, pkType = 'room') {
-  const [own, opponent] = await Promise.all([resolveRoom(roomId), resolveRoom(targetRoomId)]);
+  const own = await resolveRoom(roomId);
   requireOwner(own, user);
+  const validDuration = [300, 900, 1800].includes(Number(durationSeconds)) ? Number(durationSeconds) : 300;
+  const validPkType = pkType === 'user' ? 'user' : 'room';
+
+  if (validPkType === 'user') {
+    // USER PK: Opponent MUST be in the SAME room!
+    const state = await liveState(own);
+    const targetRaw = String(targetRoomId || '').trim();
+    if (!targetRaw) throw new RoomPKError('Enter User ID of an active user in this room');
+
+    // Find the user in the room's live state (seats or onlineUsers)
+    const allRoomUsers: any[] = [];
+    if (state.seats) {
+      for (const seat of state.seats) {
+        if (seat?.user) allRoomUsers.push(seat.user);
+      }
+    }
+    if (state.onlineUsers) {
+      allRoomUsers.push(...Object.values(state.onlineUsers));
+    }
+
+    const opponentInRoom = allRoomUsers.find((person: any) =>
+      [String(person.userId || ''), String(person.id || ''), String(person._id || ''), String(person.uniqueId || ''), String(person.customDisplayId || '')]
+        .some(val => val && val.toLowerCase() === targetRaw.toLowerCase())
+    );
+
+    if (!opponentInRoom) {
+      throw new RoomPKError('User must be in the same room for User PK', 400);
+    }
+
+    const hostUserActorId = actorId(user);
+    const opponentActorId = String(opponentInRoom._id || opponentInRoom.id || '');
+    const opponentUserId = String(opponentInRoom.userId || opponentActorId);
+
+    if (opponentActorId === hostUserActorId || (own.ownerId?.userId && String(own.ownerId.userId) === opponentUserId)) {
+      throw new RoomPKError('You cannot challenge yourself to a PK', 400);
+    }
+
+    const canonicalId = normalizePKRoomId(own.channelName);
+    const ids = [canonicalId];
+    await releaseExpiredRooms(ids);
+    await RoomPK.init();
+
+    const opponentSummary = {
+      id: opponentUserId,
+      title: opponentInRoom.name || 'Opponent',
+      coverImage: opponentInRoom.image || opponentInRoom.avatar || '',
+      ownerId: opponentActorId,
+      hostName: opponentInRoom.name || 'Opponent',
+      userId: opponentUserId,
+    };
+
+    try {
+      const match = await RoomPK.create({
+        roomIds: ids,
+        busyRoomIds: ids,
+        rooms: [roomSummary(own), opponentSummary],
+        invitedBy: hostUserActorId,
+        durationSeconds: validDuration,
+        pkType: 'user',
+        inviteExpiresAt: new Date(Date.now() + ROOM_PK_INVITE_MS),
+      });
+      await publish(match);
+      return pkSnapshot(match);
+    } catch (error: any) {
+      if (error.code === 11000) throw new RoomPKError('This room already has an active PK or pending invitation', 409);
+      throw error;
+    }
+  }
+
+  // ROOM PK (Cross-room PK)
+  const opponent = await resolveRoom(targetRoomId);
   const ids = [normalizePKRoomId(own.channelName), normalizePKRoomId(opponent.channelName)];
   if (ids[0] === ids[1] || ownerId(own) === ownerId(opponent)) throw new RoomPKError('Choose a different room for PK');
   await Promise.all([requireLiveHost(own), requireLiveHost(opponent)]);
   await releaseExpiredRooms(ids);
   await RoomPK.init();
-  const validDuration = [300, 900, 1800].includes(Number(durationSeconds)) ? Number(durationSeconds) : 300;
-  const validPkType = pkType === 'user' ? 'user' : 'room';
   try {
     const match = await RoomPK.create({ roomIds: ids, busyRoomIds: ids,
       rooms: [roomSummary(own), roomSummary(opponent)], invitedBy: actorId(user),
       durationSeconds: validDuration,
-      pkType: validPkType,
+      pkType: 'room',
       inviteExpiresAt: new Date(Date.now() + ROOM_PK_INVITE_MS) });
     await publish(match);
     return pkSnapshot(match);
@@ -168,11 +237,39 @@ export async function invitePK(roomId: string, targetRoomId: string, user: any, 
 export async function respondPK(id: string, roomId: string, decision: string, user: any) {
   if (!['accept', 'decline', 'cancel'].includes(decision)) throw new RoomPKError('Invalid PK response');
   const own = await resolveRoom(roomId);
-  requireOwner(own, user);
+  const currentActorId = actorId(user);
   await refreshPK(id);
   return withDistributedLock(redis, `room_pk:match:${id}`, async () => {
     const match = await RoomPK.findById(id).lean() as any;
     if (!match || match.status !== 'invited' || !match.isOpen) throw new RoomPKError('This PK invitation is no longer available', 409);
+
+    if (match.pkType === 'user') {
+      const isHost = currentActorId === match.invitedBy || ownerId(own) === currentActorId;
+      const isOpponent = currentActorId === String(match.rooms[1]?.ownerId) ||
+        (user?.userId && String(user.userId) === String(match.rooms[1]?.userId));
+
+      if (decision === 'cancel') {
+        if (!isHost) throw new RoomPKError('Only the inviter can cancel this invitation', 403);
+      } else {
+        if (!isOpponent && !isHost) throw new RoomPKError('Only the challenged user can respond to this invitation', 403);
+      }
+
+      let update: any;
+      if (decision === 'accept') {
+        const now = Date.now();
+        if (new Date(match.inviteExpiresAt).getTime() <= now) throw new RoomPKError('PK invitation expired', 409);
+        const durationMs = (Number(match.durationSeconds) || 300) * 1000;
+        update = { status: 'active', startedAt: new Date(now), endsAt: new Date(now + durationMs), scores: [0, 0] };
+      } else {
+        update = { status: decision === 'cancel' ? 'cancelled' : 'declined', isOpen: false, finishedAt: new Date() };
+      }
+      const changed = await RoomPK.findOneAndUpdate({ _id: id, status: 'invited', isOpen: true }, { $set: update }, { new: true }).lean();
+      if (!changed) throw new RoomPKError('PK invitation already handled', 409);
+      await publish(changed);
+      return pkSnapshot(changed);
+    }
+
+    requireOwner(own, user);
     const side = match.roomIds.indexOf(normalizePKRoomId(own.channelName));
     if (side < 0 || (decision === 'cancel' ? side !== 0 : side !== 1)) throw new RoomPKError('You cannot respond to this invitation', 403);
     let update: any;
@@ -227,7 +324,7 @@ export async function pkOpponents(roomId: string) {
 export async function capturePKGift(roomId: string, sender: any, receivers: any[]) {
   const canonical = normalizePKRoomId(roomId), now = new Date();
   const match = await RoomPK.findOne({ roomIds: canonical, status: 'active', isOpen: true,
-    startedAt: { $lte: now }, endsAt: { $gt: now } }).select('roomIds').lean() as any;
+    startedAt: { $lte: now }, endsAt: { $gt: now } }).select('roomIds pkType rooms').lean() as any;
   if (!match) return {};
   const { getVoiceRoomState } = await import('../sockets/voiceRoomSocket');
   const state = await getVoiceRoomState(canonical);
@@ -236,7 +333,21 @@ export async function capturePKGift(roomId: string, sender: any, receivers: any[
     [person.userId, person.id, person._id].some(id => id && senderIds.includes(String(id))));
   const eligible = present && receivers.every(rec => state.seats.some(seat =>
     seat.user && [rec._id, rec.userId].some(id => id && [seat.user?.userId, (seat.user as any)?.id, (seat.user as any)?._id].map(String).includes(String(id)))));
-  return eligible ? { pkId: String(match._id), pkSide: match.roomIds.indexOf(canonical) } : {};
+  if (!eligible) return {};
+
+  if (match.pkType === 'user') {
+    const side0Ids = [String(match.rooms?.[0]?.ownerId), String(match.rooms?.[0]?.userId)].filter(Boolean);
+    const side1Ids = [String(match.rooms?.[1]?.ownerId), String(match.rooms?.[1]?.userId)].filter(Boolean);
+
+    const isSide0 = receivers.some(rec => [String(rec._id), String(rec.userId)].some(id => side0Ids.includes(id)));
+    const isSide1 = receivers.some(rec => [String(rec._id), String(rec.userId)].some(id => side1Ids.includes(id)));
+
+    if (isSide0 && !isSide1) return { pkId: String(match._id), pkSide: 0 };
+    if (isSide1 && !isSide0) return { pkId: String(match._id), pkSide: 1 };
+    return {};
+  }
+
+  return { pkId: String(match._id), pkSide: match.roomIds.indexOf(canonical) };
 }
 
 export async function notifyPKGift(meta: any) {
