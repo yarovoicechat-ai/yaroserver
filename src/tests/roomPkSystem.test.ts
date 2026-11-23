@@ -1,7 +1,6 @@
 import assert from 'assert';
 import { test, describe, it } from 'node:test';
-import { roomPKResult, normalizePKRoomId } from '../utils/roomPkRules';
-import { VALID_PK_DURATIONS } from '../services/roomPk.service';
+import { roomPKResult, normalizePKRoomId, VALID_PK_DURATIONS } from '../utils/roomPkRules';
 
 describe('Room PK Backend Core System Tests', () => {
   it('normalizes Room IDs accurately', () => {
