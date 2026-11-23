@@ -15,6 +15,8 @@ import { Logger } from "../utils/logger";
 import { IdentityEntitlement } from '../models/identityEntitlement.model';
 import Message from '../models/chat.model';
 import Conversation from '../models/conversation.model';
+import { Room } from '../models/room.model';
+import redis from '../configs/redisConfig';
 import { checkIdTaken } from './uniqueIdRequest.controller';
 
 // initialize super admin (seeding logic called on startup)
@@ -604,5 +606,233 @@ export const deleteConversationByOwner = async (req: AuthRequest, res: Response)
     return sendResponse(res, 200, true, 'Chat conversation and all messages deleted successfully by Owner');
   } catch (error: any) {
     return sendResponse(res, 500, false, error.message || 'Error deleting conversation');
+  }
+};
+
+/**
+ * 👑 Owner Only: Toggle YouTube Watch Together Access for any user.
+ */
+export const toggleWatchTogetherAccess = async (req: AuthRequest, res: Response) => {
+  try {
+    const actorRole = String(req.user?.role || '').toLowerCase();
+    if (actorRole !== 'owner') {
+      return sendResponse(res, 403, false, 'Permission Denied: Only Owner has permission to manage Watch Together access.');
+    }
+
+    const { userId, canWatchTogether } = req.body;
+    if (!userId) {
+      return sendResponse(res, 400, false, 'User ID is required');
+    }
+
+    const target = await User.findOne({
+      $or: [
+        { userId: String(userId) },
+        { meethiId: String(userId) },
+        ...(mongoose.Types.ObjectId.isValid(userId) ? [{ _id: userId }] : []),
+      ],
+    });
+
+    if (!target) {
+      return sendResponse(res, 404, false, 'User not found');
+    }
+
+    const newState = typeof canWatchTogether === 'boolean' ? canWatchTogether : !(target as any).canWatchTogether;
+    (target as any).canWatchTogether = newState;
+    await target.save();
+
+    return sendResponse(res, 200, true, `Watch Together access ${newState ? 'granted' : 'revoked'} for ${target.name || target.userId}`, {
+      userId: target.userId,
+      meethiId: (target as any).meethiId,
+      name: target.name,
+      canWatchTogether: newState,
+    });
+  } catch (error: any) {
+    return sendResponse(res, 500, false, error.message || 'Error toggling Watch Together access');
+  }
+};
+
+/**
+ * 👑 Owner Only: Search and list users with Watch Together status.
+ */
+export const getWatchTogetherUsers = async (req: AuthRequest, res: Response) => {
+  try {
+    const actorRole = String(req.user?.role || '').toLowerCase();
+    if (actorRole !== 'owner') {
+      return sendResponse(res, 403, false, 'Permission Denied: Only Owner has permission to view Watch Together users.');
+    }
+
+    const query = String(req.query.q || '').trim();
+    const filter: any = {};
+    if (query) {
+      filter.$or = [
+        { userId: { $regex: query, $options: 'i' } },
+        { meethiId: { $regex: query, $options: 'i' } },
+        { name: { $regex: query, $options: 'i' } },
+        ...(mongoose.Types.ObjectId.isValid(query) ? [{ _id: query }] : []),
+      ];
+    } else {
+      // By default show users who have access or VIP/SVIP >= 4 or recent 20 users
+      filter.$or = [
+        { canWatchTogether: true },
+        { vipLevel: { $gte: 4 } },
+        { svipLevel: { $gte: 4 } },
+      ];
+    }
+
+    const users = await User.find(filter)
+      .select('userId meethiId name avatar image vipLevel svipLevel role canWatchTogether isGlobalRoomManager')
+      .limit(50)
+      .lean();
+
+    return sendResponse(res, 200, true, 'Watch Together users retrieved', users);
+  } catch (error: any) {
+    return sendResponse(res, 500, false, error.message || 'Error fetching Watch Together users');
+  }
+};
+
+/**
+ * 👑 Owner Only: Clean all chat messages and conversations across the entire platform.
+ */
+export const cleanAllChatsByOwner = async (req: AuthRequest, res: Response) => {
+  try {
+    const actorRole = String(req.user?.role || '').toLowerCase();
+    if (actorRole !== 'owner') {
+      return sendResponse(res, 403, false, 'Permission Denied: Only Owner can clean all chats.');
+    }
+
+    const msgResult = await Message.deleteMany({});
+    const convResult = await Conversation.deleteMany({});
+
+    return sendResponse(res, 200, true, `All chats cleaned successfully (${msgResult.deletedCount || 0} messages, ${convResult.deletedCount || 0} conversations deleted).`);
+  } catch (error: any) {
+    return sendResponse(res, 500, false, error.message || 'Error cleaning all chats');
+  }
+};
+
+/**
+ * 👑 Owner Only: Clean chat messages and conversations for a specific user.
+ */
+export const cleanSingleUserChatsByOwner = async (req: AuthRequest, res: Response) => {
+  try {
+    const actorRole = String(req.user?.role || '').toLowerCase();
+    if (actorRole !== 'owner') {
+      return sendResponse(res, 403, false, 'Permission Denied: Only Owner can clean user chats.');
+    }
+
+    const { userId } = req.body;
+    if (!userId) {
+      return sendResponse(res, 400, false, 'User ID is required');
+    }
+
+    const targetUser = await User.findOne({
+      $or: [
+        { userId: String(userId) },
+        { meethiId: String(userId) },
+        ...(mongoose.Types.ObjectId.isValid(userId) ? [{ _id: userId }] : []),
+      ],
+    });
+
+    if (!targetUser) {
+      return sendResponse(res, 404, false, 'User not found');
+    }
+
+    const conversations = await Conversation.find({
+      participants: targetUser._id,
+    }).select('_id');
+
+    const conversationIds = conversations.map(c => c._id);
+    const msgResult = await Message.deleteMany({ conversationId: { $in: conversationIds } });
+    const convResult = await Conversation.deleteMany({ _id: { $in: conversationIds } });
+
+    return sendResponse(res, 200, true, `Cleaned chat for ${targetUser.name || targetUser.userId} (${msgResult.deletedCount || 0} messages removed).`);
+  } catch (error: any) {
+    return sendResponse(res, 500, false, error.message || 'Error cleaning user chats');
+  }
+};
+
+/**
+ * 👑 Owner Only: Clean all rooms in MongoDB and reset voice room cache in Redis.
+ */
+export const cleanAllRoomsByOwner = async (req: AuthRequest, res: Response) => {
+  try {
+    const actorRole = String(req.user?.role || '').toLowerCase();
+    if (actorRole !== 'owner') {
+      return sendResponse(res, 403, false, 'Permission Denied: Only Owner can clean all rooms.');
+    }
+
+    const roomResult = await Room.deleteMany({});
+    try {
+      const keys = await redis.keys('voice_room:*');
+      if (keys.length > 0) {
+        await redis.del(...keys);
+      }
+    } catch (_) {}
+
+    return sendResponse(res, 200, true, `All voice rooms cleaned successfully (${roomResult.deletedCount || 0} rooms removed). New rooms will start from 9-digit ID 100000000.`);
+  } catch (error: any) {
+    return sendResponse(res, 500, false, error.message || 'Error cleaning all rooms');
+  }
+};
+
+/**
+ * 👑 Owner Only: Assign or update custom room ID for any room.
+ */
+export const updateCustomRoomIdByOwner = async (req: AuthRequest, res: Response) => {
+  try {
+    const actorRole = String(req.user?.role || '').toLowerCase();
+    if (actorRole !== 'owner') {
+      return sendResponse(res, 403, false, 'Permission Denied: Only Owner can assign custom room IDs.');
+    }
+
+    const { roomId, customRoomId } = req.body;
+    if (!roomId) return sendResponse(res, 400, false, 'Room ID is required');
+    if (!customRoomId || !String(customRoomId).trim()) return sendResponse(res, 400, false, 'Custom Room ID is required');
+
+    const cleanCustomId = String(customRoomId).trim();
+    const existing = await Room.findOne({
+      $or: [
+        { channelName: cleanCustomId },
+        { customDisplayId: cleanCustomId },
+        { uniqueId: cleanCustomId },
+      ],
+      channelName: { $ne: String(roomId) },
+    });
+
+    if (existing) {
+      return sendResponse(res, 409, false, `Custom Room ID '${cleanCustomId}' is already in use by room '${existing.title}'.`);
+    }
+
+    const room = await Room.findOne({
+      $or: [
+        { channelName: String(roomId) },
+        ...(mongoose.Types.ObjectId.isValid(roomId) ? [{ _id: roomId }] : []),
+      ],
+    });
+
+    if (!room) return sendResponse(res, 404, false, 'Room not found');
+
+    room.customDisplayId = cleanCustomId;
+    room.uniqueId = cleanCustomId;
+    await room.save();
+
+    try {
+      const key = `voice_room:${cleanCustomId}`;
+      const origKey = `voice_room:${room.channelName}`;
+      const raw = await redis.get(origKey);
+      if (raw) {
+        const state = JSON.parse(raw);
+        state.uniqueId = cleanCustomId;
+        state.displayRoomId = cleanCustomId;
+        await redis.set(origKey, JSON.stringify(state), 'EX', 86400);
+      }
+    } catch (_) {}
+
+    return sendResponse(res, 200, true, `Custom Room ID '${cleanCustomId}' assigned successfully to room '${room.title}'.`, {
+      channelName: room.channelName,
+      customDisplayId: room.customDisplayId,
+      title: room.title,
+    });
+  } catch (error: any) {
+    return sendResponse(res, 500, false, error.message || 'Error updating custom room ID');
   }
 };

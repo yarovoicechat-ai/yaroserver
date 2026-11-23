@@ -25,6 +25,7 @@ export interface UserInterface extends Document {
   isDeleted?: boolean;
   isFake?: boolean;
   isMockUser?: boolean;
+  isTestAccount?: boolean;
   isOnline?: boolean;
   isBlocked?: boolean;
   lastOnline?: Date;
@@ -226,6 +227,7 @@ export interface UserInterface extends Document {
   isBD?: boolean;
   isBdLeader?: boolean;
   canPrivateLive?: boolean;
+  canWatchTogether?: boolean;
   hasAppOption?: boolean;
   hasAppAccess?: boolean;
   appRole?: string;

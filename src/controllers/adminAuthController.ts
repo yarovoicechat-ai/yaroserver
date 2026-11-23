@@ -975,6 +975,11 @@ export const createMockUser = async (req: AuthRequest, res: Response) => {
             return sendResponse(res, 403, false, 'Access Denied: Only Admin, Super Admin, Operator, or Owner can create test users.');
         }
 
+        const isTestAccount = Boolean(req.body.isTestAccount || req.body.accountType === 'test');
+        if (isTestAccount && creatorRole !== 'owner') {
+            return sendResponse(res, 403, false, 'Permission Denied: Only Owner can create Test IDs.');
+        }
+
         const {
             name,
             phoneNumber,
@@ -1095,15 +1100,16 @@ export const createMockUser = async (req: AuthRequest, res: Response) => {
             emailVerified: true,
             profileCompleted: true,
             welcomeRewardClaimed: true,
-            isFake: true,
+            isFake: !isTestAccount,
             isMockUser: true,
+            isTestAccount: Boolean(isTestAccount),
             country: typeof country === 'string' ? { name: country, code: 'IN', flag: '🇮🇳' } : country,
             createdBy: creatorId,
             createdByRole: creatorRole,
             device: {
-                createdDeviceId: 'ADMIN_MOCK_USER',
-                currentDeviceId: 'ADMIN_MOCK_USER',
-                loggedInDeviceIds: ['ADMIN_MOCK_USER'],
+                createdDeviceId: isTestAccount ? 'OWNER_TEST_USER' : 'ADMIN_MOCK_USER',
+                currentDeviceId: isTestAccount ? 'OWNER_TEST_USER' : 'ADMIN_MOCK_USER',
+                loggedInDeviceIds: [isTestAccount ? 'OWNER_TEST_USER' : 'ADMIN_MOCK_USER'],
             },
         });
 
@@ -1112,7 +1118,7 @@ export const createMockUser = async (req: AuthRequest, res: Response) => {
         const userObj = newUser.toObject();
         delete userObj.password;
 
-        return sendResponse(res, 201, true, 'Fake / Test user created successfully. User can now login directly with phone and password.', {
+        return sendResponse(res, 201, true, `${isTestAccount ? 'Test ID' : 'Fake ID'} created successfully. Can login directly with phone and password.`, {
             ...userObj,
             loginCredentials: {
                 phoneNumber: normalizedPhone,

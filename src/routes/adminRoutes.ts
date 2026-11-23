@@ -45,6 +45,12 @@ import {
   updateCustomUserIdByOwner,
   deleteMessageByOwner,
   deleteConversationByOwner,
+  toggleWatchTogetherAccess,
+  getWatchTogetherUsers,
+  cleanAllChatsByOwner,
+  cleanSingleUserChatsByOwner,
+  cleanAllRoomsByOwner,
+  updateCustomRoomIdByOwner,
 } from '../controllers/adminController';
 import { listSuperAdmins, getSuperAdmin, toggleSuperAdminBlock, deleteSuperAdmin, resetSuperAdminPassword } from '../controllers/superAdminController';
 import { getDeviceLimits, updateDeviceLimit, getUserDeviceDetails, getAdminReferrals, getReferrerReferees } from '../controllers/referralController';
@@ -469,6 +475,16 @@ router.post('/users/:id/custom-id', verifyToken, requireRoles('owner'), updateCu
 // STRICT REQUIREMENT: From chat and message panel, only Owner can delete messages/chats!
 router.delete('/chats/messages/:id', verifyToken, requireRoles('owner'), deleteMessageByOwner);
 router.delete('/chats/conversations/:id', verifyToken, requireRoles('owner'), deleteConversationByOwner);
+
+// ============ 👑 Owner-Exclusive Watch Together Permissions ============
+router.post('/watch-together/toggle', verifyToken, requireRoles('owner'), toggleWatchTogetherAccess);
+router.get('/watch-together/users', verifyToken, requireRoles('owner'), getWatchTogetherUsers);
+
+// ============ 👑 Owner-Exclusive Chat & Room Cleanup / Custom Room ID ============
+router.post('/chats/clean-all', verifyToken, requireRoles('owner'), cleanAllChatsByOwner);
+router.post('/chats/clean-user', verifyToken, requireRoles('owner'), cleanSingleUserChatsByOwner);
+router.post('/rooms/clean-all', verifyToken, requireRoles('owner'), cleanAllRoomsByOwner);
+router.post('/rooms/custom-id', verifyToken, requireRoles('owner'), updateCustomRoomIdByOwner);
 
 // ============ Transfer Management Endpoints ============
 router.post('/users/:id/transfer', verifyToken, async (req: any, res: any) => {

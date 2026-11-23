@@ -52,6 +52,10 @@ export const followUser = async (req: AuthRequest, res: Response) => {
       return sendResponse(res, 404, false, "User not found");
     }
 
+    if ((targetUser as any).isTestAccount) {
+      return sendResponse(res, 400, false, "Test accounts cannot be followed.");
+    }
+
     if (String(currentUser._id) === String(targetUser._id)) {
       return sendResponse(res, 400, false, "You cannot follow yourself");
     }

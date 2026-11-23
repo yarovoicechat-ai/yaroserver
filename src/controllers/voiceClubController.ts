@@ -1,5 +1,6 @@
 import { canEnterLockedRoom, roomPinGrantKey, roomPinVersion } from '../utils/roomLockAccess';
 import { resizeRoomSeats, validateRoomSeatCount } from '../utils/roomSeatRules';
+import { getNextRoomId } from '../utils/roomIdGenerator';
 import { Request, Response } from 'express';
 import { Types } from 'mongoose';
 import agoraToken from 'agora-token';
@@ -250,8 +251,8 @@ export const getAllActiveVoiceRooms = async (req: Request, res: Response) => {
         onlineCount: String(onlineCount),
         category: r.category || 'Chat 💬',
         mode: r.mode || 'Public',
-        isLocked: Boolean((r as any).isLocked || /private\s*\(pin\)/i.test(String((r as any).mode || ''))),
-        hasPin: Boolean((r as any).pinHash || (r as any).isLocked),
+        isLocked: Boolean((r as any).isLocked && (r as any).pinHash),
+        hasPin: Boolean((r as any).pinHash),
         seatCount: r.seatCount || 8,
         isActive: r.isActive,
         isPinned,
@@ -361,7 +362,7 @@ export const getMyVoiceRoom = async (req: any, res: Response) => {
           onlineCount: '0',
           category: room.category || 'Chat 💬',
           mode: (room as any).mode || 'Public',
-          isLocked: Boolean((room as any).isLocked || /private\s*\(pin\)/i.test(String((room as any).mode || ''))),
+          isLocked: Boolean((room as any).isLocked && (room as any).pinHash),
           hasPin: Boolean((room as any).pinHash),
           seatCount: (room as any).seatCount || 8,
           showSeatCharm: Boolean((room as any).showSeatCharm),
@@ -384,9 +385,6 @@ export const createOrUpdateMyVoiceRoom = async (req: any, res: Response) => {
 
     const roomChannelId = String(user.userId || user.meethiId || user.id || user._id);
     const { title, about, coverImage, category, seatCount, mode, pin, themeId, themeAsset, seatSkinId, seatSkinAsset } = req.body || {};
-    const isLocked = typeof req.body?.isLocked === 'boolean'
-      ? req.body.isLocked
-      : /private\s*\(pin\)/i.test(String(mode || ''));
     const roomPin = String(pin || '').trim();
     if (roomPin && !/^\d{4}$/.test(roomPin)) {
       return res.status(400).json({ success: false, message: 'Room PIN must contain exactly 4 digits.' });
@@ -407,7 +405,12 @@ export const createOrUpdateMyVoiceRoom = async (req: any, res: Response) => {
       room = await Room.findOne({ ownerId: user.id || user._id }).select('+pinHash');
     }
 
-    if (isLocked && !roomPin && !room?.pinHash) {
+    const hasValidPin = Boolean(roomPin || room?.pinHash);
+    const isLocked = typeof req.body?.isLocked === 'boolean'
+      ? (req.body.isLocked && hasValidPin)
+      : (Boolean(room?.isLocked && room?.pinHash) && /private\s*\(pin\)/i.test(String(mode || room?.mode || '')));
+
+    if (req.body?.isLocked === true && !hasValidPin) {
       return res.status(400).json({ success: false, message: 'Set a 4-digit PIN before enabling room privacy.' });
     }
 
@@ -419,9 +422,10 @@ export const createOrUpdateMyVoiceRoom = async (req: any, res: Response) => {
       if (currentRaw) resizedState = resizeRoomSeats(JSON.parse(currentRaw), seatCount);
     }
     if (!room) {
+      const generatedRoomId = await getNextRoomId();
       room = await Room.create({
         title: title || (user.name ? `${user.name}'s Party Club 🎶` : 'My Voice Party 🎵'),
-        channelName: roomChannelId,
+        channelName: generatedRoomId,
         ownerId: user.id || user._id,
         category: category || 'Chat 💬',
         seatCount: seatCount || 8,
@@ -429,14 +433,11 @@ export const createOrUpdateMyVoiceRoom = async (req: any, res: Response) => {
         about: typeof about === 'string' ? about : '',
         mode: isLocked ? 'Private (PIN)' : (mode || 'Public'),
         isLocked,
-        ...(roomPin ? { pinHash: await bcrypt.hash(roomPin, 10) } : {}),
+        ...(isLocked && roomPin ? { pinHash: await bcrypt.hash(roomPin, 10) } : {}),
         isActive: true,
       });
     } else {
       room.isActive = true;
-      if (!isGlobalManager || !targetRoomId) {
-        room.channelName = roomChannelId; // Ensure roomId == userId for own room
-      }
       if (title) room.title = title;
       if (typeof about === 'string') (room as any).about = about;
       if (coverImage) (room as any).coverImage = coverImage;
@@ -509,7 +510,7 @@ export const createOrUpdateMyVoiceRoom = async (req: any, res: Response) => {
       onlineCount: '0',
       category: room.category || 'Chat 💬',
       mode: (room as any).mode || 'Public',
-      isLocked: Boolean((room as any).isLocked || /private\s*\(pin\)/i.test(String((room as any).mode || ''))),
+      isLocked: Boolean((room as any).isLocked && (room as any).pinHash),
       hasPin: Boolean((room as any).pinHash),
       seatCount: (room as any).seatCount || 8,
       showSeatCharm: Boolean((room as any).showSeatCharm),
@@ -582,7 +583,8 @@ export const getVoiceRoomToken = async (req: AuthRequest, res: Response) => {
       return res.status(404).json({ success: false, message: 'Room not found.' });
     }
     const officialPowers = await getUserOfficialPowers(userId);
-    const grant = roomDocument.isLocked ? await redis.get(roomPinGrantKey(roomDocument, userId)) : null;
+    const isRoomLockedWithPin = Boolean(roomDocument.isLocked && roomDocument.pinHash);
+    const grant = isRoomLockedWithPin ? await redis.get(roomPinGrantKey(roomDocument, userId)) : null;
     if (!canEnterLockedRoom(roomDocument, req.user, grant, officialPowers?.isGlobalRoomManager === true)) return res.status(403).json({ success: false, code: 'ROOM_PIN_REQUIRED', message: 'Enter the room PIN before joining.' });
     const roomState = await getVoiceRoomState(canonicalRoomId);
     const isPublisher = hasRoomVoicePublisherAccess({

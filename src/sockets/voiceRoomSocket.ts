@@ -403,9 +403,9 @@ export const getVoiceRoomState = async (roomId: string, defaultSeatsCount = 8, h
 
             if (mRoom) {
               if (parsed.isLocked === undefined) {
-                parsed.isLocked = Boolean(mRoom.isLocked || /private\s*\(pin\)/i.test(String(mRoom.mode || '')));
+                parsed.isLocked = Boolean(mRoom.isLocked && mRoom.pinHash);
               }
-              if (parsed.mode === undefined) parsed.mode = mRoom.mode || (parsed.isLocked ? 'Private (PIN)' : 'Public');
+              if (parsed.mode === undefined) parsed.mode = (parsed.isLocked ? 'Private (PIN)' : (mRoom.mode || 'Public'));
               if (parsed.hasPin === undefined) parsed.hasPin = Boolean(mRoom.pinHash);
             }
           } catch (_) {}
@@ -463,8 +463,8 @@ export const getVoiceRoomState = async (roomId: string, defaultSeatsCount = 8, h
     showSeatCharm: persistedRoom?.showSeatCharm || false,
     coverImage: persistedRoom?.coverImage || '',
     about: persistedRoom?.about || '',
-    isLocked: Boolean(persistedRoom?.isLocked || /private\s*\(pin\)/i.test(String(persistedRoom?.mode || ''))),
-    mode: persistedRoom?.mode || 'Public',
+    isLocked: Boolean(persistedRoom?.isLocked && persistedRoom?.pinHash),
+    mode: (persistedRoom?.isLocked && persistedRoom?.pinHash) ? 'Private (PIN)' : (persistedRoom?.mode || 'Public'),
     hasPin: Boolean(persistedRoom?.pinHash),
     pendingLiveRequests: {},
     admins: [],
@@ -1336,10 +1336,6 @@ export const registerVoiceRoomHandlers = (io: Server, socket: AuthenticatedSocke
       });
 
       await saveVoiceRoomState(state);
-      await Room.findOneAndUpdate(
-        { $or: [{ channelName: roomId }, { channelName: rawRoomId }] },
-        { isLocked }
-      ).catch(() => {});
 
       const allLockPayload = {
         roomId,
