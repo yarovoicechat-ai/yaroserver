@@ -15,5 +15,11 @@ const handle = (work: (req: AuthRequest) => Promise<any>) => async (req: AuthReq
 export const getCurrentRoomPK = handle(req => currentPK(String(req.params.id)));
 export const getRoomPKHistory = handle(req => pkHistory(String(req.params.id)));
 export const getRoomPKOpponents = handle(req => pkOpponents(String(req.params.id)));
-export const inviteRoomPK = handle(req => invitePK(String(req.params.id), String(req.body?.targetRoomId || ''), req.user, Number(req.body?.durationSeconds || 300), String(req.body?.pkType || 'room')));
+export const inviteRoomPK = handle(req => invitePK(
+  String(req.params.id),
+  String(req.body?.pkType === 'user' ? (req.body?.targetUserId || req.body?.targetRoomId || '') : (req.body?.targetRoomId || '')),
+  req.user,
+  Number(req.body?.durationSeconds || 300),
+  String(req.body?.pkType || 'room')
+));
 export const respondRoomPK = handle(req => respondPK(String(req.params.matchId), String(req.params.id), String(req.body?.decision || ''), req.user));

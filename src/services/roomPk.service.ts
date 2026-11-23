@@ -141,16 +141,16 @@ async function releaseExpiredRooms(roomIds: string[]) {
   }
 }
 
-export async function invitePK(roomId: string, targetRoomId: string, user: any, durationSeconds = 300, pkType = 'room') {
+export async function invitePK(roomId: string, targetId: string, user: any, durationSeconds = 300, pkType = 'room') {
   const own = await resolveRoom(roomId);
   requireOwner(own, user);
   const validDuration = [300, 900, 1800].includes(Number(durationSeconds)) ? Number(durationSeconds) : 300;
   const validPkType = pkType === 'user' ? 'user' : 'room';
 
   if (validPkType === 'user') {
-    // USER PK: Opponent MUST be in the SAME room!
+    // USER PK: Opponent MUST be in the SAME room (identified by User ID)!
     const state = await liveState(own);
-    const targetRaw = String(targetRoomId || '').trim();
+    const targetRaw = String(targetId || '').trim();
     if (!targetRaw) throw new RoomPKError('Enter User ID of an active user in this room');
 
     // Find the user in the room's live state (seats or onlineUsers)
@@ -213,10 +213,12 @@ export async function invitePK(roomId: string, targetRoomId: string, user: any, 
     }
   }
 
-  // ROOM PK (Cross-room PK)
-  const opponent = await resolveRoom(targetRoomId);
+  // ROOM PK (Cross-room PK - identified by Room ID)
+  const targetRaw = String(targetId || '').trim();
+  if (!targetRaw) throw new RoomPKError('Enter Opponent Room ID for Room PK');
+  const opponent = await resolveRoom(targetRaw);
   const ids = [normalizePKRoomId(own.channelName), normalizePKRoomId(opponent.channelName)];
-  if (ids[0] === ids[1] || ownerId(own) === ownerId(opponent)) throw new RoomPKError('Choose a different room for PK');
+  if (ids[0] === ids[1] || ownerId(own) === ownerId(opponent)) throw new RoomPKError('Choose a different Room ID for PK');
   await Promise.all([requireLiveHost(own), requireLiveHost(opponent)]);
   await releaseExpiredRooms(ids);
   await RoomPK.init();
