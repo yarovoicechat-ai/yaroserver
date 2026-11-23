@@ -240,6 +240,8 @@ app.use("/api/voice-room", voiceClubRoutes);
 app.use("/api/v1/voice-room", voiceClubRoutes);
 app.use("/api/rooms", voiceClubRoutes);
 app.use("/api/v1/rooms", voiceClubRoutes);
+app.use("/api/youtube", voiceClubRoutes);
+app.use("/api/v1/youtube", voiceClubRoutes);
 app.use("/api/seller", sellerRoutes);
 app.use("/api/v1/seller", sellerRoutes);
 app.use("/api/verifications", verificationRoutes);

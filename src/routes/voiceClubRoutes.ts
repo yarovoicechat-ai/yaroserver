@@ -40,6 +40,16 @@ import {
   recordFanClubStayHeartbeat,
 } from '../controllers/roomCommunityController';
 
+import {
+  searchYouTubeController,
+  getWatchSessionController,
+  selectVideoController,
+  updatePlaybackController,
+  closeWatchSessionController,
+  addToQueueController,
+  removeFromQueueController,
+} from '../controllers/roomWatchController';
+
 const router = Router();
 
 router.get('/config', getVoiceClubConfig);
@@ -86,5 +96,14 @@ router.post('/rooms/:id/tasks/:taskId/claim', verifyToken, claimTaskReward);
 router.post('/rooms/:id/tasks/mic-heartbeat', verifyToken, recordMicHeartbeat);
 router.get('/rooms/:id/support', verifyToken, getRoomSupport);
 router.post('/rooms/:id/support/toggle-auto-send', verifyToken, toggleAutoSendSupport);
+
+// YouTube Watch Together Endpoints
+router.get('/youtube/search', verifyToken, searchYouTubeController);
+router.get('/rooms/:id/watch', verifyToken, getWatchSessionController);
+router.post('/rooms/:id/watch/select', verifyToken, selectVideoController);
+router.post('/rooms/:id/watch/playback', verifyToken, updatePlaybackController);
+router.post('/rooms/:id/watch/close', verifyToken, closeWatchSessionController);
+router.post('/rooms/:id/watch/queue', verifyToken, addToQueueController);
+router.delete('/rooms/:id/watch/queue/:videoId', verifyToken, removeFromQueueController);
 
 export default router;

@@ -2965,4 +2965,110 @@ export const registerVoiceRoomHandlers = (io: Server, socket: AuthenticatedSocke
       if (typeof callback === "function") callback({ success: false, message: err?.message });
     }
   });
+
+  // ===================== YOUTUBE WATCH TOGETHER =====================
+  // Join / Request Sync
+  socket.on("roomWatch:requestSync", async (data: { roomId: string }, callback?: (res: any) => void) => {
+    try {
+      const rawRoomId = String(data?.roomId || (socket as any).voiceRawRoomId || (socket as any).voiceRoomId || "").trim();
+      if (!rawRoomId) return;
+      const { getWatchSession } = await import("../services/roomWatch.service");
+      const session = await getWatchSession(rawRoomId);
+      socket.emit("roomWatch:syncState", session);
+      if (typeof callback === "function") callback({ success: true, session });
+    } catch (err: any) {
+      if (typeof callback === "function") callback({ success: false, message: err?.message });
+    }
+  });
+
+  // Select Video (Host / Admin)
+  socket.on("roomWatch:selectVideo", async (data: { roomId: string; videoData: any }, callback?: (res: any) => void) => {
+    try {
+      const rawRoomId = String(data?.roomId || (socket as any).voiceRawRoomId || (socket as any).voiceRoomId || "").trim();
+      if (!rawRoomId) return;
+      const { selectVideo } = await import("../services/roomWatch.service");
+      const session = await selectVideo(rawRoomId, data.videoData, user);
+      if (typeof callback === "function") callback({ success: true, session });
+    } catch (err: any) {
+      if (typeof callback === "function") callback({ success: false, message: err?.message });
+    }
+  });
+
+  // Play Video (Host / Admin)
+  socket.on("roomWatch:play", async (data: { roomId: string; currentTime?: number }, callback?: (res: any) => void) => {
+    try {
+      const rawRoomId = String(data?.roomId || (socket as any).voiceRawRoomId || (socket as any).voiceRoomId || "").trim();
+      if (!rawRoomId) return;
+      const { updatePlayback } = await import("../services/roomWatch.service");
+      const res = await updatePlayback(rawRoomId, { action: "play", currentTime: data.currentTime }, user);
+      if (typeof callback === "function") callback({ success: true, data: res });
+    } catch (err: any) {
+      if (typeof callback === "function") callback({ success: false, message: err?.message });
+    }
+  });
+
+  // Pause Video (Host / Admin)
+  socket.on("roomWatch:pause", async (data: { roomId: string; currentTime?: number }, callback?: (res: any) => void) => {
+    try {
+      const rawRoomId = String(data?.roomId || (socket as any).voiceRawRoomId || (socket as any).voiceRoomId || "").trim();
+      if (!rawRoomId) return;
+      const { updatePlayback } = await import("../services/roomWatch.service");
+      const res = await updatePlayback(rawRoomId, { action: "pause", currentTime: data.currentTime }, user);
+      if (typeof callback === "function") callback({ success: true, data: res });
+    } catch (err: any) {
+      if (typeof callback === "function") callback({ success: false, message: err?.message });
+    }
+  });
+
+  // Seek Video (Host / Admin)
+  socket.on("roomWatch:seek", async (data: { roomId: string; currentTime: number }, callback?: (res: any) => void) => {
+    try {
+      const rawRoomId = String(data?.roomId || (socket as any).voiceRawRoomId || (socket as any).voiceRoomId || "").trim();
+      if (!rawRoomId) return;
+      const { updatePlayback } = await import("../services/roomWatch.service");
+      const res = await updatePlayback(rawRoomId, { action: "seek", currentTime: data.currentTime }, user);
+      if (typeof callback === "function") callback({ success: true, data: res });
+    } catch (err: any) {
+      if (typeof callback === "function") callback({ success: false, message: err?.message });
+    }
+  });
+
+  // Close Watch Session (Host / Admin)
+  socket.on("roomWatch:close", async (data: { roomId: string }, callback?: (res: any) => void) => {
+    try {
+      const rawRoomId = String(data?.roomId || (socket as any).voiceRawRoomId || (socket as any).voiceRoomId || "").trim();
+      if (!rawRoomId) return;
+      const { closeWatchSession } = await import("../services/roomWatch.service");
+      const res = await closeWatchSession(rawRoomId, user);
+      if (typeof callback === "function") callback({ success: true, data: res });
+    } catch (err: any) {
+      if (typeof callback === "function") callback({ success: false, message: err?.message });
+    }
+  });
+
+  // Add to Queue
+  socket.on("roomWatch:addToQueue", async (data: { roomId: string; videoData: any }, callback?: (res: any) => void) => {
+    try {
+      const rawRoomId = String(data?.roomId || (socket as any).voiceRawRoomId || (socket as any).voiceRoomId || "").trim();
+      if (!rawRoomId) return;
+      const { addToQueue } = await import("../services/roomWatch.service");
+      const queue = await addToQueue(rawRoomId, data.videoData, user);
+      if (typeof callback === "function") callback({ success: true, queue });
+    } catch (err: any) {
+      if (typeof callback === "function") callback({ success: false, message: err?.message });
+    }
+  });
+
+  // Remove from Queue (Host / Admin)
+  socket.on("roomWatch:removeFromQueue", async (data: { roomId: string; videoId: string }, callback?: (res: any) => void) => {
+    try {
+      const rawRoomId = String(data?.roomId || (socket as any).voiceRawRoomId || (socket as any).voiceRoomId || "").trim();
+      if (!rawRoomId) return;
+      const { removeFromQueue } = await import("../services/roomWatch.service");
+      const queue = await removeFromQueue(rawRoomId, data.videoId, user);
+      if (typeof callback === "function") callback({ success: true, queue });
+    } catch (err: any) {
+      if (typeof callback === "function") callback({ success: false, message: err?.message });
+    }
+  });
 };

@@ -12,6 +12,7 @@ import sendResponse from "../utils/reponse";
 import { Logger } from "../utils/logger";
 
 import { getIO, onlineUsers, getUserRoom } from "../sockets"; // export your io instance from chatSocket or a separate file
+import redis from "../configs/redisConfig";
 
 import { ChatQueueService } from "../services/chatQueue.service";
 import { Types } from "mongoose";
