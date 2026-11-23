@@ -12,7 +12,7 @@ export async function sendVersionedRoomGift(sender: any, receivers: any[], gift:
   if (!/^[A-Za-z0-9_:-]{1,128}$/.test(dto.requestId)) throw new Error('Valid bounded gift requestId required');
   const unitPrice = Number(gift.price ?? gift.cost), unitsPerReceiver = mul(diamondUnits(unitPrice), qty);
   const voiceChannel = await validateGiftRoomContext(String(dto.roomId), sender, receivers);
-  const pkMeta = voiceChannel ? await capturePKGift(voiceChannel, sender, receivers) : {};
+  const pkMeta = voiceChannel ? await capturePKGift(voiceChannel, sender, receivers, gift?._id ? String(gift._id) : undefined) : {};
   const result = await atomic(async session => {
     const old = await GiftTransaction.findOne({ requestId: dto.requestId }).session(session).lean();
     if (old) {

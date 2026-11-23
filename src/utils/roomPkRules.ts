@@ -8,11 +8,13 @@ export const normalizePKRoomId = (value: unknown) => {
 };
 
 export const roomPKResult = (roomIds: string[], scores: number[]) => {
-  if (roomIds.length !== 2 || scores.length !== 2 || roomIds[0] === roomIds[1] ||
-      scores.some(score => !Number.isSafeInteger(score) || score < 0)) throw new Error('Invalid PK result');
+  if (scores.length !== 2 || scores.some(score => !Number.isSafeInteger(score) || score < 0)) throw new Error('Invalid PK result');
   const draw = scores[0] === scores[1];
-  return { draw, winnerRoomId: draw ? null : roomIds[scores[0] > scores[1] ? 0 : 1],
-    loserRoomId: draw ? null : roomIds[scores[0] > scores[1] ? 1 : 0] };
+  const winnerSide = draw ? null : (scores[0] > scores[1] ? 0 : 1);
+  const loserSide = draw ? null : (scores[0] > scores[1] ? 1 : 0);
+  const winnerRoomId = draw ? null : (roomIds[winnerSide!] || roomIds[0]);
+  const loserRoomId = draw ? null : (roomIds[loserSide!] || roomIds[1] || roomIds[0]);
+  return { draw, winnerSide, winnerRoomId, loserRoomId };
 };
 
 export const isPKGiftInWindow = (createdAt: Date, startedAt: Date, endsAt: Date) =>

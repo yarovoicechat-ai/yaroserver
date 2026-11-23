@@ -1,7 +1,7 @@
 import { Response } from 'express';
 import { AuthRequest } from '../middlewares/authorize.middleware';
 import sendResponse from '../utils/reponse';
-import { currentPK, invitePK, pkHistory, pkOpponents, respondPK, RoomPKError } from '../services/roomPk.service';
+import { createPK, currentPK, pkHistory, pkOpponents, respondPK, RoomPKError, votePK } from '../services/roomPk.service';
 
 const handle = (work: (req: AuthRequest) => Promise<any>) => async (req: AuthRequest, res: Response) => {
   try { return sendResponse(res, 200, true, 'PK updated', await work(req)); }
@@ -15,11 +15,26 @@ const handle = (work: (req: AuthRequest) => Promise<any>) => async (req: AuthReq
 export const getCurrentRoomPK = handle(req => currentPK(String(req.params.id)));
 export const getRoomPKHistory = handle(req => pkHistory(String(req.params.id)));
 export const getRoomPKOpponents = handle(req => pkOpponents(String(req.params.id)));
-export const inviteRoomPK = handle(req => invitePK(
+export const createRoomPK = handle(req => createPK(
   String(req.params.id),
-  String(req.body?.pkType === 'user' ? (req.body?.targetUserId || req.body?.targetRoomId || '') : (req.body?.targetRoomId || '')),
-  req.user,
-  Number(req.body?.durationSeconds || 300),
-  String(req.body?.pkType || 'room')
+  req.body || {},
+  req.user
 ));
-export const respondRoomPK = handle(req => respondPK(String(req.params.matchId), String(req.params.id), String(req.body?.decision || ''), req.user));
+export const inviteRoomPK = createRoomPK;
+export const voteRoomPK = handle(req => votePK(
+  String(req.params.id),
+  Number(req.body?.side),
+  req.user
+));
+export const cancelRoomPK = handle(req => respondPK(
+  String(req.params.matchId || req.body?.matchId),
+  String(req.params.id),
+  'cancel',
+  req.user
+));
+export const respondRoomPK = handle(req => respondPK(
+  String(req.params.matchId),
+  String(req.params.id),
+  String(req.body?.decision || ''),
+  req.user
+));

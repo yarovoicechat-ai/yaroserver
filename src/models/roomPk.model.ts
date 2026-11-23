@@ -11,11 +11,33 @@ const RoomPKSchema = new Schema({
   inviteExpiresAt: { type: Date, required: true },
   startedAt: { type: Date, default: null },
   endsAt: { type: Date, default: null },
-  durationSeconds: { type: Number, default: 300, enum: [300, 900, 1800] },
+  durationSeconds: { type: Number, default: 300, enum: [60, 180, 300, 600, 900, 1800] },
   scores: { type: [Number], default: [0, 0] },
-  pkType: { type: String, enum: ['room', 'user'], default: 'room' },
+  pkType: { type: String, enum: ['room', 'user'], default: 'user' },
+  pkMode: { type: String, enum: ['vote', 'personal', 'team', 'room'], default: 'personal' },
+
+  // Vote PK state
+  votes: { type: [Number], default: [0, 0] },
+
+  // Personal Gift PK state: individual competing participants
+  participantA: { type: Schema.Types.Mixed, default: null },
+  participantB: { type: Schema.Types.Mixed, default: null },
+
+  // Team Gift PK state: Yellow Team vs Blue Team
+  teamA: { type: [Schema.Types.Mixed], default: [] },
+  teamB: { type: [Schema.Types.Mixed], default: [] },
+
+  // Specific gift selection rule (if chosen, only this gift earns score)
+  selectedGiftId: { type: String, default: null },
+  selectedGift: { type: Schema.Types.Mixed, default: null },
+
+  // Jackpot Mode toggle
+  jackpotEnabled: { type: Boolean, default: false },
+
+  // Contributors & Results
   leftContributors: { type: [Schema.Types.Mixed], default: [] },
   rightContributors: { type: [Schema.Types.Mixed], default: [] },
+  winnerSide: { type: Number, default: null },
   winnerRoomId: { type: String, default: null },
   loserRoomId: { type: String, default: null },
   draw: { type: Boolean, default: false },

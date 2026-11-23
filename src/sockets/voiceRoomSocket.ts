@@ -2931,4 +2931,38 @@ export const registerVoiceRoomHandlers = (io: Server, socket: AuthenticatedSocke
       socket.emit("voice_room:error", { message: err?.message || "Failed to claim task reward" });
     }
   });
+
+  // Room PK: Audience Vote
+  socket.on("room_pk:vote", async (data: { roomId: string; side: number }, callback?: (res: any) => void) => {
+    try {
+      const rawRoomId = String(data?.roomId || (socket as any).voiceRawRoomId || (socket as any).voiceRoomId || "").trim();
+      const side = Number(data?.side);
+      if (!rawRoomId || (side !== 0 && side !== 1)) {
+        if (typeof callback === "function") callback({ success: false, message: "Invalid parameters" });
+        return;
+      }
+      const { votePK } = await import("../services/roomPk.service");
+      const result = await votePK(rawRoomId, side, user);
+      if (typeof callback === "function") callback({ success: true, data: result });
+    } catch (err: any) {
+      if (typeof callback === "function") callback({ success: false, message: err?.message || "Failed to vote" });
+      socket.emit("voice_room:error", { message: err?.message || "Failed to vote" });
+    }
+  });
+
+  // Room PK: Cancel by Host
+  socket.on("room_pk:cancel", async (data: { roomId: string; matchId?: string }, callback?: (res: any) => void) => {
+    try {
+      const rawRoomId = String(data?.roomId || (socket as any).voiceRawRoomId || (socket as any).voiceRoomId || "").trim();
+      if (!rawRoomId) return;
+      const { currentPK, respondPK } = await import("../services/roomPk.service");
+      const current = await currentPK(rawRoomId);
+      if (current?.id) {
+        await respondPK(current.id, rawRoomId, 'cancel', user);
+        if (typeof callback === "function") callback({ success: true });
+      }
+    } catch (err: any) {
+      if (typeof callback === "function") callback({ success: false, message: err?.message });
+    }
+  });
 };

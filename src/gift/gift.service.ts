@@ -506,7 +506,7 @@ export class GiftService {
       return sendVersionedRoomGift(sender, receivers, gift, dto, qty, pinnedEconomy);
     }
 
-    const pkMeta = roomId ? await capturePKGift(String(roomId), sender, receivers) : {};
+    const pkMeta = roomId ? await capturePKGift(String(roomId), sender, receivers, gift?._id ? String(gift._id) : undefined) : {};
 
     // 7. Check Balance & Deduct Atomically in COINS (stored in diamonds)
     const currentCoins = Number(sender.diamonds ?? 0);
