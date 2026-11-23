@@ -113,6 +113,9 @@ const RecruitmentApplicationSchema = new Schema<IRecruitmentApplication>({
 }, { timestamps: true });
 
 RecruitmentApplicationSchema.index({ role: 1, status: 1 });
+RecruitmentApplicationSchema.index({ 'roleData.countryManagerId': 1 }, { sparse: true });
+RecruitmentApplicationSchema.index({ 'roleData.stateManagerId': 1 }, { sparse: true });
+RecruitmentApplicationSchema.index({ 'roleData.hierarchyPath': 1 }, { sparse: true });
 RecruitmentApplicationSchema.index({ createdAt: -1 });
 
 export const RecruitmentApplication = mongoose.model<IRecruitmentApplication>('RecruitmentApplication', RecruitmentApplicationSchema);

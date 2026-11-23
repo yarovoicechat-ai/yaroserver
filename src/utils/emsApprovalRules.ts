@@ -160,6 +160,8 @@ export const isActorInRequestBranch = (actor: { id: string | any; role: string }
     requestData?.referralUserId ||
     requestData?.createdBy ||
     requestData?.referrer?.referrerId ||
+    requestData?.countryManagerId ||
+    requestData?.stateManagerId ||
     requestData?.operatorId ||
     requestData?.superAdminId ||
     requestData?.adminId ||
@@ -167,6 +169,8 @@ export const isActorInRequestBranch = (actor: { id: string | any; role: string }
     requestData?.bdId ||
     requestData?.agencyId ||
     requestData?.hierarchyPath ||
+    data.countryManagerId ||
+    data.stateManagerId ||
     data.operatorId ||
     data.superAdminId ||
     data.adminId ||

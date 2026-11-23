@@ -251,6 +251,12 @@ export const submitApplication = async (req: Request, res: Response) => {
                         specialCode: cleanCodeToValidate
                     };
                 }
+            } else if (cleanCodeToValidate.startsWith('CM')) {
+                senior = await User.findOne({ role: { $in: ['countryManager', 'country-manager'] }, isDeleted: { $ne: true } })
+                    .select('_id name role employeeCode referralCode specialCode ownerId operatorId countryManagerId stateManagerId superAdminId adminId bdLeaderId bdId agencyId hierarchyPath hiringScope');
+            } else if (cleanCodeToValidate.startsWith('SM')) {
+                senior = await User.findOne({ role: { $in: ['stateManager', 'state-manager'] }, isDeleted: { $ne: true } })
+                    .select('_id name role employeeCode referralCode specialCode ownerId operatorId countryManagerId stateManagerId superAdminId adminId bdLeaderId bdId agencyId hierarchyPath hiringScope');
             } else if (cleanCodeToValidate.startsWith('OPR')) {
                 senior = await User.findOne({ role: 'operator', isDeleted: { $ne: true } })
                     .select('_id name role employeeCode referralCode specialCode ownerId operatorId superAdminId adminId bdLeaderId bdId agencyId hierarchyPath hiringScope');
@@ -297,6 +303,8 @@ export const submitApplication = async (req: Request, res: Response) => {
         // Resolve complete upstream ancestry for strict branch isolation
         const seniorOwnerId = senior.ownerId || (senior.role === 'owner' ? senior._id : undefined);
         const seniorOperatorId = senior.operatorId || (senior.role === 'operator' ? senior._id : undefined);
+        const seniorCountryManagerId = senior.countryManagerId || (['countryManager', 'country-manager'].includes(senior.role) ? senior._id : undefined);
+        const seniorStateManagerId = senior.stateManagerId || (['stateManager', 'state-manager'].includes(senior.role) ? senior._id : undefined);
         const seniorSuperAdminId = senior.superAdminId || (['superAdmin', 'super-admin'].includes(senior.role) ? senior._id : undefined);
         const seniorAdminId = senior.adminId || (senior.role === 'admin' ? senior._id : undefined);
         const seniorBdLeaderId = senior.bdLeaderId || (['bdLeader', 'bd-leader'].includes(senior.role) ? senior._id : undefined);
@@ -349,6 +357,8 @@ export const submitApplication = async (req: Request, res: Response) => {
                 userId: linkedUser ? linkedUser.userId : (Number(rawYaroId) || undefined),
                 ownerId: seniorOwnerId ? String(seniorOwnerId) : undefined,
                 operatorId: seniorOperatorId ? String(seniorOperatorId) : undefined,
+                countryManagerId: seniorCountryManagerId ? String(seniorCountryManagerId) : undefined,
+                stateManagerId: seniorStateManagerId ? String(seniorStateManagerId) : undefined,
                 superAdminId: seniorSuperAdminId ? String(seniorSuperAdminId) : undefined,
                 adminId: seniorAdminId ? String(seniorAdminId) : undefined,
                 bdLeaderId: seniorBdLeaderId ? String(seniorBdLeaderId) : undefined,

@@ -164,6 +164,8 @@ export interface UserInterface extends Document {
   createdByRole?: string;
   ownerId?: Types.ObjectId;
   operatorId?: Types.ObjectId;
+  countryManagerId?: Types.ObjectId;
+  stateManagerId?: Types.ObjectId;
   superAdminId?: Types.ObjectId;
   adminId?: Types.ObjectId;
   agencyId?: Types.ObjectId;

@@ -165,6 +165,8 @@ const userSchema = new Schema<UserInterface>(
     createdByRole: { type: String },
     ownerId: { type: Schema.Types.ObjectId, ref: "User" },
     operatorId: { type: Schema.Types.ObjectId, ref: "User" },
+    countryManagerId: { type: Schema.Types.ObjectId, ref: "User" },
+    stateManagerId: { type: Schema.Types.ObjectId, ref: "User" },
     superAdminId: { type: Schema.Types.ObjectId, ref: "User" },
     adminId: { type: Schema.Types.ObjectId, ref: "User" },
     agencyId: { type: Schema.Types.ObjectId, ref: "User" },
@@ -309,6 +311,8 @@ userSchema.index({ referrerId: 1 }, { sparse: true });
 userSchema.index({ referrerCode: 1 }, { sparse: true });
 userSchema.index({ hierarchyPath: 1 }, { sparse: true });
 userSchema.index({ networkId: 1 }, { sparse: true });
+userSchema.index({ countryManagerId: 1 }, { sparse: true });
+userSchema.index({ stateManagerId: 1 }, { sparse: true });
 userSchema.index({ superAdminId: 1 }, { sparse: true });
 userSchema.index({ adminId: 1 }, { sparse: true });
 userSchema.index({ agencyId: 1 }, { sparse: true });

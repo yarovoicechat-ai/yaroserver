@@ -763,7 +763,10 @@ export const listRequests = async (req: AuthRequest, res: Response) => {
               resumeUrl: (app.roleData as any)?.resumeUrl || (app.roleData as any)?.resume || app.documents?.find((d: any) => d.documentType === 'resume' || d.name?.includes('resume'))?.url || '',
             },
             status: app.status === 'approved' ? RequestStatus.APPROVED : RequestStatus.PENDING,
-            createdBy: app.referrer?.referrerId || 'recruitment_sync',
+            countryManagerId: (app.roleData as any)?.countryManagerId,
+            stateManagerId: (app.roleData as any)?.stateManagerId,
+            hierarchyPath: (app.roleData as any)?.hierarchyPath,
+            createdBy: app.referrer?.referrerId ? app.referrer.referrerId.toString() : 'recruitment_sync',
             createdByRole: app.referrer?.referrerRole || 'public'
           });
         }
@@ -815,10 +818,14 @@ export const listRequests = async (req: AuthRequest, res: Response) => {
             userId: u.userId,
             roleCode: u.specialCode || u.employeeCode || '',
             referralCode: u.referralCode || '',
+            referralUserId: u.referrerId || (u.referredBy ? u.referredBy.toString() : ''),
             referralOwner: 'System/Owner',
-            referralRole: 'owner',
-            createdBy: (u as any).createdBy || 'system_sync',
-            createdByRole: u.parentRole || 'owner',
+            referralRole: u.referrerRole || u.parentRole || 'owner',
+            countryManagerId: u.countryManagerId,
+            stateManagerId: u.stateManagerId,
+            hierarchyPath: u.hierarchyPath,
+            createdBy: (u as any).createdBy || u.referrerId || (u.referredBy ? u.referredBy.toString() : 'system_sync'),
+            createdByRole: u.parentRole || (u as any).createdByRole || 'owner',
             data: {
               name: u.name || 'User',
               email: u.email,
@@ -828,7 +835,10 @@ export const listRequests = async (req: AuthRequest, res: Response) => {
               country: typeof u.country === 'object' ? u.country?.name || 'India' : String(u.country || 'India'),
               invitedBy: u.referrerRole || 'Owner',
               username: `@${(u.name || 'user').toLowerCase().replace(/\s+/g, '')}`,
-              specialCode: u.specialCode
+              specialCode: u.specialCode,
+              countryManagerId: u.countryManagerId,
+              stateManagerId: u.stateManagerId,
+              hierarchyPath: u.hierarchyPath,
             },
             approvedBy: [{ role: 'owner', date: u.createdAt || new Date(), comments: 'Approved Account' }],
             timeline: [{ action: 'Approved', actor: 'Owner', actorRole: 'owner', date: u.createdAt || new Date(), remarks: 'Account approved' }]
@@ -1611,6 +1621,8 @@ export const finalizeUserApproval = async (
   let parentRole: string | undefined = undefined;
   let ownerId: any = undefined;
   let operatorId: any = undefined;
+  let countryManagerId: any = undefined;
+  let stateManagerId: any = undefined;
   let superAdminId: any = undefined;
   let adminId: any = undefined;
   let bdLeaderId: any = undefined;
@@ -1643,6 +1655,8 @@ export const finalizeUserApproval = async (
     parentRole = referrerUser.role;
     ownerId = referrerUser.ownerId || (referrerUser.role === 'owner' ? referrerUser._id : undefined);
     operatorId = referrerUser.operatorId || (referrerUser.role === 'operator' ? referrerUser._id : undefined);
+    countryManagerId = referrerUser.countryManagerId || (['countryManager', 'country-manager'].includes(referrerUser.role) ? referrerUser._id : undefined);
+    stateManagerId = referrerUser.stateManagerId || (['stateManager', 'state-manager'].includes(referrerUser.role) ? referrerUser._id : undefined);
     superAdminId = referrerUser.superAdminId || (['superAdmin', 'super-admin'].includes(referrerUser.role) ? referrerUser._id : undefined);
     adminId = referrerUser.adminId || (referrerUser.role === 'admin' ? referrerUser._id : undefined);
     bdLeaderId = referrerUser.bdLeaderId || (['bdLeader', 'bd-leader'].includes(referrerUser.role) ? referrerUser._id : undefined);
@@ -1650,6 +1664,8 @@ export const finalizeUserApproval = async (
     agencyId = referrerUser.agencyId || (referrerUser.role === 'agency' ? referrerUser._id : undefined);
     if (referrerUser.role === 'owner') ownerId = referrerUser._id;
     if (referrerUser.role === 'operator') operatorId = referrerUser._id;
+    if (referrerUser.role === 'countryManager' || referrerUser.role === 'country-manager') countryManagerId = referrerUser._id;
+    if (referrerUser.role === 'stateManager' || referrerUser.role === 'state-manager') stateManagerId = referrerUser._id;
     if (referrerUser.role === 'superAdmin' || referrerUser.role === 'super-admin') superAdminId = referrerUser._id;
     if (referrerUser.role === 'admin') adminId = referrerUser._id;
     if (referrerUser.role === 'bdLeader' || referrerUser.role === 'bd-leader') bdLeaderId = referrerUser._id;
@@ -1660,6 +1676,8 @@ export const finalizeUserApproval = async (
   // Fallback to data fields if set on request
   ownerId = ownerId || data.ownerId;
   operatorId = operatorId || data.operatorId;
+  countryManagerId = countryManagerId || data.countryManagerId;
+  stateManagerId = stateManagerId || data.stateManagerId;
   superAdminId = superAdminId || data.superAdminId;
   adminId = adminId || data.adminId;
   bdLeaderId = bdLeaderId || data.bdLeaderId;
@@ -1810,6 +1828,8 @@ export const finalizeUserApproval = async (
         referredBy: parentId ? parentId.toString() : '',
         ownerId,
         operatorId,
+        countryManagerId,
+        stateManagerId,
         superAdminId,
         adminId,
         bdLeaderId,

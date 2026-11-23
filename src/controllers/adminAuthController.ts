@@ -682,6 +682,8 @@ export const createEmployee = async (req: AuthRequest, res: Response) => {
             createdByRole: creatorRole,
             ownerId: creator.ownerId || (creatorRole === 'owner' ? creator._id : undefined),
             operatorId: creator.operatorId || (creatorRole === 'operator' ? creator._id : undefined),
+            countryManagerId: (creator as any).countryManagerId || (['countryManager', 'country-manager'].includes(creatorRole) ? creator._id : undefined),
+            stateManagerId: (creator as any).stateManagerId || (['stateManager', 'state-manager'].includes(creatorRole) ? creator._id : undefined),
             superAdminId: creator.superAdminId || (creatorRole === 'superAdmin' ? creator._id : undefined),
             adminId: creator.adminId || (creatorRole === 'admin' ? creator._id : undefined),
             agencyId: (creator as any).agencyId || (creatorRole === 'agency' ? creator._id : undefined),

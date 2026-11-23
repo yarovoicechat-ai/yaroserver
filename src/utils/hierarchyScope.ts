@@ -140,15 +140,24 @@ export class HierarchyScopeService {
    */
   static buildUserScope(user: { id: string; role: string }): Record<string, any> {
     const role = user.role;
+    const normRole = (user.role || '').toLowerCase().replace(/[-_]/g, '');
     const userId = user.id.toString();
-    if (['countryManager', 'stateManager', 'country-manager', 'state-manager'].includes(role)) {
-      const isValidObjectId = mongoose.Types.ObjectId.isValid(userId);
+    const isValidObjectId = mongoose.Types.ObjectId.isValid(userId);
+    const objId = isValidObjectId ? new mongoose.Types.ObjectId(userId) : null;
+
+    // 1. Owner: Full platform visibility (Everything)
+    if (normRole === 'owner') {
+      return { isDeleted: false };
+    }
+
+    // 2. Country Manager: Strictly own subordinates within country manager branch (excluding Owner, Operator, and other Country Managers)
+    if (normRole === 'countrymanager') {
       const orConditions: any[] = [
+        { countryManagerId: isValidObjectId ? objId : userId },
         { referrerId: userId },
         { hierarchyPath: { $regex: userId } },
       ];
-      if (isValidObjectId) {
-        const objId = new mongoose.Types.ObjectId(userId);
+      if (objId) {
         orConditions.push(
           { _id: objId },
           { parentId: objId },
@@ -157,19 +166,50 @@ export class HierarchyScopeService {
         );
       }
       return {
-        role: { $ne: 'owner' },
-        $or: orConditions,
-        isDeleted: false
+        $and: [
+          { isDeleted: false },
+          {
+            $or: [
+              { _id: objId || userId },
+              { role: { $nin: ['owner', 'operator', 'countryManager', 'country-manager'] } }
+            ]
+          },
+          { $or: orConditions }
+        ]
       };
     }
 
-    // 1. Owner: Full platform visibility (Everything)
-    if (role === 'owner') {
-      return { isDeleted: false };
+    // 3. State Manager: Strictly own subordinates within state manager branch (excluding Owner, Operator, Country Manager, and other State Managers)
+    if (normRole === 'statemanager') {
+      const orConditions: any[] = [
+        { stateManagerId: isValidObjectId ? objId : userId },
+        { referrerId: userId },
+        { hierarchyPath: { $regex: userId } },
+      ];
+      if (objId) {
+        orConditions.push(
+          { _id: objId },
+          { parentId: objId },
+          { referredBy: objId },
+          { createdBy: objId }
+        );
+      }
+      return {
+        $and: [
+          { isDeleted: false },
+          {
+            $or: [
+              { _id: objId || userId },
+              { role: { $nin: ['owner', 'operator', 'countryManager', 'country-manager', 'stateManager', 'state-manager'] } }
+            ]
+          },
+          { $or: orConditions }
+        ]
+      };
     }
 
-    // 2. Operator: Branch-isolated operational visibility
-    if (role === 'operator') {
+    // 4. Operator: Branch-isolated operational visibility
+    if (normRole === 'operator') {
       return {
         role: { $ne: 'owner' },
         $or: [
@@ -182,8 +222,8 @@ export class HierarchyScopeService {
       };
     }
 
-    // 3. Super Admin: Restricted strictly to own hierarchy branch
-    if (role === 'superAdmin' || role === 'super-admin') {
+    // 5. Super Admin: Restricted strictly to own hierarchy branch
+    if (normRole === 'superadmin') {
       return {
         $or: [
           { superAdminId: userId },
@@ -195,8 +235,8 @@ export class HierarchyScopeService {
       };
     }
 
-    // 4. Admin: Restricted strictly to own hierarchy branch
-    if (role === 'admin') {
+    // 6. Admin: Restricted strictly to own hierarchy branch
+    if (normRole === 'admin') {
       return {
         $or: [
           { adminId: userId },
@@ -208,8 +248,8 @@ export class HierarchyScopeService {
       };
     }
 
-    // 5. BD Leader: Restricted strictly to own hierarchy branch
-    if (role === 'bdLeader' || role === 'bd-leader') {
+    // 7. BD Leader: Restricted strictly to own hierarchy branch
+    if (normRole === 'bdleader') {
       return {
         $or: [
           { bdLeaderId: userId },
@@ -221,8 +261,8 @@ export class HierarchyScopeService {
       };
     }
 
-    // 6. BD: Restricted strictly to own hierarchy branch
-    if (role === 'bd') {
+    // 8. BD: Restricted strictly to own hierarchy branch
+    if (normRole === 'bd') {
       return {
         $or: [
           { bdId: userId },
@@ -234,8 +274,8 @@ export class HierarchyScopeService {
       };
     }
 
-    // 7. Agency: Restricted strictly to own network & hosts
-    if (role === 'agency') {
+    // 9. Agency: Restricted strictly to own network & hosts
+    if (normRole === 'agency') {
       return {
         $or: [
           { agencyId: userId },
@@ -247,7 +287,7 @@ export class HierarchyScopeService {
       };
     }
 
-    // 8. Host, Seller, CS: Own record only
+    // 10. Host, Seller, CS: Own record only
     return { _id: userId, isDeleted: false };
   }
 
@@ -258,27 +298,51 @@ export class HierarchyScopeService {
    */
   static buildRequestScope(user: { id: string; role: string }): Record<string, any> {
     const role = user.role;
+    const normRole = (user.role || '').toLowerCase().replace(/[-_]/g, '');
     const userId = user.id.toString();
-    if (['countryManager', 'stateManager', 'country-manager', 'state-manager'].includes(role)) {
+
+    if (normRole === 'owner') return {};
+
+    // Country Manager: Strictly scoped to requests under this Country Manager's branch
+    // Country Manager A can NEVER see Country Manager B's requests or Owner/Operator/Country Manager requests
+    if (normRole === 'countrymanager') {
       return {
+        role: { $nin: ['owner', 'operator', 'country-manager', 'countryManager'] },
         $or: [
-          { _id: userId },
-          { parentId: userId },
           { referralUserId: userId },
-          { 'referrer.referrerId': userId },
-          { hierarchyPath: { $regex: userId } },
+          { createdBy: userId },
+          { countryManagerId: userId },
+          { 'data.countryManagerId': userId },
+          { 'roleData.countryManagerId': userId },
           { 'data.hierarchyPath': { $regex: userId } },
           { 'roleData.hierarchyPath': { $regex: userId } },
-          { createdBy: { $in: ['public', 'recruitment_sync', '', null] } },
-          { referralUserId: { $in: ['', null, undefined] } }
+          { hierarchyPath: { $regex: userId } },
+          { 'referrer.referrerId': userId }
         ]
       };
     }
 
-    if (role === 'owner') return {};
+    // State Manager: Strictly scoped to requests under this State Manager's branch
+    // State Manager can NEVER see Country Manager requests, other State Managers, or Owner/Operator
+    if (normRole === 'statemanager') {
+      return {
+        role: { $nin: ['owner', 'operator', 'country-manager', 'countryManager', 'state-manager', 'stateManager'] },
+        $or: [
+          { referralUserId: userId },
+          { createdBy: userId },
+          { stateManagerId: userId },
+          { 'data.stateManagerId': userId },
+          { 'roleData.stateManagerId': userId },
+          { 'data.hierarchyPath': { $regex: userId } },
+          { 'roleData.hierarchyPath': { $regex: userId } },
+          { hierarchyPath: { $regex: userId } },
+          { 'referrer.referrerId': userId }
+        ]
+      };
+    }
 
     // Operator: visible to requests in this Operator's branch (excluding Owner direct referrals) + direct unassigned applications
-    if (role === 'operator') {
+    if (normRole === 'operator') {
       return {
         role: { $ne: 'owner' },
         $or: [
@@ -297,7 +361,7 @@ export class HierarchyScopeService {
     }
 
     // Super Admin: visible strictly to requests in this Super Admin's branch + direct unassigned applications
-    if (role === 'superAdmin' || role === 'super-admin') {
+    if (normRole === 'superadmin') {
       return {
         $or: [
           { referralUserId: userId },
@@ -314,7 +378,7 @@ export class HierarchyScopeService {
     }
 
     // Admin: visible strictly to requests in this Admin's branch + direct unassigned applications
-    if (role === 'admin') {
+    if (normRole === 'admin') {
       return {
         $or: [
           { referralUserId: userId },
@@ -331,7 +395,7 @@ export class HierarchyScopeService {
     }
 
     // BD Leader: visible only to requests in this BD Leader's branch
-    if (role === 'bdLeader' || role === 'bd-leader') {
+    if (normRole === 'bdleader') {
       return {
         $or: [
           { referralUserId: userId },
@@ -346,7 +410,7 @@ export class HierarchyScopeService {
     }
 
     // BD: visible only to requests in this BD's branch
-    if (role === 'bd') {
+    if (normRole === 'bd') {
       return {
         $or: [
           { referralUserId: userId },
@@ -361,7 +425,7 @@ export class HierarchyScopeService {
     }
 
     // Agency: visible only to requests in this Agency's branch
-    if (role === 'agency') {
+    if (normRole === 'agency') {
       return {
         $or: [
           { referralUserId: userId },

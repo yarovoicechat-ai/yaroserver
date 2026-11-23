@@ -52,6 +52,9 @@ export interface IRequest extends Document {
   referralUserId?: string;
   referralLinkUsed?: string;
   referralDate?: Date;
+  countryManagerId?: mongoose.Types.ObjectId | string;
+  stateManagerId?: mongoose.Types.ObjectId | string;
+  hierarchyPath?: string;
   createdBy: mongoose.Types.ObjectId | string;
   createdByRole?: string;
   createdAt: Date;
@@ -95,6 +98,9 @@ const requestSchema = new Schema<IRequest>(
     referralUserId: { type: String, default: '' },
     referralLinkUsed: { type: String, default: '' },
     referralDate: { type: Date },
+    countryManagerId: { type: Schema.Types.Mixed },
+    stateManagerId: { type: Schema.Types.Mixed },
+    hierarchyPath: { type: String, default: '' },
     approvedBy: [
       {
         userId: { type: Schema.Types.ObjectId, ref: 'User' },
@@ -116,6 +122,9 @@ const requestSchema = new Schema<IRequest>(
   { timestamps: true }
 );
 
+requestSchema.index({ countryManagerId: 1 }, { sparse: true });
+requestSchema.index({ stateManagerId: 1 }, { sparse: true });
+requestSchema.index({ hierarchyPath: 1 }, { sparse: true });
 requestSchema.index({ status: 1 });
 requestSchema.index({ requestType: 1 });
 requestSchema.index({ role: 1 });
