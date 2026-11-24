@@ -723,16 +723,29 @@ export const setRoomLockPin = async (req: AuthRequest, res: Response) => {
       { channelName: roomId },
       { channelName: `room_${roomId}` },
       { channelName: `room_${rawRoomId}` },
+      { roomId: rawRoomId },
+      { roomId: roomId },
+      { uniqueId: rawRoomId },
+      { uniqueId: roomId },
     ];
     if (mongoose.Types.ObjectId.isValid(rawRoomId)) roomLookup.push({ _id: rawRoomId });
-
+    if (mongoose.Types.ObjectId.isValid(roomId)) roomLookup.push({ _id: roomId });
 
     const room = await Room.findOne({ $or: roomLookup }).select('+pinHash');
     if (!room) return res.status(404).json({ success: false, message: 'Room not found' });
 
     if (typeof isLocked !== 'boolean') return res.status(400).json({ success: false, message: 'isLocked must be a boolean' });
-    const powers = await getUserOfficialPowers(String(req.user?.id || ''));
-    const isOwner = String(room.ownerId) === String(req.user?.id);
+
+    const authId = String(req.user?.id || (req.user as any)?._id || '').trim();
+    const authNumId = String(req.user?.userId || '').trim();
+    const roomOwnerIdStr = String((room.ownerId as any)?._id || (room.ownerId as any)?.id || room.ownerId || '').trim();
+    const powers = await getUserOfficialPowers(authId);
+
+    const isOwner = (authId && roomOwnerIdStr === authId) ||
+      (authNumId && roomOwnerIdStr === authNumId) ||
+      (room.channelName && authNumId && String(room.channelName) === authNumId) ||
+      ((room as any).roomId && authNumId && String((room as any).roomId) === authNumId);
+
     if (!isOwner && !powers?.isGlobalRoomManager) return res.status(403).json({ success: false, message: 'Only the room owner or an official room manager can lock/unlock this room.' });
     if (isLocked) {
       if (!/^\d{4}$/.test(String(pin || ''))) {
@@ -758,11 +771,20 @@ export const setRoomLockPin = async (req: AuthRequest, res: Response) => {
     const { saveVoiceRoomState } = await import('../sockets/voiceRoomSocket');
     await saveVoiceRoomState(state);
 
-    // Existing occupants keep their voice session when the owner enables privacy.
-    if (isLocked) await Promise.all(Object.values(state.onlineUsers || {}).map(async (member: any) => {
-      const memberId = String(member.id || member._id || '');
-      if (memberId) await redis.set(roomPinGrantKey(room, memberId), roomPinVersion(room), 'EX', 43200);
-    }));
+    // Existing occupants and room owner keep their voice session when the owner enables privacy.
+    if (isLocked) {
+      const grantUsers = [
+        authId,
+        authNumId,
+        ...Object.values(state.onlineUsers || {}).map((m: any) => String(m.id || m._id || m.userId || ''))
+      ].filter(Boolean);
+
+      const pinVer = roomPinVersion(room);
+      await Promise.all(grantUsers.map(async (uId) => {
+        await redis.set(roomPinGrantKey(room, uId), pinVer, 'EX', 43200);
+        if (room.channelName) await redis.set(`room_pin_grant:${String(room.channelName)}:${uId}`, pinVer, 'EX', 43200);
+      }));
+    }
     const io = getIOOptional();
     if (io) {
       const payload = {
@@ -801,8 +823,13 @@ export const verifyRoomLockPin = async (req: AuthRequest, res: Response) => {
       { channelName: roomId },
       { channelName: `room_${roomId}` },
       { channelName: `room_${rawRoomId}` },
+      { roomId: rawRoomId },
+      { roomId: roomId },
+      { uniqueId: rawRoomId },
+      { uniqueId: roomId },
     ];
     if (mongoose.Types.ObjectId.isValid(rawRoomId)) roomLookup.push({ _id: rawRoomId });
+    if (mongoose.Types.ObjectId.isValid(roomId)) roomLookup.push({ _id: roomId });
 
     const room = await Room.findOne({ $or: roomLookup }).select('+pinHash');
     if (!room) return res.status(404).json({ success: false, message: 'Room not found' });
@@ -818,7 +845,19 @@ export const verifyRoomLockPin = async (req: AuthRequest, res: Response) => {
       return res.status(400).json({ success: false, valid: false, message: 'Incorrect password. Please try again.' });
     }
 
-    await redis.set(roomPinGrantKey(room, String(req.user!.id)), roomPinVersion(room), 'EX', 43200);
+    const authId = String(req.user?.id || (req.user as any)?._id || '').trim();
+    const authNumId = String(req.user?.userId || '').trim();
+    const pinVer = roomPinVersion(room);
+
+    if (authId) {
+      await redis.set(roomPinGrantKey(room, authId), pinVer, 'EX', 43200);
+      if (room.channelName) await redis.set(`room_pin_grant:${String(room.channelName)}:${authId}`, pinVer, 'EX', 43200);
+    }
+    if (authNumId) {
+      await redis.set(roomPinGrantKey(room, authNumId), pinVer, 'EX', 43200);
+      if (room.channelName) await redis.set(`room_pin_grant:${String(room.channelName)}:${authNumId}`, pinVer, 'EX', 43200);
+    }
+
     return res.status(200).json({ success: true, valid: true, message: 'Password verified' });
   } catch (error: any) {
     console.error('[verifyRoomLockPin] Error:', error);

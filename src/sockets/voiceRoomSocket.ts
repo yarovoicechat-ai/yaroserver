@@ -632,8 +632,13 @@ export const registerVoiceRoomHandlers = (io: Server, socket: AuthenticatedSocke
         roomChannelName: roomDocument?.channelName,
         requestedRoomId: roomId,
       });
-      const pinGrant = roomDocument?.isLocked ? await redis.get(roomPinGrantKey(roomDocument, authUserDbId)) : null;
-      if (roomDocument && !canEnterLockedRoom(roomDocument, user, pinGrant, isGlobalManager)) {
+      const pinGrant = roomDocument?.isLocked ? (
+        await redis.get(roomPinGrantKey(roomDocument, authUserDbId)) ||
+        (authUserNumId ? await redis.get(roomPinGrantKey(roomDocument, authUserNumId)) : null) ||
+        (roomDocument.channelName ? await redis.get(`room_pin_grant:${String(roomDocument.channelName)}:${authUserDbId}`) : null) ||
+        (roomDocument.channelName && authUserNumId ? await redis.get(`room_pin_grant:${String(roomDocument.channelName)}:${authUserNumId}`) : null)
+      ) : null;
+      if (roomDocument && !authorizedHost && !isGlobalManager && !canEnterLockedRoom(roomDocument, { id: authUserDbId, _id: authUserDbId, userId: authUserNumId }, pinGrant, isGlobalManager)) {
         socket.emit('voice_room:error', { roomId, message: 'Enter the room PIN before joining.', code: 'ROOM_PIN_REQUIRED' });
         return;
       }
