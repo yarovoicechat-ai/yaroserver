@@ -481,3 +481,101 @@ export const getBanDashboard = async (req: AuthRequest, res: Response) => {
     return sendResponse(res, 500, false, error.message || 'Failed to fetch ban dashboard');
   }
 };
+
+/**
+ * GET /api/admin/bans/users
+ * Specifically lists banned users with filters, remaining time, and search
+ */
+export const getBannedUsers = async (req: AuthRequest, res: Response) => {
+  try {
+    const adminUser = req.user;
+    if (!adminUser || !isAuthorizedAdmin(adminUser.role)) {
+      return sendResponse(res, 403, false, 'Permission denied');
+    }
+
+    const { search, banType = 'all', status = 'active', page = 1, limit = 20 } = req.query;
+    const filter: any = { isDeleted: false };
+
+    if (status === 'active') {
+      filter.$or = [{ isBanned: true }, { isBlocked: true }];
+    } else if (status === 'temporary') {
+      filter.isBanned = true;
+      filter.banType = 'temporary';
+    } else if (status === 'permanent') {
+      filter.isBanned = true;
+      filter.banType = 'permanent';
+    } else if (status === 'expired') {
+      filter.isBanned = false;
+      filter.bannedUntil = { $ne: null, $lt: new Date() };
+    } else if (status === 'unbanned') {
+      filter.isBanned = false;
+      filter.bannedAt = { $ne: null };
+    } else {
+      // 'all'
+      filter.$or = [{ isBanned: true }, { isBlocked: true }, { bannedAt: { $ne: null } }];
+    }
+
+    if (banType && banType !== 'all') {
+      filter.banType = String(banType).toLowerCase();
+    }
+
+    if (search) {
+      const q = String(search).trim();
+      const escaped = q.replace(/[-[\]{}()*+?.,\\^$|#\s]/g, '\\$&');
+      const regex = new RegExp(escaped, 'i');
+      const searchConditions: any[] = [
+        { name: regex },
+        { userName: regex },
+        { banReason: regex },
+        { bannedByName: regex },
+        {
+          $expr: {
+            $regexMatch: {
+              input: { $toString: "$userId" },
+              regex: escaped,
+              options: "i",
+            },
+          },
+        },
+      ];
+      if (!isNaN(Number(q))) {
+        searchConditions.push({ userId: Number(q) });
+      }
+
+      if (filter.$or) {
+        filter.$and = [{ $or: filter.$or }, { $or: searchConditions }];
+        delete filter.$or;
+      } else {
+        filter.$or = searchConditions;
+      }
+    }
+
+    const pageNum = Math.max(1, parseInt(String(page), 10) || 1);
+    const limitNum = Math.min(100, Math.max(1, parseInt(String(limit), 10) || 20));
+    const skip = (pageNum - 1) * limitNum;
+
+    const [users, total] = await Promise.all([
+      User.find(filter)
+        .select('userId name userName image avatar isBanned isBlocked banType banReason adminNote bannedAt bannedUntil bannedByName role')
+        .sort({ bannedAt: -1, updatedAt: -1 })
+        .skip(skip)
+        .limit(limitNum)
+        .lean(),
+      User.countDocuments(filter),
+    ]);
+
+    const enriched = users.map((u: any) => ({
+      ...u,
+      remainingTime: u.isBanned && u.bannedUntil ? getRemainingTimeString(u.bannedUntil) : u.isBanned ? 'Permanent' : 'Expired / Inactive',
+    }));
+
+    return sendResponse(res, 200, true, 'Banned users fetched successfully', {
+      users: enriched,
+      total,
+      page: pageNum,
+      totalPages: Math.ceil(total / limitNum),
+    });
+  } catch (error: any) {
+    return sendResponse(res, 500, false, error.message || 'Failed to fetch banned users');
+  }
+};

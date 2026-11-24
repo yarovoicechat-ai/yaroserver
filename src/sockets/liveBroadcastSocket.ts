@@ -524,8 +524,7 @@ export const registerLiveBroadcastHandlers = (io: Server, socket: AuthenticatedS
       }
 
       const validDuration = [300, 900, 1800].includes(Number(durationSeconds)) ? Number(durationSeconds) : 300;
-      const rivalHostRoom = `user:${targetRoom.host?._id || targetRoom.host}`;
-      io.to(rivalHostRoom).emit("live:pk_invitation_received", {
+      const invitePayload = {
         fromRoomId: roomId,
         durationSeconds: validDuration,
         pkType: pkType === 'user' ? 'user' : 'room',
@@ -534,11 +533,52 @@ export const registerLiveBroadcastHandlers = (io: Server, socket: AuthenticatedS
           name: currentRoom?.host?.name || "Host",
           avatar: currentRoom?.host?.avatar || currentRoom?.host?.image,
         },
-      });
+      };
+
+      const rivalHostRoom = `user:${targetRoom.host?._id || targetRoom.host}`;
+      io.to(rivalHostRoom).emit("live:pk_invitation_received", invitePayload);
+      if (targetRoom.host?.userId) {
+        io.to(`user:${targetRoom.host.userId}`).emit("live:pk_invitation_received", invitePayload);
+      }
+      io.to(getLiveBroadcastRoomChannel(String(targetRoom._id))).emit("live:pk_invitation_received", invitePayload);
 
       socket.emit("live:notice", { message: "PK challenge sent!" });
     } catch (err: any) {
       console.error("[live:pk_invite] Error:", err.message);
+    }
+  });
+
+  // 10b. PK Battle: Reject Challenge
+  socket.on("live:pk_reject", async ({ fromRoomId, reason = 'PK challenge declined' }: { fromRoomId: string; reason?: string }) => {
+    try {
+      if (!fromRoomId) return;
+      const inviterRoom: any = await LiveBroadcast.findById(fromRoomId).populate("host", "userId _id");
+      const payload = { fromRoomId, reason };
+      io.to(getLiveBroadcastRoomChannel(fromRoomId)).emit("live:pk_rejected", payload);
+      if (inviterRoom?.host) {
+        if (inviterRoom.host.userId) io.to(`user:${inviterRoom.host.userId}`).emit("live:pk_rejected", payload);
+        if (inviterRoom.host._id) io.to(`user:${inviterRoom.host._id}`).emit("live:pk_rejected", payload);
+      }
+    } catch (err: any) {
+      console.error("[live:pk_reject] Error:", err.message);
+    }
+  });
+
+  // 10c. PK Battle: Cancel Challenge / Active PK
+  socket.on("live:pk_cancel", async ({ roomId }: { roomId: string }) => {
+    try {
+      if (!roomId) return;
+      const room: any = await LiveBroadcast.findById(roomId);
+      if (!room) return;
+      const rivalRoomId = room.pk?.rivalRoomId ? String(room.pk.rivalRoomId) : null;
+      await LiveBroadcast.updateOne({ _id: roomId }, { $set: { "pk.isActive": false } });
+      io.to(getLiveBroadcastRoomChannel(roomId)).emit("live:pk_ended", { winner: "draw", leftScore: 0, rightScore: 0, reason: "Cancelled" });
+      if (rivalRoomId) {
+        await LiveBroadcast.updateOne({ _id: rivalRoomId }, { $set: { "pk.isActive": false } });
+        io.to(getLiveBroadcastRoomChannel(rivalRoomId)).emit("live:pk_ended", { winner: "draw", leftScore: 0, rightScore: 0, reason: "Cancelled" });
+      }
+    } catch (err: any) {
+      console.error("[live:pk_cancel] Error:", err.message);
     }
   });
 

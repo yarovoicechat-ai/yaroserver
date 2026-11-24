@@ -208,8 +208,11 @@ export const getUsers = async (req: AuthRequest, res: Response) => {
     const limitNumber = Math.max(1, parseInt(limit as string, 10) || 10);
     const skip = (pageNumber - 1) * limitNumber;
 
-    // Public / App user search support across all user roles
-    if (search) {
+    const isAdminRequester = ['owner', 'superadmin', 'superadmin', 'admin', 'operator', 'customersupport'].includes(String(role || '').toLowerCase());
+    const { status } = req.query;
+
+    // Public / App user search support across all user roles (only for non-admin requests)
+    if (search && !isAdminRequester) {
       const searchStr = String(search).trim();
       const escapedSearch = searchStr.replace(/[-[\]{}()*+?.,\\^$|#\s]/g, '\\$&');
       const searchRegex = new RegExp(escapedSearch, 'i');
@@ -243,7 +246,7 @@ export const getUsers = async (req: AuthRequest, res: Response) => {
       };
       const totalUsers = await User.countDocuments(searchFilter);
       const users = await User.find(searchFilter)
-        .select("country age userId meethiId name userName image gender level isOnline role isVerified isActive bio languages equippedVipId customDisplayId equippedCustomId displayId uniqueId")
+        .select("country age userId meethiId name userName image gender level isOnline role isVerified isActive bio languages equippedVipId customDisplayId equippedCustomId displayId uniqueId isBanned banType")
         .sort({ isOnline: -1, createdAt: -1 })
         .skip(skip)
         .limit(limitNumber)
@@ -270,10 +273,14 @@ export const getUsers = async (req: AuthRequest, res: Response) => {
           isDeleted: false,
         };
 
+        if (status === 'suspended' || status === 'banned') {
+          filter.$or = [{ isBanned: true }, { isBlocked: true }];
+        }
+
         if (targetRole && targetRole !== 'all') {
           filter.role = targetRole;
-        } else {
-          // Exclude Admin Panel Staff roles from regular user management list
+        } else if (!status) {
+          // Exclude Admin Panel Staff roles from regular user management list only when not filtering by status
           filter.role = { $nin: PANEL_ACCOUNT_ROLES };
         }
 
@@ -317,22 +324,37 @@ export const getUsers = async (req: AuthRequest, res: Response) => {
             { equippedCustomId: searchRegex },
             { displayId: searchRegex },
             { uniqueId: searchRegex },
+            {
+              $expr: {
+                $regexMatch: {
+                  input: { $toString: "$userId" },
+                  regex: escapedSearch,
+                  options: "i",
+                },
+              },
+            },
           ];
           if (!isNaN(Number(searchStr))) {
             orConditions.push({ userId: Number(searchStr) });
           }
-          filter.$or = orConditions;
+          if (filter.$or) {
+            filter.$and = [{ $or: filter.$or }, { $or: orConditions }];
+            delete filter.$or;
+          } else {
+            filter.$or = orConditions;
+          }
         }
 
         const totalUsers = await User.countDocuments(filter);
         const users = await User.find(filter)
-          .select("country age userId meethiId name userName coins diamonds isBlocked createdAt role email phoneNumber image gender level isVIP employeeCode specialCode equippedVipId customDisplayId equippedCustomId displayId uniqueId")
+          .select("country age userId meethiId name userName coins diamonds isBlocked isBanned banType banReason bannedAt bannedUntil bannedByName hasVideoAccess canWatchTogether createdAt role email phoneNumber image avatar gender level isVIP employeeCode specialCode equippedVipId customDisplayId equippedCustomId displayId uniqueId")
           .sort({ createdAt: -1 })
           .skip(skip)
           .limit(limitNumber)
           .lean();
 
         return sendResponse(res, 200, true, "Users fetched successfully", {
+          users,
           usersData: {
             users,
             totalUsers,
@@ -2477,5 +2499,32 @@ export const getUserHonorSummary = async (req: AuthRequest, res: Response) => {
     });
   } catch (err: any) {
     return sendResponse(res, 500, false, err.message || "Failed to fetch honor summary");
+  }
+};
+
+/**
+ * GET /api/admin/users/:identifier
+ * Detailed lookup for Admin Panel by User ID, Mongo ID, Username, Email, or Phone
+ */
+export const getAdminUserDetail = async (req: AuthRequest, res: Response) => {
+  try {
+    const { identifier } = req.params;
+    if (!identifier) return sendResponse(res, 400, false, "Identifier required");
+    const num = Number(identifier);
+    const user = await User.findOne({
+      $or: [
+        { userId: !isNaN(num) ? num : -1 },
+        { _id: identifier.length === 24 ? identifier : null },
+        { userName: identifier },
+        { email: identifier },
+        { phoneNumber: identifier },
+      ].filter((c: any) => Object.values(c)[0] !== null),
+      isDeleted: false,
+    }).lean();
+
+    if (!user) return sendResponse(res, 404, false, "User not found");
+    return sendResponse(res, 200, true, "User fetched successfully", { user });
+  } catch (err: any) {
+    return sendResponse(res, 500, false, err.message || "Failed to fetch user");
   }
 };

@@ -128,7 +128,11 @@ import {
     approveHost,
     blockHost
 } from '../controllers/hostController';
-import { getAdminHostUsers } from '../controllers/userController';
+import { getAdminHostUsers, getUsers, getAdminUserDetail } from '../controllers/userController';
+
+// User Search & Management (Admin Panel)
+router.get('/users', verifyToken, getUsers);
+router.get('/users/:identifier', verifyToken, getAdminUserDetail);
 
 router.get('/hosts/users', verifyToken, getAdminHostUsers);  // All users with role: host
 router.get('/hosts/list', verifyToken, getHosts);
@@ -224,7 +228,26 @@ import {
   getBanHistory,
   listDevices,
   getBanDashboard,
+  getBannedUsers,
 } from '../controllers/banController';
+
+import {
+  getAdminRoomPKDashboard,
+  getAdminRoomPKSessions,
+  getAdminRoomPKDetail,
+  cancelAdminRoomPK,
+  getAdminLivePKSessions,
+} from '../controllers/adminRoomPkController';
+
+import {
+  getVideoAccessUsers,
+  toggleVideoAccess,
+} from '../controllers/videoAccessController';
+
+import {
+  getOwnerUsers,
+  changeUserRole,
+} from '../controllers/ownerPanelController';
 
 // Rooms Management
 router.get('/rooms', verifyToken, getAllRooms);
@@ -252,9 +275,27 @@ router.post('/bans/user', verifyToken, banUser);
 router.post('/bans/user/unban', verifyToken, unbanUser);
 router.post('/bans/device', verifyToken, banDevice);
 router.post('/bans/device/unban', verifyToken, unbanDevice);
+router.get('/bans/users', verifyToken, getBannedUsers);
 router.get('/bans/history', verifyToken, getBanHistory);
 router.get('/bans/devices', verifyToken, listDevices);
 router.get('/bans/dashboard', verifyToken, getBanDashboard);
+
+// ============ Dedicated Room PK Management ============
+router.get('/room-pk/dashboard', verifyToken, getAdminRoomPKDashboard);
+router.get('/room-pk/sessions', verifyToken, getAdminRoomPKSessions);
+router.get('/room-pk/sessions/:id', verifyToken, getAdminRoomPKDetail);
+router.post('/room-pk/sessions/:id/cancel', verifyToken, cancelAdminRoomPK);
+
+// ============ Live Streaming PK Sessions ============
+router.get('/live-pk/sessions', verifyToken, getAdminLivePKSessions);
+
+// ============ Video Access Management ============
+router.get('/video-access/users', verifyToken, getVideoAccessUsers);
+router.post('/video-access/toggle', verifyToken, toggleVideoAccess);
+
+// ============ Owner Console (Change Anyone's Role / Panel) ============
+router.get('/owner/users', verifyToken, getOwnerUsers);
+router.post('/owner/change-role', verifyToken, changeUserRole);
 
 // Ads Management
 router.get('/ads', verifyToken, getAllAds);
