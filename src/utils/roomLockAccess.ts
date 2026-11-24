@@ -1,4 +1,4 @@
-﻿import { createHash } from 'crypto';
+import { createHash } from 'crypto';
 import { isRoomOwner } from './roomVoiceAuthorization';
 export const roomPinGrantKey = (room: any, userId: string) => `room_pin_grant:${String(room._id || room.channelName)}:${userId}`;
 export const roomPinVersion = (room: any) => createHash('sha256').update(String(room.pinHash || '')).digest('hex');
