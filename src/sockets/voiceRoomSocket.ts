@@ -492,9 +492,17 @@ export const saveVoiceRoomState = async (state: VoiceRoomState): Promise<void> =
   }
 };
 
-export const withRoomSeatLock = async <T>(roomId: string, task: () => Promise<T>, waitMs = 750): Promise<T> => {
+export const withRoomSeatLock = async <T>(roomId: string, task: () => Promise<T>, waitMs = 3000): Promise<T> => {
   const lockKey = `voice_room:seat_lock:${normalizeRoomId(roomId)}`;
-  return withDistributedLock(redis, lockKey, task, { ttlMs: 15_000, waitMs });
+  try {
+    return await withDistributedLock(redis, lockKey, task, { ttlMs: 5000, waitMs, retryDelayMs: 25 });
+  } catch (err: any) {
+    if (err?.name === 'LockUnavailableError' || String(err?.message || '').includes('Could not acquire lock')) {
+      console.warn(`[VoiceRoom] Lock busy for ${lockKey}, executing task with optimistic fallback:`, err?.message);
+      return await task();
+    }
+    throw err;
+  }
 };
 
 export const updateRoomSeatCharmAfterGift = async (
@@ -803,37 +811,9 @@ export const registerVoiceRoomHandlers = (io: Server, socket: AuthenticatedSocke
         console.log(`[VoiceRoom] Reconnected user ${userData.userId} in room ${roomId}. Grace timer cleared.`);
       }
 
-      // Remove abandoned Redis presence entries left behind by a server restart
-      // or an interrupted cleanup. Keep users whose disconnect grace timer is live.
+      // Preserve active seated users during room entry.
+      // Seated users must ONLY be removed when they leave explicitly, disconnect after 45s grace timer, or are removed by host.
       try {
-        Object.entries(state.onlineUsers || {}).forEach(([onlineUserId, onlineUser]) => {
-          const onlineTimerKey = `${roomId}:${onlineUserId}`;
-          if (!connectedSocketIds.has(String((onlineUser as any).socketId || "")) && !disconnectGraceTimers.has(onlineTimerKey)) {
-            delete state.onlineUsers[onlineUserId];
-            state.seats = state.seats.map((seat) =>
-              String(seat.user?.userId || "") === String(onlineUserId)
-                ? { ...seat, user: null, isMuted: true }
-                : seat,
-            );
-          }
-        });
-        // Clear seats only when their user has neither a live socket nor an
-        // active reconnect grace period. An empty/temporarily stale onlineUsers
-        // map alone must not erase the live seat layout during room entry.
-        state.seats = state.seats.map((seat) => {
-          const seatUserId = String(seat.user?.userId || "");
-          if (!seatUserId) return seat;
-          const presence = state.onlineUsers[seatUserId];
-          // When Redis has no presence record for a seat at all, there is not
-          // enough information to call it stale. Preserve it until a known
-          // disconnect/leave event can clear it.
-          if (!presence) return seat;
-          const isConnected = Boolean(
-            presence && connectedSocketIds.has(String((presence as any).socketId || "")),
-          );
-          const hasGrace = disconnectGraceTimers.has(`${roomId}:${seatUserId}`);
-          return isConnected || hasGrace ? seat : { ...seat, user: null, isMuted: true };
-        });
         if (!state.seats[0]?.user) state.hostUser = null;
       } catch (presenceErr) {
         console.warn("[VoiceRoom] Presence reconciliation warning:", presenceErr);
