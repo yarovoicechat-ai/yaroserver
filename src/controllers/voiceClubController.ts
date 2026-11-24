@@ -396,6 +396,8 @@ export const createOrUpdateMyVoiceRoom = async (req: any, res: Response) => {
         $or: [
           { channelName: targetRoomId },
           { channelName: normalizeRoomId(targetRoomId) },
+          { legacyId: targetRoomId },
+          { legacyId: normalizeRoomId(targetRoomId) },
           ...(mongoose.Types.ObjectId.isValid(targetRoomId) ? [{ _id: targetRoomId }] : []),
         ],
       }).select('+pinHash');
@@ -557,7 +559,12 @@ export const getVoiceRoomToken = async (req: AuthRequest, res: Response) => {
     }
 
     const canonicalRoomId = normalizeRoomId(roomId);
-    const roomLookup: any[] = [{ channelName: roomId }, { channelName: canonicalRoomId }];
+    const roomLookup: any[] = [
+      { channelName: roomId },
+      { channelName: canonicalRoomId },
+      { legacyId: roomId },
+      { legacyId: canonicalRoomId },
+    ];
     if (Types.ObjectId.isValid(roomId)) roomLookup.push({ _id: roomId });
     let roomDocument: any = await Room.findOne({ $or: roomLookup }).select('ownerId channelName isLocked +pinHash').lean();
     if (!roomDocument) {

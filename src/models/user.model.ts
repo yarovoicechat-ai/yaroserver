@@ -36,7 +36,8 @@ const StoreInventoryItemSchema = new Schema(
 
 const userSchema = new Schema<UserInterface>(
   {
-    userId: { type: Number, required: true, unique: true },
+    userId: { type: Number, required: false, unique: true, sparse: true },
+    accountType: { type: String, enum: ['regular', 'test', 'fake'], default: 'regular', index: true },
     name: { type: String, trim: true },
     email: { type: String, trim: true, lowercase: true },
     phoneNumber: { type: String, trim: true },

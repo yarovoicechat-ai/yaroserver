@@ -133,6 +133,8 @@ export const getConversations = async (
 
     const conversations = await Conversation.find({
         participants: uid,
+        isArchived: { $ne: true },
+        clearedFor: { $ne: uid },
     })
         .populate("participants", "name image _id userId lastOnline role hostTypes canVoiceCall canVideoCall")
         .populate("lastMessage");

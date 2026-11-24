@@ -5,6 +5,7 @@ import { AuthType, Gender, UserRole } from "../constants/user";
 
 export interface UserInterface extends Document {
   userId: number;
+  accountType?: 'regular' | 'test' | 'fake';
   name?: string;
   email?: string;
   phoneNumber?: string;

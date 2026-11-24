@@ -219,3 +219,24 @@ export const requireRoles = (...allowedRoles: string[]) => {
     );
   };
 };
+
+/**
+ * Middleware: Check if authenticated user is explicitly the Owner
+ */
+export const requireOwnerRole = (req: AuthRequest, res: Response, next: NextFunction) => {
+  if (!req.user) {
+    return sendResponse(res, 401, false, "Unauthorized - User not authenticated");
+  }
+
+  const userRole = (req.user.role || '').toLowerCase();
+  if (userRole !== 'owner') {
+    return sendResponse(
+      res,
+      403,
+      false,
+      `403 Forbidden - Only the Owner can perform this action.`
+    );
+  }
+
+  next();
+};

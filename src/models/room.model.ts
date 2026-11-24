@@ -34,6 +34,11 @@ export interface IRoom extends Document {
     customDisplayId?: string;
     badgeUrl?: string;
     uniqueIdBadge?: any;
+    isCustomId?: boolean;
+    legacyId?: string;
+    isArchived?: boolean;
+    closedAt?: Date;
+    closedReason?: string;
     createdAt: Date;
     updatedAt: Date;
 }
@@ -72,6 +77,11 @@ const RoomSchema = new Schema<IRoom>({
     customDisplayId: { type: String, default: '' },
     badgeUrl: { type: String, default: '' },
     uniqueIdBadge: { type: Schema.Types.Mixed, default: null },
+    isCustomId: { type: Boolean, default: false, index: true },
+    legacyId: { type: String, default: null, index: true },
+    isArchived: { type: Boolean, default: false, index: true },
+    closedAt: { type: Date, default: null },
+    closedReason: { type: String, default: null },
 }, { timestamps: true });
 
 RoomSchema.index({ ownerId: 1 });

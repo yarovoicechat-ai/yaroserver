@@ -910,6 +910,56 @@ router.post('/app-access/toggle', verifyToken, requireRoles('owner', 'superAdmin
   }
 });
 
+// ==========================================
+// 👑 OWNER-ONLY MODULES: TEST/FAKE IDS, ROOM IDS, DATA CLEANUP
+// ==========================================
+import { requireOwnerRole } from '../middlewares/authorize.middleware';
+import {
+  createTestOrFakeUser,
+  getTestFakeUsers,
+  updateTestFakeUser,
+  toggleTestFakeUserStatus,
+  deleteOrArchiveTestFakeUser,
+} from '../controllers/ownerTestFakeUserController';
+
+import {
+  checkCustomRoomId,
+  createCustomRoom,
+  listRoomsWithIdMeta,
+} from '../controllers/ownerRoomIdController';
+
+import {
+  getChatCleanupPreview,
+  executeChatCleanup,
+} from '../controllers/ownerChatCleanupController';
+
+import {
+  getRoomCleanupPreview,
+  executeRoomCleanup,
+  getCleanupHistory,
+} from '../controllers/ownerRoomCleanupController';
+
+// 1. Owner Test & Fake ID Management
+router.post('/owner/test-fake-users', verifyToken, requireOwnerRole, createTestOrFakeUser);
+router.get('/owner/test-fake-users', verifyToken, requireOwnerRole, getTestFakeUsers);
+router.patch('/owner/test-fake-users/:id', verifyToken, requireOwnerRole, updateTestFakeUser);
+router.patch('/owner/test-fake-users/:id/status', verifyToken, requireOwnerRole, toggleTestFakeUserStatus);
+router.delete('/owner/test-fake-users/:id', verifyToken, requireOwnerRole, deleteOrArchiveTestFakeUser);
+
+// 2. Owner Room ID Management & Custom Room ID
+router.get('/owner/rooms/check-id', verifyToken, requireOwnerRole, checkCustomRoomId);
+router.post('/owner/rooms/custom', verifyToken, requireOwnerRole, createCustomRoom);
+router.get('/owner/rooms', verifyToken, requireOwnerRole, listRoomsWithIdMeta);
+
+// 3. Owner Chat Cleanup
+router.get('/owner/cleanup/chat/preview', verifyToken, requireOwnerRole, getChatCleanupPreview);
+router.post('/owner/cleanup/chat/execute', verifyToken, requireOwnerRole, executeChatCleanup);
+
+// 4. Owner Room Cleanup
+router.get('/owner/cleanup/room/preview', verifyToken, requireOwnerRole, getRoomCleanupPreview);
+router.post('/owner/cleanup/room/execute', verifyToken, requireOwnerRole, executeRoomCleanup);
+router.get('/owner/cleanup/history', verifyToken, requireOwnerRole, getCleanupHistory);
+
 export default router;
 
 
