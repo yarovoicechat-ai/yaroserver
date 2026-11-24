@@ -365,7 +365,6 @@ export async function createPK(roomId: string, config: any, user: any) {
 
   // 2. PERSONAL GIFT PK: 1v1 within the same room
   if (pkMode === 'personal') {
-    const partA = config?.participantA || roomSummary(own);
     const targetUserId = String(config?.targetUserId || config?.participantB?.userId || '').trim();
     if (!targetUserId) throw new RoomPKError('Enter User ID of an active user in this room for Personal PK', 400);
 
@@ -374,24 +373,46 @@ export async function createPK(roomId: string, config: any, user: any) {
       ...(state.seats || []).map((s: any) => s.user).filter(Boolean),
       ...Object.values(state.onlineUsers || {}),
     ];
+
+    let partA = config?.participantA;
+    if (partA) {
+      const partAId = String(partA.userId || partA.id || partA._id || '');
+      const userA = roomUsers.find((person: any) =>
+        [String(person.userId || ''), String(person.id || ''), String(person._id || ''), String(person.uniqueId || '')]
+          .some(val => val && val.toLowerCase() === partAId.toLowerCase())
+      );
+      if (userA) {
+        partA = {
+          id: String(userA.userId || userA._id || userA.id),
+          _id: String(userA._id || userA.id),
+          userId: String(userA.userId || userA._id || userA.id),
+          name: userA.name || partA.name || 'Participant A',
+          avatar: userA.avatar || userA.image || partA.avatar || '',
+        };
+      }
+    } else {
+      partA = roomSummary(own);
+    }
+
     const opponent = roomUsers.find((person: any) =>
       [String(person.userId || ''), String(person.id || ''), String(person._id || ''), String(person.uniqueId || '')]
         .some(val => val && val.toLowerCase() === targetUserId.toLowerCase())
     );
-    if (!opponent) throw new RoomPKError('User must be in the same room for Personal PK', 400);
+    if (!opponent && !config?.participantB) throw new RoomPKError('User must be in the same room for Personal PK', 400);
 
-    const opponentActorId = String(opponent._id || opponent.id || '');
-    const opponentUserId = String(opponent.userId || opponentActorId);
-    if (opponentActorId === hostActorId || (own.ownerId?.userId && String(own.ownerId.userId) === opponentUserId)) {
-      throw new RoomPKError('You cannot challenge yourself to a PK', 400);
+    const opponentActorId = String(opponent?._id || opponent?.id || config?.participantB?._id || config?.participantB?.id || '');
+    const opponentUserId = String(opponent?.userId || opponentActorId || config?.participantB?.userId);
+    const partAUserId = String(partA.userId || partA.id || partA._id || '');
+    if (partAUserId && (partAUserId === opponentUserId || String(partA._id || partA.id) === opponentActorId)) {
+      throw new RoomPKError('Both PK participants must be different users', 400);
     }
 
     const partB = {
       id: opponentUserId,
       _id: opponentActorId,
       userId: opponentUserId,
-      name: opponent.name || 'Opponent',
-      avatar: opponent.avatar || opponent.image || '',
+      name: opponent?.name || config?.participantB?.name || 'Opponent',
+      avatar: opponent?.avatar || opponent?.image || config?.participantB?.avatar || '',
     };
 
     try {
@@ -399,8 +420,20 @@ export async function createPK(roomId: string, config: any, user: any) {
         roomIds: [canonicalId],
         busyRoomIds: [canonicalId],
         rooms: [
-          { id: String(partA.userId || own.ownerId?.userId), title: partA.name || own.title, hostName: partA.name || own.ownerId?.name, coverImage: partA.avatar || own.ownerId?.avatar || '', userId: String(partA.userId || own.ownerId?.userId) },
-          { id: opponentUserId, title: partB.name, hostName: partB.name, coverImage: partB.avatar, userId: opponentUserId },
+          {
+            id: String(partA.userId || partA.id || own.ownerId?.userId),
+            title: partA.name || own.title,
+            hostName: partA.name || own.ownerId?.name,
+            coverImage: partA.avatar || own.ownerId?.avatar || '',
+            userId: String(partA.userId || partA.id || own.ownerId?.userId),
+          },
+          {
+            id: opponentUserId,
+            title: partB.name,
+            hostName: partB.name,
+            coverImage: partB.avatar,
+            userId: opponentUserId,
+          },
         ],
         invitedBy: hostActorId,
         durationSeconds: validDuration,
@@ -718,14 +751,18 @@ export async function capturePKGift(roomId: string, sender: any, receivers: any[
     const side0Ids = [
       String(match.participantA?.userId || ''),
       String(match.participantA?._id || ''),
+      String(match.participantA?.id || ''),
       String(match.rooms?.[0]?.ownerId || ''),
       String(match.rooms?.[0]?.userId || ''),
+      String(match.rooms?.[0]?.id || ''),
     ].filter(Boolean);
     const side1Ids = [
       String(match.participantB?.userId || ''),
       String(match.participantB?._id || ''),
+      String(match.participantB?.id || ''),
       String(match.rooms?.[1]?.ownerId || ''),
       String(match.rooms?.[1]?.userId || ''),
+      String(match.rooms?.[1]?.id || ''),
     ].filter(Boolean);
 
     const isSide0 = receivers.some(rec => [String(rec._id), String(rec.userId)].some(id => side0Ids.includes(id)));
