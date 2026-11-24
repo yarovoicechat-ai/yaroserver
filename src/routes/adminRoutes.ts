@@ -216,6 +216,16 @@ import {
     updatePinnedOrderAdmin
 } from '../controllers/liveRoomAdminController';
 
+import {
+  banUser,
+  unbanUser,
+  banDevice,
+  unbanDevice,
+  getBanHistory,
+  listDevices,
+  getBanDashboard,
+} from '../controllers/banController';
+
 // Rooms Management
 router.get('/rooms', verifyToken, getAllRooms);
 router.post('/rooms', verifyToken, createRoom);
@@ -236,6 +246,15 @@ router.post('/banners', verifyToken, createBanner);
 router.delete('/banners/:id', verifyToken, deleteBanner);
 router.patch('/banners/:id', verifyToken, updateBannerPriority);
 router.patch('/banners/:id/toggle', verifyToken, toggleBannerActive);
+
+// ============ Complete ID Ban / Unban + Device Ban / Unban ============
+router.post('/bans/user', verifyToken, banUser);
+router.post('/bans/user/unban', verifyToken, unbanUser);
+router.post('/bans/device', verifyToken, banDevice);
+router.post('/bans/device/unban', verifyToken, unbanDevice);
+router.get('/bans/history', verifyToken, getBanHistory);
+router.get('/bans/devices', verifyToken, listDevices);
+router.get('/bans/dashboard', verifyToken, getBanDashboard);
 
 // Ads Management
 router.get('/ads', verifyToken, getAllAds);

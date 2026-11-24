@@ -4,6 +4,7 @@ import jwt, { TokenExpiredError, JsonWebTokenError } from "jsonwebtoken";
 import { User } from "../models/user.model";
 import sendResponse from "../utils/reponse";
 import { config } from "../configs/envConfig";
+import { checkUserBanStatus, checkDeviceBanStatus, formatBanPayload, syncDeviceRecord } from "../services/ban.service";
 
 export interface AuthRequest extends Request {
   user?: {
@@ -52,8 +53,37 @@ export const verifyToken = async (req: AuthRequest, res: Response, next: NextFun
       return sendResponse(res, 401, false, "Unauthorized - User not found");
     }
 
-    if (user.isBlocked) {
-      return sendResponse(res, 403, false, "Aapka account admin dwara block kar diya gaya hai.", undefined, undefined, "ACCOUNT_BLOCKED");
+    // Device Ban Check
+    const reqDeviceId = String(req.headers['x-device-id'] || req.headers['device-id'] || req.query.deviceId || '').trim();
+    if (reqDeviceId) {
+      const deviceBan = await checkDeviceBanStatus(reqDeviceId);
+      if (deviceBan.isBanned) {
+        return sendResponse(
+          res,
+          403,
+          false,
+          deviceBan.banInfo?.banReason || "This device has been restricted by administration.",
+          formatBanPayload(deviceBan.banInfo, 'DEVICE'),
+          undefined,
+          "DEVICE_BANNED"
+        );
+      }
+      // Async sync device record in background
+      syncDeviceRecord(reqDeviceId, user.userId).catch(() => {});
+    }
+
+    // User ID Ban Check (handles permanent, temporary & dynamic auto-expiry)
+    const userBan = await checkUserBanStatus(user);
+    if (userBan.isBanned) {
+      return sendResponse(
+        res,
+        403,
+        false,
+        userBan.banInfo?.banReason || "Your account has been restricted by administration.",
+        formatBanPayload(userBan.banInfo, 'USER'),
+        undefined,
+        "ACCOUNT_BANNED"
+      );
     }
 
     // Single Device Login Enforcement: If user logged in on another device, current token is invalid

@@ -463,6 +463,8 @@ const startServer = async (): Promise<void> => {
     VipService.seedInitialCatalog().catch((e: any) => console.warn('[VIP] Seed warning:', e?.message));
     startChatWorker();
     startStaleHostCleanupJob();
+    const { startBanScheduler } = await import("./services/banScheduler");
+    startBanScheduler();
   } catch (error) {
     console.warn(`[WARN] Initial database connection failed: ${sanitizeMongoError(error)}. Retrying in background...`);
     const retryInterval = setInterval(async () => {

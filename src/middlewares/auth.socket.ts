@@ -4,6 +4,7 @@ import jwt, { TokenExpiredError, JsonWebTokenError } from "jsonwebtoken";
 import { User } from "../models/user.model";
 import { config } from "../configs/envConfig";
 import { Types } from "mongoose";
+import { checkUserBanStatus, checkDeviceBanStatus, syncDeviceRecord } from "../services/ban.service";
 
 interface DecodedToken {
     userId: number;
@@ -52,8 +53,26 @@ export const socketAuth = async (
             return next(new Error("Unauthorized - User not found"));
         }
 
-        if (user.isBlocked) {
-            return next(new Error("Unauthorized - User account is blocked"));
+        // Device Ban Check
+        const socketDeviceId = String(
+            socket.handshake.auth?.deviceId ||
+            socket.handshake.headers?.['x-device-id'] ||
+            socket.handshake.query?.deviceId ||
+            ''
+        ).trim();
+
+        if (socketDeviceId) {
+            const deviceBan = await checkDeviceBanStatus(socketDeviceId);
+            if (deviceBan.isBanned) {
+                return next(new Error(`DEVICE_BANNED: ${deviceBan.banInfo?.banReason || 'Device restricted'}`));
+            }
+            syncDeviceRecord(socketDeviceId, user.userId).catch(() => {});
+        }
+
+        // User Ban Check
+        const userBan = await checkUserBanStatus(user);
+        if (userBan.isBanned) {
+            return next(new Error(`ACCOUNT_BANNED: ${userBan.banInfo?.banReason || 'Account restricted'}`));
         }
 
         // 4️⃣ Attach user to socket

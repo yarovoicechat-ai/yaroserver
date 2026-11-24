@@ -237,4 +237,13 @@ export interface UserInterface extends Document {
   appRole?: string;
   appFeatures?: Record<string, any>;
   yaroId?: string;
+  isBanned?: boolean;
+  banType?: 'temporary' | 'permanent' | null;
+  banReason?: string;
+  adminNote?: string;
+  bannedAt?: Date | null;
+  bannedUntil?: Date | null;
+  bannedBy?: any;
+  bannedByName?: string;
+  banVersion?: number;
 }

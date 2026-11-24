@@ -18,6 +18,7 @@ import { StoreItem } from "../models/storeItem.model";
 import { getCachedSettings } from "./settingsController";
 import { checkAndLockDeviceRegistration } from "../services/deviceLimitService";
 import { getDefaultNameForPolicy, getNamePolicy, validateNameAgainstPolicy } from "../services/namePolicy.service";
+import { checkUserBanStatus, checkDeviceBanStatus, formatBanPayload, syncDeviceRecord } from "../services/ban.service";
 
 /**
  * Newly registered users start with a clean slate without any equipped frame,
@@ -127,6 +128,20 @@ export const checkPhoneAvailability = async (req: Request, res: Response, next: 
     if (!deviceId) return sendResponse(res, 400, false, "Device ID is required.");
 
     const rawClean = (phone || "").replace(/\D/g, "");
+    if (deviceId) {
+      const deviceBan = await checkDeviceBanStatus(deviceId);
+      if (deviceBan.isBanned) {
+        return sendResponse(
+          res,
+          403,
+          false,
+          deviceBan.banInfo?.banReason || "This device has been restricted by administration.",
+          formatBanPayload(deviceBan.banInfo, 'DEVICE'),
+          undefined,
+          "DEVICE_BANNED"
+        );
+      }
+    }
     const last10 = rawClean.length >= 10 ? rawClean.slice(-10) : rawClean;
     if (last10 === '9999999999') {
       return sendResponse(res, 200, true, "Review account registered. Please sign in.", {
@@ -369,6 +384,22 @@ export const userLogin = async (req: Request, res: Response, next: NextFunction)
     }
 
     const isReviewAccount = last10Digits === '9999999999';
+    const activeDeviceId = String(deviceId || req.headers['x-device-id'] || '').trim();
+
+    if (activeDeviceId && !isReviewAccount) {
+      const deviceBan = await checkDeviceBanStatus(activeDeviceId);
+      if (deviceBan.isBanned) {
+        return sendResponse(
+          res,
+          403,
+          false,
+          deviceBan.banInfo?.banReason || "This device has been restricted by administration.",
+          formatBanPayload(deviceBan.banInfo, 'DEVICE'),
+          undefined,
+          "DEVICE_BANNED"
+        );
+      }
+    }
 
     let user = await User.findOne({
       $or: findConditions,
@@ -411,12 +442,19 @@ export const userLogin = async (req: Request, res: Response, next: NextFunction)
       return sendResponse(res, 400, false, "Account not found, please sign up.");
     }
 
-    if (user.isBlocked) {
-      if (isReviewAccount) {
-        user.isBlocked = false;
-        await user.save();
-      } else {
-        return sendResponse(res, 403, false, "You are blocked due to some reason.");
+    // Ban status check (handles permanent, temporary & dynamic auto-expiry)
+    if (!isReviewAccount) {
+      const userBan = await checkUserBanStatus(user);
+      if (userBan.isBanned) {
+        return sendResponse(
+          res,
+          403,
+          false,
+          userBan.banInfo?.banReason || "Your account has been restricted by administration.",
+          formatBanPayload(userBan.banInfo, 'USER'),
+          undefined,
+          "ACCOUNT_BANNED"
+        );
       }
     }
 
@@ -459,6 +497,10 @@ export const userLogin = async (req: Request, res: Response, next: NextFunction)
     user.refreshToken = refreshToken;
     user.activeToken = accessToken;
     await user.save();
+
+    if (activeDeviceId) {
+      syncDeviceRecord(activeDeviceId, user.userId).catch(() => {});
+    }
 
     return sendResponse(res, 200, true, "Login successful", {
       accessToken,
@@ -536,6 +578,22 @@ export const userLogout = async (req: AuthRequest, res: Response, next: NextFunc
 export const userGoogleAuth = async (req: Request, res: Response) => {
   try {
     const { googleIdToken, deviceId, userFrom, gender, language, country, age } = req.body;
+    const activeDeviceId = String(deviceId || req.headers['x-device-id'] || '').trim();
+
+    if (activeDeviceId) {
+      const deviceBan = await checkDeviceBanStatus(activeDeviceId);
+      if (deviceBan.isBanned) {
+        return sendResponse(
+          res,
+          403,
+          false,
+          deviceBan.banInfo?.banReason || "This device has been restricted by administration.",
+          formatBanPayload(deviceBan.banInfo, 'DEVICE'),
+          undefined,
+          "DEVICE_BANNED"
+        );
+      }
+    }
 
     if (!googleIdToken) return sendResponse(res, 400, false, "Google token required");
 
@@ -569,6 +627,19 @@ export const userGoogleAuth = async (req: Request, res: Response) => {
     // for it: continue through app signup when no app account exists.
 
     if (user) {
+      const userBan = await checkUserBanStatus(user);
+      if (userBan.isBanned) {
+        return sendResponse(
+          res,
+          403,
+          false,
+          userBan.banInfo?.banReason || "Your account has been restricted by administration.",
+          formatBanPayload(userBan.banInfo, 'USER'),
+          undefined,
+          "ACCOUNT_BANNED"
+        );
+      }
+
       if (!user.googleId || user.googleId !== googleUserInfo.googleId) {
         user.googleId = googleUserInfo.googleId;
       }
@@ -671,6 +742,19 @@ export const userGoogleAuth = async (req: Request, res: Response) => {
       ]
     }).sort({ createdAt: 1, userId: 1 });
     if (existingEmailUser) {
+      const userBan = await checkUserBanStatus(existingEmailUser);
+      if (userBan.isBanned) {
+        return sendResponse(
+          res,
+          403,
+          false,
+          userBan.banInfo?.banReason || "Your account has been restricted by administration.",
+          formatBanPayload(userBan.banInfo, 'USER'),
+          undefined,
+          "ACCOUNT_BANNED"
+        );
+      }
+
       if (!payload.email_verified) {
         return sendResponse(res, 403, false, "Google email must be verified");
       }
@@ -825,6 +909,37 @@ export const userRefreshToken = async (req: Request, res: Response, next: NextFu
       const user = await User.findOne({ userId: decoded.userId, isDeleted: false });
       if (!user) {
         return sendResponse(res as any, 404, false, "Account deleted or not found");
+      }
+
+      // Check device ban
+      const reqDeviceId = String(req.headers['x-device-id'] || req.body?.deviceId || '').trim();
+      if (reqDeviceId) {
+        const deviceBan = await checkDeviceBanStatus(reqDeviceId);
+        if (deviceBan.isBanned) {
+          return sendResponse(
+            res as any,
+            403,
+            false,
+            deviceBan.banInfo?.banReason || "This device has been restricted by administration.",
+            formatBanPayload(deviceBan.banInfo, 'DEVICE'),
+            undefined,
+            "DEVICE_BANNED"
+          );
+        }
+      }
+
+      // Check user ban
+      const userBan = await checkUserBanStatus(user);
+      if (userBan.isBanned) {
+        return sendResponse(
+          res as any,
+          403,
+          false,
+          userBan.banInfo?.banReason || "Your account has been restricted by administration.",
+          formatBanPayload(userBan.banInfo, 'USER'),
+          undefined,
+          "ACCOUNT_BANNED"
+        );
       }
 
       const accessToken = generateToken(decoded.userId, "access");
