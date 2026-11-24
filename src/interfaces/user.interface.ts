@@ -97,6 +97,10 @@ export interface UserInterface extends Document {
   canVoiceCall?: boolean;
   canVideoCall?: boolean;
   canRoomHost?: boolean;
+  hasVideoAccess?: boolean;
+  videoAccessGrantedBy?: any;
+  videoAccessGrantedByName?: string;
+  videoAccessGrantedAt?: Date | null;
   meethiId?: string;
   blockedUsers?: Types.ObjectId[];
   followers?: Types.ObjectId[];

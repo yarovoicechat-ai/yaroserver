@@ -225,18 +225,33 @@ async function resolveRoom(roomId: string): Promise<any> {
   return room;
 }
 
-function checkPermission(room: any, user: any) {
-  const uid = String(user?.id || user?._id || user?.userId || '');
-  const ownerUid = String(room?.ownerId?._id || room?.ownerId || '');
-  const ownerUserId = String(room?.ownerId?.userId || '');
-  const isOwner = (uid && (uid === ownerUid || uid === ownerUserId)) || false;
-  const admins = (room?.admins || []).map(String);
-  const isAdmin = uid && admins.includes(uid);
+import mongoose from 'mongoose';
+import { User } from '../models/user.model';
 
-  if (!isOwner && !isAdmin) {
-    throw new RoomWatchError('Only the room host or admin can control video playback', 403);
+export async function checkPermission(room: any, user: any) {
+  const authUserId = String(user?.id || user?._id || '').trim();
+  const numericUserId = user?.userId ? String(user.userId).trim() : '';
+
+  if (!authUserId && !numericUserId) {
+    throw new RoomWatchError('Authentication required to control video playback', 401);
   }
-  return { isOwner, isAdmin };
+
+  const userLookup: any[] = [];
+  if (authUserId && mongoose.Types.ObjectId.isValid(authUserId)) userLookup.push({ _id: authUserId });
+  if (numericUserId) userLookup.push({ userId: numericUserId });
+
+  const userDoc = userLookup.length > 0 ? await User.findOne({ $or: userLookup }).select('hasVideoAccess canWatchTogether isBlocked isDeleted role').lean() : null;
+
+  if (!userDoc || userDoc.isBlocked || userDoc.isDeleted) {
+    throw new RoomWatchError('User account not found or blocked', 403);
+  }
+
+  const hasVideoPermission = Boolean(userDoc.hasVideoAccess || (userDoc as any).canWatchTogether);
+  if (!hasVideoPermission) {
+    throw new RoomWatchError('Video Access Denied: You do not have permission to control or play videos. Please request permission from Admin Panel.', 403);
+  }
+
+  return { hasVideoAccess: true };
 }
 
 /**
@@ -300,7 +315,7 @@ async function broadcastWatchEvent(roomId: string, eventName: string, payload: a
  */
 export async function selectVideo(roomId: string, videoData: any, user: any) {
   const room = await resolveRoom(roomId);
-  checkPermission(room, user);
+  await checkPermission(room, user);
 
   const canonical = normalizeWatchRoomId(room.channelName || roomId);
   const videoId = String(videoData?.videoId || '').trim();
@@ -353,7 +368,7 @@ export async function updatePlayback(
   user: any
 ) {
   const room = await resolveRoom(roomId);
-  checkPermission(room, user);
+  await checkPermission(room, user);
 
   const canonical = normalizeWatchRoomId(room.channelName || roomId);
   const session = await RoomWatchSession.findOne({ roomId: canonical, isActive: true });
@@ -400,7 +415,7 @@ export async function updatePlayback(
  */
 export async function closeWatchSession(roomId: string, user: any) {
   const room = await resolveRoom(roomId);
-  checkPermission(room, user);
+  await checkPermission(room, user);
 
   const canonical = normalizeWatchRoomId(room.channelName || roomId);
   await RoomWatchSession.findOneAndUpdate(
@@ -417,7 +432,10 @@ export async function closeWatchSession(roomId: string, user: any) {
  * Video Queue management
  */
 export async function addToQueue(roomId: string, videoData: any, user: any) {
-  const canonical = normalizeWatchRoomId(roomId);
+  const room = await resolveRoom(roomId);
+  await checkPermission(room, user);
+
+  const canonical = normalizeWatchRoomId(room.channelName || roomId);
   const videoId = String(videoData?.videoId || '').trim();
   if (!videoId) throw new RoomWatchError('Valid videoId is required', 400);
 
@@ -446,7 +464,7 @@ export async function addToQueue(roomId: string, videoData: any, user: any) {
 
 export async function removeFromQueue(roomId: string, videoId: string, user: any) {
   const room = await resolveRoom(roomId);
-  checkPermission(room, user);
+  await checkPermission(room, user);
 
   const canonical = normalizeWatchRoomId(room.channelName || roomId);
   const session = await RoomWatchSession.findOneAndUpdate(

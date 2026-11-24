@@ -610,16 +610,16 @@ export const deleteConversationByOwner = async (req: AuthRequest, res: Response)
 };
 
 /**
- * 👑 Owner Only: Toggle YouTube Watch Together Access for any user.
+ * 👑 Authorized Admin: Toggle YouTube Watch Together / Video Access for any user.
  */
 export const toggleWatchTogetherAccess = async (req: AuthRequest, res: Response) => {
   try {
     const actorRole = String(req.user?.role || '').toLowerCase();
-    if (actorRole !== 'owner') {
-      return sendResponse(res, 403, false, 'Permission Denied: Only Owner has permission to manage Watch Together access.');
+    if (!['owner', 'superadmin', 'admin'].includes(actorRole)) {
+      return sendResponse(res, 403, false, 'Permission Denied: Only authorized administrators can manage Video Access.');
     }
 
-    const { userId, canWatchTogether } = req.body;
+    const { userId, canWatchTogether, hasVideoAccess, videoAccess } = req.body;
     if (!userId) {
       return sendResponse(res, 400, false, 'User ID is required');
     }
@@ -636,29 +636,69 @@ export const toggleWatchTogetherAccess = async (req: AuthRequest, res: Response)
       return sendResponse(res, 404, false, 'User not found');
     }
 
-    const newState = typeof canWatchTogether === 'boolean' ? canWatchTogether : !(target as any).canWatchTogether;
+    const explicit = typeof hasVideoAccess === 'boolean'
+      ? hasVideoAccess
+      : typeof videoAccess === 'boolean'
+        ? videoAccess
+        : typeof canWatchTogether === 'boolean'
+          ? canWatchTogether
+          : undefined;
+
+    const currentStatus = Boolean(target.hasVideoAccess || (target as any).canWatchTogether);
+    const newState = explicit !== undefined ? explicit : !currentStatus;
+
+    const actorId = req.user?.id || (req.user as any)?._id || null;
+    const actorName = (req.user as any)?.name || (req.user as any)?.email || actorRole;
+
+    target.hasVideoAccess = newState;
     (target as any).canWatchTogether = newState;
+    target.videoAccessGrantedBy = actorId;
+    (target as any).videoAccessGrantedByName = actorName;
+    target.videoAccessGrantedAt = new Date();
     await target.save();
 
-    return sendResponse(res, 200, true, `Watch Together access ${newState ? 'granted' : 'revoked'} for ${target.name || target.userId}`, {
+    // Real-time broadcast via Socket.IO
+    try {
+      const { getIOOptional } = await import('../sockets');
+      const io = getIOOptional();
+      if (io) {
+        const payload = {
+          userId: target.userId,
+          userDbId: String(target._id),
+          hasVideoAccess: newState,
+          canWatchTogether: newState,
+          videoAccess: newState,
+          grantedBy: actorName,
+          grantedAt: target.videoAccessGrantedAt,
+        };
+        io.emit('user:video_permission_updated', payload);
+        io.to(`user:${target._id}`).emit('user:video_permission_updated', payload);
+        io.to(`user:${target.userId}`).emit('user:video_permission_updated', payload);
+      }
+    } catch (_) {}
+
+    return sendResponse(res, 200, true, `Video Access ${newState ? 'enabled' : 'disabled'} for ${target.name || target.userId}`, {
       userId: target.userId,
       meethiId: (target as any).meethiId,
       name: target.name,
+      hasVideoAccess: newState,
       canWatchTogether: newState,
+      videoAccessGrantedByName: actorName,
+      videoAccessGrantedAt: target.videoAccessGrantedAt,
     });
   } catch (error: any) {
-    return sendResponse(res, 500, false, error.message || 'Error toggling Watch Together access');
+    return sendResponse(res, 500, false, error.message || 'Error toggling Video Access');
   }
 };
 
 /**
- * 👑 Owner Only: Search and list users with Watch Together status.
+ * 👑 Authorized Admin: Search and list users with Video Access status.
  */
 export const getWatchTogetherUsers = async (req: AuthRequest, res: Response) => {
   try {
     const actorRole = String(req.user?.role || '').toLowerCase();
-    if (actorRole !== 'owner') {
-      return sendResponse(res, 403, false, 'Permission Denied: Only Owner has permission to view Watch Together users.');
+    if (!['owner', 'superadmin', 'admin'].includes(actorRole)) {
+      return sendResponse(res, 403, false, 'Permission Denied: Only authorized administrators can view Video Access users.');
     }
 
     const query = String(req.query.q || '').trim();
@@ -671,8 +711,8 @@ export const getWatchTogetherUsers = async (req: AuthRequest, res: Response) => 
         ...(mongoose.Types.ObjectId.isValid(query) ? [{ _id: query }] : []),
       ];
     } else {
-      // By default show users who have access or VIP/SVIP >= 4 or recent 20 users
       filter.$or = [
+        { hasVideoAccess: true },
         { canWatchTogether: true },
         { vipLevel: { $gte: 4 } },
         { svipLevel: { $gte: 4 } },
@@ -680,7 +720,7 @@ export const getWatchTogetherUsers = async (req: AuthRequest, res: Response) => 
     }
 
     const users = await User.find(filter)
-      .select('userId meethiId name avatar image vipLevel svipLevel role canWatchTogether isGlobalRoomManager')
+      .select('userId meethiId name avatar image vipLevel svipLevel role hasVideoAccess canWatchTogether videoAccessGrantedBy videoAccessGrantedByName videoAccessGrantedAt isGlobalRoomManager')
       .limit(50)
       .lean();
 

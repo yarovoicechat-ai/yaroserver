@@ -21,7 +21,27 @@ const handle = (work: (req: AuthRequest) => Promise<any>) => async (req: AuthReq
   }
 };
 
+import mongoose from 'mongoose';
+import { User } from '../models/user.model';
+
 export const searchYouTubeController = handle(async req => {
+  const authUserId = String(req.user?.id || (req.user as any)?._id || '').trim();
+  const numericUserId = req.user?.userId ? String(req.user.userId).trim() : '';
+
+  if (!authUserId && !numericUserId) {
+    throw new RoomWatchError('Authentication required to search videos', 401);
+  }
+
+  const userLookup: any[] = [];
+  if (authUserId && mongoose.Types.ObjectId.isValid(authUserId)) userLookup.push({ _id: authUserId });
+  if (numericUserId) userLookup.push({ userId: numericUserId });
+
+  const userDoc = userLookup.length > 0 ? await User.findOne({ $or: userLookup }).select('hasVideoAccess canWatchTogether isBlocked isDeleted').lean() : null;
+
+  if (!userDoc || (!userDoc.hasVideoAccess && !(userDoc as any).canWatchTogether)) {
+    throw new RoomWatchError('Video Access Denied: You do not have permission to search or play videos. Permission required from Admin Panel.', 403);
+  }
+
   const q = String(req.query?.q || '');
   const pageToken = String(req.query?.pageToken || '');
   return searchYouTube(q, pageToken);

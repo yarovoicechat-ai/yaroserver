@@ -476,9 +476,9 @@ router.post('/users/:id/custom-id', verifyToken, requireRoles('owner'), updateCu
 router.delete('/chats/messages/:id', verifyToken, requireRoles('owner'), deleteMessageByOwner);
 router.delete('/chats/conversations/:id', verifyToken, requireRoles('owner'), deleteConversationByOwner);
 
-// ============ 👑 Owner-Exclusive Watch Together Permissions ============
-router.post('/watch-together/toggle', verifyToken, requireRoles('owner'), toggleWatchTogetherAccess);
-router.get('/watch-together/users', verifyToken, requireRoles('owner'), getWatchTogetherUsers);
+// ============ 👑 Authorized Admin Video / Watch Together Permissions ============
+router.post('/watch-together/toggle', verifyToken, requireRoles('owner', 'superAdmin', 'admin'), toggleWatchTogetherAccess);
+router.get('/watch-together/users', verifyToken, requireRoles('owner', 'superAdmin', 'admin'), getWatchTogetherUsers);
 
 // ============ 👑 Owner-Exclusive Chat & Room Cleanup / Custom Room ID ============
 router.post('/chats/clean-all', verifyToken, requireRoles('owner'), cleanAllChatsByOwner);
