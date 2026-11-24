@@ -37,7 +37,14 @@ async function resolveRoom(value: unknown): Promise<any> {
 function ownerId(room: any) { return String(room.ownerId?._id || room.ownerId || ''); }
 function actorId(user: any) { return String(user?.id || user?._id || ''); }
 function requireOwner(room: any, user: any) {
-  if (!actorId(user) || ownerId(room) !== actorId(user)) throw new RoomPKError('Only the room owner can manage its PK', 403);
+  const currentActor = actorId(user);
+  if (!currentActor) throw new RoomPKError('Authentication required to manage PK', 401);
+  const isDirectOwner = ownerId(room) === currentActor;
+  const isSystemAdmin = user?.role === 'admin' || user?.role === 'owner';
+  const isRoomAdmin = Array.isArray(room.admins) && room.admins.some((a: any) => String(a?._id || a) === currentActor);
+  if (!isDirectOwner && !isSystemAdmin && !isRoomAdmin) {
+    throw new RoomPKError('Only the room owner or authorized room admin can manage its PK', 403);
+  }
 }
 
 function roomSummary(room: any) {

@@ -3,6 +3,7 @@ import mongoose from 'mongoose';
 import { Room } from '../models/room.model';
 import { RoomPK } from '../models/roomPk.model';
 import { RoomWatchSession } from '../models/roomWatchSession.model';
+import { RoomContribution } from '../models/roomContribution.model';
 import { AuditLog } from '../models/auditLog.model';
 import { AuthRequest } from '../middlewares/authorize.middleware';
 import sendResponse from '../utils/reponse';
@@ -144,6 +145,7 @@ export const executeRoomCleanup = async (req: AuthRequest, res: Response) => {
     const {
       mode = 'all', // 'all' | 'single'
       roomId,
+      resetRoomRankings = true,
       confirmationToken,
       secondConfirmation,
     } = req.body || {};
@@ -213,6 +215,16 @@ export const executeRoomCleanup = async (req: AuthRequest, res: Response) => {
         await redis.del(`voice_room_members:${canonicalId}`);
       } catch {}
 
+      // 4b. Safely reset room ranking & contribution aggregates (User wallet balances strictly preserved)
+      if (resetRoomRankings !== false) {
+        await RoomContribution.deleteMany({ roomId: { $in: [canonicalId, normalizedId] } });
+        try {
+          const rankKeys = await redis.keys(`*${canonicalId}*`);
+          const toDel = rankKeys.filter(k => k.includes('leaderboard') || k.includes('ranking') || k.includes('score') || k.includes('contributor'));
+          if (toDel.length > 0) await redis.del(...toDel);
+        } catch {}
+      }
+
       // 5. Update MongoDB Room record: archive & deactivate (NEVER delete historical document)
       targetRoom.isActive = false;
       targetRoom.isArchived = true;
@@ -276,6 +288,17 @@ export const executeRoomCleanup = async (req: AuthRequest, res: Response) => {
         await redis.del(...keys);
       }
     } catch {}
+
+    // 4b. Safely reset all room rankings & contribution aggregates (User wallet balances 100% preserved)
+    if (resetRoomRankings !== false) {
+      await RoomContribution.deleteMany({});
+      try {
+        const rankKeys = await redis.keys('room_leaderboard:*');
+        const contribKeys = await redis.keys('room_contributors:*');
+        const allRanks = [...(rankKeys || []), ...(contribKeys || [])];
+        if (allRanks.length > 0) await redis.del(...allRanks);
+      } catch {}
+    }
 
     // 5. Deactivate & archive active rooms in MongoDB
     const archiveResult = await Room.updateMany(

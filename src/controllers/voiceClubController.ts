@@ -202,8 +202,8 @@ export const getAllActiveVoiceRooms = async (req: Request, res: Response) => {
 
       const owner = (r.ownerId as any) || {};
       const hostId = String(owner.userId || owner.meethiId || owner._id || r.channelName);
-      const uniqueId = String(owner.uniqueId || owner.customDisplayId || owner.displayId || (r as any).uniqueId || '').trim();
-      const displayRoomId = uniqueId || r.channelName;
+      const canonicalRoomId = String(r.channelName);
+      const displayRoomId = canonicalRoomId;
 
       let badgeUrl = String((r as any).badgeUrl || (r as any).badgeIconUrl || '').trim();
       if (/frame/i.test(badgeUrl)) badgeUrl = '';
@@ -213,7 +213,7 @@ export const getAllActiveVoiceRooms = async (req: Request, res: Response) => {
       }
       if (!badgeUrl && owner) {
         const inventoryList = Array.isArray(owner.storeInventory) ? owner.storeInventory : [];
-        const targetId = String(owner.customDisplayId || owner.equippedCustomId || uniqueId || '').trim();
+        const targetId = String(owner.customDisplayId || owner.equippedCustomId || owner.uniqueId || owner.displayId || '').trim();
         const uniqueInv = inventoryList.find((it: any) => {
           const cat = String(it.category || it.type || '').toLowerCase().trim();
           if (/frame|theme|bubble|tassel|wave|skin|entry|vehicle/i.test(cat)) return false;
@@ -234,10 +234,12 @@ export const getAllActiveVoiceRooms = async (req: Request, res: Response) => {
       }
 
       formattedRooms.push({
-        id: r.channelName, // room ID is user ID
-        roomId: r.channelName,
-        uniqueId: uniqueId,
-        displayRoomId: displayRoomId,
+        id: canonicalRoomId, // 9-digit canonical room ID
+        roomId: canonicalRoomId,
+        uniqueId: (r as any).uniqueId || canonicalRoomId,
+        displayRoomId: canonicalRoomId,
+        legacyId: (r as any).legacyId || null,
+        isCustomId: Boolean((r as any).isCustomId),
         badgeUrl: badgeUrl,
         uniqueIdBadge: uniqueIdBadge,
         title: r.title,
@@ -307,8 +309,8 @@ export const getMyVoiceRoom = async (req: any, res: Response) => {
 
     const owner = (room.ownerId as any) || {};
     const hostId = String(owner.userId || owner.meethiId || owner._id || room.channelName);
-    const ownerUniqueId = String(owner.uniqueId || owner.customDisplayId || owner.displayId || user.uniqueId || user.customDisplayId || user.displayId || '').trim();
-    const displayRoomId = ownerUniqueId || room.channelName;
+    const canonicalRoomId = String(room.channelName);
+    const displayRoomId = canonicalRoomId;
 
     let badgeUrl = String((room as any).badgeUrl || (room as any).badgeIconUrl || '').trim();
     if (/frame/i.test(badgeUrl)) badgeUrl = '';
@@ -318,7 +320,7 @@ export const getMyVoiceRoom = async (req: any, res: Response) => {
     }
     if (!badgeUrl && owner) {
       const inventoryList = Array.isArray(owner.storeInventory) ? owner.storeInventory : (Array.isArray(user.storeInventory) ? user.storeInventory : []);
-      const targetId = String(owner.customDisplayId || user.customDisplayId || owner.equippedCustomId || user.equippedCustomId || ownerUniqueId || '').trim();
+      const targetId = String(owner.customDisplayId || user.customDisplayId || owner.equippedCustomId || user.equippedCustomId || owner.uniqueId || user.uniqueId || '').trim();
       const uniqueInv = inventoryList.find((it: any) => {
         const cat = String(it.category || it.type || '').toLowerCase().trim();
         if (/frame|theme|bubble|tassel|wave|skin|entry|vehicle/i.test(cat)) return false;
@@ -343,10 +345,12 @@ export const getMyVoiceRoom = async (req: any, res: Response) => {
       data: {
         exists: true,
         room: {
-          id: room.channelName,
-          roomId: room.channelName,
-          uniqueId: ownerUniqueId,
-          displayRoomId: displayRoomId,
+          id: canonicalRoomId,
+          roomId: canonicalRoomId,
+          uniqueId: (room as any).uniqueId || canonicalRoomId,
+          displayRoomId: canonicalRoomId,
+          legacyId: (room as any).legacyId || null,
+          isCustomId: Boolean((room as any).isCustomId),
           badgeUrl: badgeUrl,
           uniqueIdBadge: uniqueIdBadge,
           title: room.title,
