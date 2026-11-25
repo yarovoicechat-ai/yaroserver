@@ -508,11 +508,22 @@ export const withRoomSeatLock = async <T>(roomId: string, task: () => Promise<T>
 export const updateRoomSeatCharmAfterGift = async (
   roomId: string,
   receivers: any[],
-  giftDiamonds: number
+  giftDiamonds: number,
+  sender?: any
 ): Promise<void> => {
   if (!roomId || !Array.isArray(receivers) || receivers.length === 0) return;
   const canonicalId = normalizeRoomId(roomId);
   try {
+    // Record gift for active room calculator if running
+    try {
+      const { RoomCalculatorService } = await import('../services/roomCalculator.service');
+      const { getIO } = await import('./index');
+      const io = getIO();
+      await RoomCalculatorService.recordGift(canonicalId, sender, receivers, giftDiamonds, io);
+    } catch (calcErr: any) {
+      console.warn(`[VoiceRoom] RoomCalculator recordGift warning:`, calcErr?.message);
+    }
+
     await withRoomSeatLock(canonicalId, async () => {
       const state = await getVoiceRoomState(canonicalId);
       if (!state || !Array.isArray(state.seats)) return;
@@ -2533,6 +2544,48 @@ export const registerVoiceRoomHandlers = (io: Server, socket: AuthenticatedSocke
     } catch (err: any) {
       console.error("[VoiceRoom] Update seat charm error:", err);
       socket.emit("voice_room:error", { message: err?.message || "Failed to update seat charm" });
+    }
+  });
+
+  // Room Calculator (Charm Activity) Sockets
+  socket.on("room:calculator:start", async (data: { roomId: string; theme: string; durationMins: number }, ack?: (res: any) => void) => {
+    try {
+      const rawRoomId = String(data?.roomId || (socket as any).voiceRawRoomId || (socket as any).voiceRoomId || "").trim();
+      const { RoomCalculatorService } = await import('../services/roomCalculator.service');
+      const state = await RoomCalculatorService.startCalculator(
+        rawRoomId,
+        user,
+        data.theme,
+        Number(data.durationMins) || 10,
+        io
+      );
+      if (typeof ack === 'function') ack({ success: true, data: state });
+    } catch (err: any) {
+      if (typeof ack === 'function') ack({ success: false, message: err?.message || 'Failed to start calculator' });
+      else socket.emit("voice_room:error", { message: err?.message });
+    }
+  });
+
+  socket.on("room:calculator:end", async (data: { roomId: string }, ack?: (res: any) => void) => {
+    try {
+      const rawRoomId = String(data?.roomId || (socket as any).voiceRawRoomId || (socket as any).voiceRoomId || "").trim();
+      const { RoomCalculatorService } = await import('../services/roomCalculator.service');
+      const state = await RoomCalculatorService.endCalculator(rawRoomId, user, io);
+      if (typeof ack === 'function') ack({ success: true, data: state });
+    } catch (err: any) {
+      if (typeof ack === 'function') ack({ success: false, message: err?.message || 'Failed to end calculator' });
+      else socket.emit("voice_room:error", { message: err?.message });
+    }
+  });
+
+  socket.on("room:calculator:get", async (data: { roomId: string }, ack?: (res: any) => void) => {
+    try {
+      const rawRoomId = String(data?.roomId || (socket as any).voiceRawRoomId || (socket as any).voiceRoomId || "").trim();
+      const { RoomCalculatorService } = await import('../services/roomCalculator.service');
+      const state = await RoomCalculatorService.getCalculator(rawRoomId);
+      if (typeof ack === 'function') ack({ success: true, data: state });
+    } catch (err: any) {
+      if (typeof ack === 'function') ack({ success: false, message: err?.message || 'Failed to get calculator' });
     }
   });
 

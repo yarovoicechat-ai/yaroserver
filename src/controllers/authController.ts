@@ -384,7 +384,7 @@ export const userLogin = async (req: Request, res: Response, next: NextFunction)
     }
 
     const isReviewAccount = last10Digits === '9999999999';
-    const activeDeviceId = String(deviceId || req.headers['x-device-id'] || '').trim();
+    const activeDeviceId = String(deviceId || req.headers?.['x-device-id'] || '').trim();
 
     if (activeDeviceId && !isReviewAccount) {
       const deviceBan = await checkDeviceBanStatus(activeDeviceId);
@@ -578,7 +578,7 @@ export const userLogout = async (req: AuthRequest, res: Response, next: NextFunc
 export const userGoogleAuth = async (req: Request, res: Response) => {
   try {
     const { googleIdToken, deviceId, userFrom, gender, language, country, age } = req.body;
-    const activeDeviceId = String(deviceId || req.headers['x-device-id'] || '').trim();
+    const activeDeviceId = String(deviceId || req.headers?.['x-device-id'] || '').trim();
 
     if (activeDeviceId) {
       const deviceBan = await checkDeviceBanStatus(activeDeviceId);
@@ -912,7 +912,7 @@ export const userRefreshToken = async (req: Request, res: Response, next: NextFu
       }
 
       // Check device ban
-      const reqDeviceId = String(req.headers['x-device-id'] || req.body?.deviceId || '').trim();
+      const reqDeviceId = String(req.headers?.['x-device-id'] || req.body?.deviceId || '').trim();
       if (reqDeviceId) {
         const deviceBan = await checkDeviceBanStatus(reqDeviceId);
         if (deviceBan.isBanned) {

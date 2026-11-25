@@ -54,7 +54,7 @@ export const verifyToken = async (req: AuthRequest, res: Response, next: NextFun
     }
 
     // Device Ban Check
-    const reqDeviceId = String(req.headers['x-device-id'] || req.headers['device-id'] || req.query.deviceId || '').trim();
+    const reqDeviceId = String(req.headers?.['x-device-id'] || req.headers?.['device-id'] || req.query?.deviceId || '').trim();
     if (reqDeviceId) {
       const deviceBan = await checkDeviceBanStatus(reqDeviceId);
       if (deviceBan.isBanned) {

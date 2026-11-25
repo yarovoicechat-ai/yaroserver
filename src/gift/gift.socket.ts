@@ -146,11 +146,11 @@ export const broadcastGiftSuccess = (params: BroadcastGiftParams) => {
       });
     }
 
-    // Update room seat charm points for seated recipients
+    // Update room seat charm points for seated recipients and active calculator
     try {
       const { updateRoomSeatCharmAfterGift } = require('../sockets/voiceRoomSocket');
       if (typeof updateRoomSeatCharmAfterGift === 'function') {
-        updateRoomSeatCharmAfterGift(roomId, receiversSummary, resolvedDiamonds).catch((err: any) =>
+        updateRoomSeatCharmAfterGift(roomId, receiversSummary, resolvedDiamonds, senderSummary).catch((err: any) =>
           console.warn('[GiftSocket] updateRoomSeatCharmAfterGift warning:', err?.message)
         );
       }

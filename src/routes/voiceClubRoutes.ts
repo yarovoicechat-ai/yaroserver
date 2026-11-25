@@ -12,6 +12,9 @@ import {
   removeRoomAdmin,
   setRoomLockPin,
   verifyRoomLockPin,
+  getRoomCalculator,
+  startRoomCalculator,
+  endRoomCalculator,
 } from '../controllers/voiceClubController';
 import { verifyToken } from '../middlewares/authorize.middleware';
 import {
@@ -89,6 +92,11 @@ router.post('/rooms/:id/admins/remove', verifyToken, removeRoomAdmin);
 // Room Lock & PIN
 router.post('/rooms/:id/lock', verifyToken, setRoomLockPin);
 router.post('/rooms/:id/verify-pin', verifyToken, verifyRoomLockPin);
+
+// Room Calculator (Charm Activity) Endpoints
+router.get('/rooms/:id/calculator', verifyToken, getRoomCalculator);
+router.post('/rooms/:id/calculator/start', verifyToken, startRoomCalculator);
+router.post('/rooms/:id/calculator/end', verifyToken, endRoomCalculator);
 
 // Room Tasks & Room Support Endpoints
 router.get('/rooms/:id/tasks', verifyToken, getRoomTasks);

@@ -48,6 +48,7 @@ function fixture() {
     '../utils/passwordHelper': { generateSecureHash: async () => 'app-hash', verifySecureHash: async (p, h) => p === 'app-password' && h === 'app-hash' },
     '../services/namePolicy.service': { getNamePolicy: async () => ({}), getDefaultNameForPolicy: n => n, validateNameAgainstPolicy: () => null },
     '../services/deviceLimitService': { checkAndLockDeviceRegistration: async () => ({ allowed: true }) },
+    '../services/ban.service': { checkDeviceBanStatus: async () => ({ isBanned: false }), checkUserBanStatus: async () => ({ isBanned: false }), formatBanPayload: () => ({}), syncDeviceRecord: async () => {} },
     '../utils/logger': { Logger: async () => {} }, '../constants/user': { UserRole: { USER: 'user' }, Gender: {}, AuthType: {} },
   });
   return { panel, docs, queries, auth };

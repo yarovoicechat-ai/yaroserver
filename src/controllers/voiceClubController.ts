@@ -876,4 +876,49 @@ export const verifyRoomLockPin = async (req: AuthRequest, res: Response) => {
   }
 };
 
+export const getRoomCalculator = async (req: AuthRequest, res: Response) => {
+  try {
+    const rawRoomId = String(req.params.id || '').trim();
+    const { RoomCalculatorService } = await import('../services/roomCalculator.service');
+    const state = await RoomCalculatorService.getCalculator(rawRoomId);
+    return res.status(200).json({ success: true, data: state });
+  } catch (error: any) {
+    return res.status(500).json({ success: false, message: error.message });
+  }
+};
+
+export const startRoomCalculator = async (req: AuthRequest, res: Response) => {
+  try {
+    const rawRoomId = String(req.params.id || '').trim();
+    const { theme, durationMins } = req.body;
+    const { RoomCalculatorService } = await import('../services/roomCalculator.service');
+    const { getIO } = await import('../sockets/index');
+    const io = getIO();
+    const state = await RoomCalculatorService.startCalculator(
+      rawRoomId,
+      req.user,
+      theme,
+      Number(durationMins) || 10,
+      io
+    );
+    return res.status(200).json({ success: true, data: state });
+  } catch (error: any) {
+    return res.status(400).json({ success: false, message: error.message });
+  }
+};
+
+export const endRoomCalculator = async (req: AuthRequest, res: Response) => {
+  try {
+    const rawRoomId = String(req.params.id || '').trim();
+    const { RoomCalculatorService } = await import('../services/roomCalculator.service');
+    const { getIO } = await import('../sockets/index');
+    const io = getIO();
+    const state = await RoomCalculatorService.endCalculator(rawRoomId, req.user, io);
+    return res.status(200).json({ success: true, data: state });
+  } catch (error: any) {
+    return res.status(400).json({ success: false, message: error.message });
+  }
+};
+
+
 
