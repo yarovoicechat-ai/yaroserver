@@ -1,7 +1,7 @@
 import { Response } from 'express';
 import { AuthRequest } from '../middlewares/authorize.middleware';
 import sendResponse from '../utils/reponse';
-import { createPK, currentPK, pkHistory, pkOpponents, respondPK, RoomPKError, votePK } from '../services/roomPk.service';
+import { createPK, currentPK, pkHistory, pkOpponents, respondPK, RoomPKError, votePK, matchPK, cancelMatchPK } from '../services/roomPk.service';
 
 const handle = (work: (req: AuthRequest) => Promise<any>) => async (req: AuthRequest, res: Response) => {
   try { return sendResponse(res, 200, true, 'PK updated', await work(req)); }
@@ -38,3 +38,5 @@ export const respondRoomPK = handle(req => respondPK(
   String(req.body?.decision || ''),
   req.user
 ));
+export const matchRoomPK = handle(req => matchPK(String(req.params.id), req.user));
+export const cancelMatchRoomPK = handle(req => cancelMatchPK(String(req.params.id), req.user));

@@ -26,6 +26,8 @@ import {
   inviteRoomPK,
   respondRoomPK,
   voteRoomPK,
+  matchRoomPK,
+  cancelMatchRoomPK,
 } from '../controllers/roomPkController';
 
 import {
@@ -73,6 +75,8 @@ router.get('/rooms/:id/pk/opponents', verifyToken, getRoomPKOpponents);
 router.post('/rooms/:id/pk/create', verifyToken, createRoomPK);
 router.post('/rooms/:id/pk/invite', verifyToken, inviteRoomPK);
 router.post('/rooms/:id/pk/vote', verifyToken, voteRoomPK);
+router.post('/rooms/:id/pk/match', verifyToken, matchRoomPK);
+router.post('/rooms/:id/pk/match/cancel', verifyToken, cancelMatchRoomPK);
 router.post('/rooms/:id/pk/cancel', verifyToken, cancelRoomPK);
 router.post('/rooms/:id/pk/:matchId/cancel', verifyToken, cancelRoomPK);
 router.post('/rooms/:id/pk/:matchId/respond', verifyToken, respondRoomPK);

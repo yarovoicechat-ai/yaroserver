@@ -717,6 +717,70 @@ export async function pkOpponents(roomId: string) {
   return result;
 }
 
+interface MatchingRoomQueueEntry {
+  roomId: string;
+  channelName: string;
+  user: any;
+  timestamp: number;
+}
+const matchingRoomQueue = new Map<string, MatchingRoomQueueEntry>();
+
+export async function matchPK(roomId: string, user: any) {
+  const own = await resolveRoom(roomId);
+  requireOwner(own, user);
+  const canonicalId = normalizePKRoomId(own.channelName);
+
+  const now = Date.now();
+  // Clear entries older than 60s
+  for (const [k, v] of matchingRoomQueue.entries()) {
+    if (now - v.timestamp > 60000) matchingRoomQueue.delete(k);
+  }
+
+  // Look for another waiting room
+  let oppEntry: MatchingRoomQueueEntry | null = null;
+  for (const [k, v] of matchingRoomQueue.entries()) {
+    if (k !== canonicalId) {
+      oppEntry = v;
+      matchingRoomQueue.delete(k);
+      break;
+    }
+  }
+
+  if (oppEntry) {
+    const match = await createPK(canonicalId, {
+      pkType: 'room',
+      pkMode: 'room',
+      targetRoomId: oppEntry.channelName,
+      durationSeconds: 600,
+    }, user);
+    return await respondPK(String(match.id || match._id), oppEntry.channelName, 'accept', oppEntry.user);
+  } else {
+    const opponents = await pkOpponents(canonicalId);
+    if (opponents.length > 0) {
+      return await createPK(canonicalId, {
+        pkType: 'room',
+        pkMode: 'room',
+        targetRoomId: opponents[0].id,
+        durationSeconds: 600,
+      }, user);
+    }
+    matchingRoomQueue.set(canonicalId, {
+      roomId,
+      channelName: canonicalId,
+      user,
+      timestamp: now,
+    });
+    return { status: 'matching', message: 'Matching room pk...' };
+  }
+}
+
+export async function cancelMatchPK(roomId: string, user: any) {
+  const own = await resolveRoom(roomId);
+  const canonicalId = normalizePKRoomId(own.channelName);
+  matchingRoomQueue.delete(canonicalId);
+  return { status: 'cancelled' };
+}
+
 /**
  * Capture server-verified room eligibility before a successful gift receipt is written.
  * Enforces:
