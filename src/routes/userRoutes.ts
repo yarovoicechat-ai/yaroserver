@@ -42,6 +42,8 @@ import {
   followUser,
   getFollowers,
   getFollowing,
+  getFriends,
+  getContactsSummary,
   recordProfileVisit,
   getProfileVisitors,
 } from '../controllers/followAndVisitor.controller';
@@ -104,6 +106,8 @@ router.get("/profile/:id", verifyToken, getPublicUserProfile);
 router.post("/follow/:id", verifyToken, followUser);
 router.get("/followers", verifyToken, getFollowers);
 router.get("/following", verifyToken, getFollowing);
+router.get("/friends", verifyToken, getFriends);
+router.get("/contacts-summary", verifyToken, getContactsSummary);
 router.post("/visit/:id", verifyToken, recordProfileVisit);
 router.get("/visitors", verifyToken, getProfileVisitors);
 

@@ -178,10 +178,23 @@ export const getAllActiveVoiceRooms = async (req: Request, res: Response) => {
     }
 
     const formattedRooms: any[] = [];
+    const seenOwnerIds = new Set<string>();
 
-    rooms.forEach((r: any, idx: number) => {
+    // Sort rooms so that official 9-digit rooms take precedence over duplicate user-id rooms
+    const sortedRooms = [...rooms].sort((a: any, b: any) => {
+      const aOwner = (a.ownerId as any) || {};
+      const bOwner = (b.ownerId as any) || {};
+      const aIsUserRoom = String(a.channelName) === String(aOwner.userId);
+      const bIsUserRoom = String(b.channelName) === String(bOwner.userId);
+      if (aIsUserRoom && !bIsUserRoom) return 1;
+      if (!aIsUserRoom && bIsUserRoom) return -1;
+      return 0;
+    });
+
+    sortedRooms.forEach((r: any) => {
+      const originalIdx = rooms.findIndex((orig: any) => String(orig._id) === String(r._id));
       let onlineCount = 0;
-      const rawState = redisStates[idx];
+      const rawState = originalIdx >= 0 ? redisStates[originalIdx] : null;
       if (rawState) {
         try {
           const parsed = JSON.parse(rawState);
@@ -201,6 +214,20 @@ export const getAllActiveVoiceRooms = async (req: Request, res: Response) => {
       }
 
       const owner = (r.ownerId as any) || {};
+      const ownerKey = String(owner._id || owner.userId || '');
+      if (ownerKey) {
+        if (seenOwnerIds.has(ownerKey)) return; // Strictly one room per owner!
+        // Prevent showing room created with userId if owner has canonical room
+        if (String(r.channelName) === String(owner.userId)) {
+          const hasCanonical = rooms.some(
+            (other: any) =>
+              String((other.ownerId as any)?._id || (other.ownerId as any)?.userId) === ownerKey &&
+              String(other.channelName) !== String(owner.userId)
+          );
+          if (hasCanonical) return;
+        }
+        seenOwnerIds.add(ownerKey);
+      }
       const hostId = String(owner.userId || owner.meethiId || owner._id || r.channelName);
       const canonicalRoomId = String(r.channelName);
       const displayRoomId = canonicalRoomId;
@@ -580,14 +607,23 @@ export const getVoiceRoomToken = async (req: AuthRequest, res: Response) => {
       }).select('_id userId name').lean();
 
       if (ownerUser) {
-        roomDocument = await Room.create({
-          title: `${ownerUser.name || 'Voice'}'s Party Club`,
-          channelName: canonicalRoomId,
-          ownerId: ownerUser._id,
-          category: 'Chat 💬',
-          seatCount: 8,
-          isActive: true,
-        });
+        // First check if this owner ALREADY has a room:
+        const existingOwnerRoom: any = await Room.findOne({ ownerId: ownerUser._id, isActive: true })
+          .select('ownerId channelName isLocked +pinHash')
+          .lean();
+        if (existingOwnerRoom) {
+          roomDocument = existingOwnerRoom;
+        } else {
+          const generatedRoomId = await getNextRoomId();
+          roomDocument = await Room.create({
+            title: `${ownerUser.name || 'Voice'}'s Party Club`,
+            channelName: generatedRoomId,
+            ownerId: ownerUser._id,
+            category: 'Chat 💬',
+            seatCount: 8,
+            isActive: true,
+          });
+        }
       }
     }
     if (!roomDocument) {

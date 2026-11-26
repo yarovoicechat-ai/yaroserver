@@ -20,6 +20,7 @@ import { RoomTaskService } from "../services/roomTask.service";
 import { withDistributedLock } from "../utils/distributedLock";
 import { allocateRoomSeat, resizeRoomSeats, validateRoomSeatCount } from "../utils/roomSeatRules";
 import { isRoomOwner } from "../utils/roomVoiceAuthorization";
+import { getNextRoomId } from "../utils/roomIdGenerator";
 
 export interface VoiceRoomSeat {
   seatIndex: number;
@@ -2652,15 +2653,22 @@ export const registerVoiceRoomHandlers = (io: Server, socket: AuthenticatedSocke
 
       if (!roomDocument) {
         try {
-          roomDocument = await Room.create({
-            title: data.title || `Voice Room #${roomId}`,
-            channelName: roomId,
-            ownerId: (user as any)?.id || (user as any)?._id,
-            coverImage: data.coverImage || "",
-            about: data.about || "",
-            seatCount: data.seatCount || 8,
-            isActive: true,
-          });
+          const ownerId = (user as any)?.id || (user as any)?._id;
+          const existingOwnerRoom = await Room.findOne({ ownerId, isActive: true });
+          if (existingOwnerRoom) {
+            roomDocument = existingOwnerRoom;
+          } else {
+            const generatedRoomId = await getNextRoomId();
+            roomDocument = await Room.create({
+              title: data.title || `Voice Room #${generatedRoomId}`,
+              channelName: generatedRoomId,
+              ownerId,
+              coverImage: data.coverImage || "",
+              about: data.about || "",
+              seatCount: data.seatCount || 8,
+              isActive: true,
+            });
+          }
         } catch (createErr) {
           console.warn("[VoiceRoom] Auto-create roomDocument warning:", createErr);
         }

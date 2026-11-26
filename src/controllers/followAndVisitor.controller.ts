@@ -337,3 +337,69 @@ export const getProfileVisitors = async (req: AuthRequest, res: Response) => {
     return sendResponse(res, 500, false, error.message || "Failed to fetch profile visitors");
   }
 };
+
+/**
+ * GET /api/user/friends
+ * Returns mutual friends (users who follow each other)
+ */
+export const getFriends = async (req: AuthRequest, res: Response) => {
+  try {
+    const currentUserId = req.user?.id || (req.user as any)?._id;
+    const targetUserId = req.query.userId ? String(req.query.userId) : currentUserId;
+
+    const user = await resolveUser(targetUserId);
+    if (!user) {
+      return sendResponse(res, 404, false, "User not found");
+    }
+
+    const followerIds = (user.followers || []).map(String);
+    const followingSet = new Set((user.following || []).map(String));
+    const mutualFriendIds = followerIds.filter((id) => followingSet.has(id));
+
+    const page = Math.max(1, parseInt(req.query.page as string) || 1);
+    const limit = Math.min(50, Math.max(1, parseInt(req.query.limit as string) || 20));
+    const skip = (page - 1) * limit;
+    const total = mutualFriendIds.length;
+    const paginatedIds = mutualFriendIds.slice().reverse().slice(skip, skip + limit);
+
+    const friends = await User.find({ _id: { $in: paginatedIds } })
+      .select("userId name image avatar gender age level wealthLevel charmLevel isOnline isVerified svipLevel bio country")
+      .lean();
+
+    return sendResponse(res, 200, true, "Friends fetched successfully", {
+      users: friends,
+      total,
+      page,
+      limit,
+      totalPages: Math.ceil(total / limit),
+    });
+  } catch (error: any) {
+    return sendResponse(res, 500, false, error.message || "Failed to fetch friends");
+  }
+};
+
+/**
+ * GET /api/user/contacts-summary
+ * Returns counts for friends, followers, following
+ */
+export const getContactsSummary = async (req: AuthRequest, res: Response) => {
+  try {
+    const currentUserId = req.user?.id || (req.user as any)?._id;
+    const user = await resolveUser(currentUserId);
+    if (!user) {
+      return sendResponse(res, 404, false, "User not found");
+    }
+
+    const followerIds = (user.followers || []).map(String);
+    const followingSet = new Set((user.following || []).map(String));
+    const friendsCount = followerIds.filter((id) => followingSet.has(id)).length;
+
+    return sendResponse(res, 200, true, "Contacts summary fetched", {
+      friendsCount,
+      followersCount: user.followers?.length || 0,
+      followingCount: user.following?.length || 0,
+    });
+  } catch (error: any) {
+    return sendResponse(res, 500, false, error.message || "Failed to fetch contacts summary");
+  }
+};
